@@ -18,6 +18,7 @@ export function SiteFooter() {
     { href: '/faq', label: t.nav.faq },
     { href: '/kontakt', label: t.nav.contact },
     { href: '/ueber-uns', label: t.nav.about },
+    { href: '/reinigungskraft-werden', label: t.nav.jobs },
   ];
 
   const legalLinks = [

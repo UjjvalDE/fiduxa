@@ -22,6 +22,22 @@ const de = {
   booking: 'Buchung',
   hint: 'Ausgeblendete Bewertungen sind öffentlich nicht sichtbar und zählen nicht in die Durchschnittsbewertung.',
   shownOf: (shown: number, total: number) => `${shown} von ${total}`,
+  tabDisputed: 'Angefochten',
+  disputeOpenBadge: 'Anfechtung offen',
+  disputeApprovedBadge: 'Anfechtung berechtigt',
+  disputeRejectedBadge: 'Anfechtung abgelehnt',
+  disputeMessage: 'Begründung der Reinigungskraft',
+  disputeAdminNote: 'Admin-Notiz',
+  disputeOpenedAt: (date: string) => `Angefochten am ${date}`,
+  approveDispute: 'Anfechtung berechtigt – Bewertung ausblenden',
+  rejectDispute: 'Bewertung bleibt',
+  approveTitle: 'Anfechtung anerkennen?',
+  approveText:
+    'Die Bewertung wird ausgeblendet und zählt nicht mehr in die Durchschnittsbewertung. Die Provisionsstufe wird neu berechnet.',
+  rejectTitle: 'Anfechtung ablehnen?',
+  rejectText: 'Die Bewertung bleibt sichtbar und zählt weiterhin in die Durchschnittsbewertung.',
+  disputeApprovedToast: 'Anfechtung anerkannt – Bewertung ausgeblendet.',
+  disputeRejectedToast: 'Anfechtung abgelehnt – die Bewertung bleibt.',
 };
 
 export type ReviewMessages = typeof de;
@@ -47,6 +63,21 @@ const en: ReviewMessages = {
   booking: 'Booking',
   hint: 'Hidden reviews are not shown publicly and do not count towards the average rating.',
   shownOf: (shown, total) => `${shown} of ${total}`,
+  tabDisputed: 'Disputed',
+  disputeOpenBadge: 'Dispute open',
+  disputeApprovedBadge: 'Dispute upheld',
+  disputeRejectedBadge: 'Dispute rejected',
+  disputeMessage: 'Reason given by the cleaner',
+  disputeAdminNote: 'Admin note',
+  disputeOpenedAt: (date) => `Disputed on ${date}`,
+  approveDispute: 'Dispute justified – hide review',
+  rejectDispute: 'Review stays',
+  approveTitle: 'Uphold the dispute?',
+  approveText: 'The review will be hidden and no longer counts towards the average rating. The commission tier is recalculated.',
+  rejectTitle: 'Reject the dispute?',
+  rejectText: 'The review stays visible and continues to count towards the average rating.',
+  disputeApprovedToast: 'Dispute upheld – review hidden.',
+  disputeRejectedToast: 'Dispute rejected – the review stays.',
 };
 
 const pl: ReviewMessages = {
@@ -70,6 +101,21 @@ const pl: ReviewMessages = {
   booking: 'Rezerwacja',
   hint: 'Ukryte opinie nie są widoczne publicznie i nie wliczają się do średniej oceny.',
   shownOf: (shown, total) => `${shown} z ${total}`,
+  tabDisputed: 'Zakwestionowane',
+  disputeOpenBadge: 'Sprzeciw otwarty',
+  disputeApprovedBadge: 'Sprzeciw uznany',
+  disputeRejectedBadge: 'Sprzeciw odrzucony',
+  disputeMessage: 'Uzasadnienie osoby sprzątającej',
+  disputeAdminNote: 'Notatka administratora',
+  disputeOpenedAt: (date) => `Zakwestionowano ${date}`,
+  approveDispute: 'Sprzeciw zasadny – ukryj opinię',
+  rejectDispute: 'Opinia zostaje',
+  approveTitle: 'Uznać sprzeciw?',
+  approveText: 'Opinia zostanie ukryta i nie będzie się wliczać do średniej oceny. Poziom prowizji zostanie przeliczony.',
+  rejectTitle: 'Odrzucić sprzeciw?',
+  rejectText: 'Opinia pozostanie widoczna i nadal będzie się wliczać do średniej oceny.',
+  disputeApprovedToast: 'Sprzeciw uznany – opinia ukryta.',
+  disputeRejectedToast: 'Sprzeciw odrzucony – opinia zostaje.',
 };
 
 const reviewMessages = defineMessages({ de, en, pl });

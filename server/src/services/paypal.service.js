@@ -195,14 +195,86 @@ export const capturePayPalOrder = async (orderId) => {
   };
 };
 
-/** Full refund of a capture. Returns the refund id. */
-export const refundPayPalCapture = async (captureId, paymentId) => {
+/**
+ * Refund a capture – fully (no amount) or partially (`amountCents`).
+ * `requestKey` makes repeated partial refunds distinct (default: one full refund per payment).
+ * Returns the refund id.
+ */
+export const refundPayPalCapture = async (captureId, paymentId, { amountCents, requestKey } = {}) => {
   const response = await paypalRequest(
     "POST",
     `/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,
-    {},
-    `refund-${paymentId}`
+    amountCents != null ? { amount: { currency_code: "EUR", value: centsToValue(amountCents) } } : {},
+    requestKey ?? `refund-${paymentId}`
   );
   if (response.status >= 300) throw paypalError("PayPal refund failed", response);
   return response.body.id;
+};
+
+// ---------------------------------------------------------------------------
+// Payouts API (cleaner settlements). Sandbox-tested; live needs PayPal's
+// approval for Payouts on the business account.
+// ---------------------------------------------------------------------------
+
+/**
+ * Send one payout to one receiver. `senderBatchId` doubles as the idempotency
+ * key: PayPal rejects a second batch with the same sender_batch_id.
+ * Returns { batchId, status } (status e.g. PENDING).
+ */
+export const createPayPalPayout = async ({ senderBatchId, receiverEmail, amountCents, note, currency = "EUR" }) => {
+  const response = await paypalRequest("POST", "/v1/payments/payouts", {
+    sender_batch_header: {
+      sender_batch_id: senderBatchId,
+      email_subject: "Deine Fiduxa-Auszahlung",
+      email_message: "Danke für deine Arbeit bei Fiduxa!",
+    },
+    items: [
+      {
+        recipient_type: "EMAIL",
+        receiver: receiverEmail,
+        amount: { value: centsToValue(amountCents), currency },
+        note: String(note || "Fiduxa Auszahlung").slice(0, 4000),
+        sender_item_id: senderBatchId,
+      },
+    ],
+  });
+  if (response.status >= 300) throw paypalError("PayPal payout failed", response);
+  return {
+    batchId: response.body.batch_header?.payout_batch_id ?? null,
+    status: response.body.batch_header?.batch_status ?? "PENDING",
+  };
+};
+
+/**
+ * Status of a payout batch → { status: "SUCCESS"|"DENIED"|"PENDING"|"PROCESSING"...,
+ * itemId, transactionId, errorMessage }.
+ */
+export const getPayPalPayoutStatus = async (batchId) => {
+  const response = await paypalRequest("GET", `/v1/payments/payouts/${encodeURIComponent(batchId)}`);
+  if (response.status >= 300) throw paypalError("PayPal payout lookup failed", response);
+  const item = response.body.items?.[0];
+  return {
+    status: response.body.batch_header?.batch_status ?? "PENDING",
+    itemStatus: item?.transaction_status ?? null,
+    itemId: item?.payout_item_id ?? null,
+    transactionId: item?.transaction_id ?? null,
+    errorMessage: item?.errors?.message ?? "",
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Webhooks: PayPal signs every notification; we let PayPal verify the
+// transmission (headers + body) against our webhook id before trusting it.
+// ---------------------------------------------------------------------------
+export const verifyPayPalWebhookSignature = async (headers, event, webhookId) => {
+  const response = await paypalRequest("POST", "/v1/notifications/verify-webhook-signature", {
+    auth_algo: headers["paypal-auth-algo"],
+    cert_url: headers["paypal-cert-url"],
+    transmission_id: headers["paypal-transmission-id"],
+    transmission_sig: headers["paypal-transmission-sig"],
+    transmission_time: headers["paypal-transmission-time"],
+    webhook_id: webhookId,
+    webhook_event: event,
+  });
+  return response.status < 300 && response.body?.verification_status === "SUCCESS";
 };

@@ -62,6 +62,10 @@ Validation errors return `422` with `details: [{ field, message }]`.
 | GET | `/worker/earnings` | **Approved.** `{ summary, bank, jobs[{… status: pending\|due\|on_hold\|paid}], payouts[] }` |
 | GET/POST | `/worker/jobs/:id/messages` | Thread of an assigned job |
 | PUT | `/worker/bank-details` | `{ accountHolder, iban, bic? }` (encrypted) |
+| GET | `/worker/performance` | **Approved.** Commission tier, trust score 0–100, counters (jobs, verified reviews, rating, reliability), next-tier progress (`missing { jobs, reviews, rating }`), lifetime totals and the full tier table |
+| GET | `/worker/reviews` | **Approved.** Own reviews incl. hidden flag and dispute state |
+| POST | `/worker/reviews/:id/dispute` | **Approved.** `{ message }` – contest a review once; the office resolves it |
+| PUT | `/worker/payout-method` | `{ type: "bank"\|"paypal", paypalEmail? }` – how the cleaner wants to be paid (bank needs saved bank details; paypal needs the email). Shown in `/worker/me`, `/worker/earnings` and to the admin |
 | GET | `/worker/jobs/open` | Open-job board: confirmed jobs without a cleaner that fit my calendar (no customer identity) |
 | POST | `/worker/jobs/:id/accept` | First come, first served (409 if taken or overlapping) → customer email "your cleaner" |
 | POST | `/worker/jobs/:id/decline` | Hide an open job for me |
@@ -84,9 +88,15 @@ Validation errors return `422` with `details: [{ field, message }]`.
 | PATCH | `/admin/bookings/:id/notes` | `{ adminNotes }` |
 | GET/POST | `/admin/bookings/:id/messages` | Thread (office sees full names) |
 | PATCH | `/admin/bookings/:id/payout` | `{ status: on_hold\|pending }` – hold/release a cleaner payout |
-| GET | `/admin/payouts/open` | Unpaid cleaner earnings grouped by cleaner (`dueCents`, `pendingCents`, `onHoldCents`, jobs) |
-| POST | `/admin/payouts` | `{ workerId, bookingIds?, includeNotYetDue?, note? }` – record a bank transfer: marks jobs paid, emails the cleaner |
+| GET | `/admin/payouts/open` | Earnings grouped by cleaner: `dueCents` (eligible), `pendingCents`, `onHoldCents`, `processingCents`, `grossCents`, `commissionCents`; `worker.payout { type, target }` = preferred route (paypal target masked); jobs incl. `grossCents`/`commissionCents` |
+| POST | `/admin/payouts` | `{ workerId, bookingIds?, includeNotYetDue?, note?, method?: "bank"\|"paypal" }` – settle eligible earnings. Omitted method = cleaner preference. `bank` = admin transferred manually → payout `paid` at once. `paypal` = payout via the PayPal **Payouts API** (sandbox/live): jobs are claimed atomically (pending → processing) under a per-worker lock, then the provider is called; `SUCCESS` → `paid` (+ `providerBatchId`, `providerItemId`), refusal → **502**, payout `failed` + `failureReason`, earnings released for a retry. Slow provider → payout and jobs stay `processing` (duplicate settlement impossible). Negative/zero amounts and cleaners without a PayPal address → 409 (settle as `bank`) |
+| POST | `/admin/payouts/:id/refresh` | `{ forceFail? }` – re-check a processing payout against PayPal and finalise it (paid/failed). `forceFail: true` marks a stuck payout failed and releases its earnings |
 | GET | `/admin/payouts?worker=` | Payout history |
+| GET | `/admin/commission` | Rating-based commission overview: every approved cleaner with tier, effective %, counters, trust score, lifetime gross/earnings/Fiduxa commission; filters `tier, minRating, search, sort` |
+| GET | `/admin/commission/workers/:id` | One cleaner in detail incl. the immutable per-booking commission records |
+| GET | `/admin/commission/report?from=&to=&format=csv` | Commission totals per cleaner (JSON or CSV export) |
+| PATCH | `/admin/workers/:id/commission-override` | `{ commissionPct \| null, reason }` – manual commission override (audited, future bookings only; `null` removes it) |
+| PATCH | `/admin/reviews/:id/dispute` | `{ resolution: "approved"\|"rejected", note? }` – resolve a cleaner's review dispute; approved hides the review and recalculates rating + tier |
 | GET | `/admin/reviews?worker=` · PATCH `/admin/reviews/:id` | `{ hidden }` – hide abusive reviews |
 | PATCH | `/admin/workers/:id/pay-rate` | `{ payRateCents \| null }` (null = default `WORKER_HOURLY_RATE_CENTS`) |
 | GET | `/admin/slots?from=&to=` | Published time slots incl. bookings per slot |
@@ -170,8 +180,11 @@ Customer picks `cash` → booking confirmed. The cleaner sees `job.cash { amount
 
 Reliability = completed ÷ (completed + handed back). Punctuality = started ≤ 15 min after slot start.
 
-## Cleaner pay
-On completion each job gets `workerPayout { amountCents = hours × rate, dueAt = completedAt + WORKER_PAYOUT_DELAY_DAYS (30) }`. Status for the cleaner: `pending` (waiting period) → `due` (ready to transfer) → `paid` (office recorded the transfer; payout reference `AUS-YYYYMM-0001`). Office can put single jobs `on_hold`.
+## Cleaner pay & settlements
+**Rating-based commission (default pay model).** Each cleaner has a tier – New 25 % → Bronze 22 % → Silver 19 % → Gold 16 % → Platinum 13 % → Diamond 10 % (3-point steps; every rate, incl. manual overrides, is limited to 10–25 % and each higher tier must be cheaper) – that requires completed cleanings AND verified reviews AND a minimum average rating (all thresholds and percentages configurable in Einstellungen → `workerPay.commissionTiers`; `workerPay.payModel: "hourly"` switches back to the legacy hours × rate model). On completion each job gets `workerPayout { amountCents = gross × (100 − commissionPct) / 100, grossCents = customer price (after discounts, incl. VAT, before gift cards), commissionCents = gross − pay, commissionPct, tierKey, basis, dueAt = completedAt + WORKER_PAYOUT_DELAY_DAYS (30, configurable) }` – this record is **immutable**: later tier changes, config changes and overrides only affect future completions. Tier recalculation runs on completion, on every review change (created / hidden / dispute resolved), on override changes and daily as a safety net; tier changes are written to the audit log. The internal **trust score 0–100** (rating 40 · review volume 25 · job volume 20 · reliability 15, log-scaled so a few 5★ reviews cannot max it) ranks cleaners for the admin and never sets the commission. Cancelled bookings never count; refunded completed bookings leave the completed count and their unpaid earnings go on hold.
+Job status: `pending` (waiting) → `due` (eligible) → `processing` (payout under way) → `paid`; `on_hold` by the office. **A refund of a completed job's payment automatically puts its unpaid earnings `on_hold`** until the office releases them (`PATCH /admin/bookings/:id/payout`).
+Payout records (`AUS-YYYYMM-0001`): `status processing|paid|failed`, `provider bank|paypal`, provider references for reconciliation; a `failed` payout has released its earnings and is safe to retry. Earnings summary for cleaners includes `processingCents`; amounts are net of cash kept (`cashHeldCents`).
+**No real money in development:** PayPal payouts run against the sandbox (or the test mock); `PAYPAL_MODE=live` is required for real transfers, and live Payouts additionally need PayPal's approval on the business account.
 
 ## Matching rules (open jobs, emails, accept)
 A cleaner only sees/gets a job if: no overlapping job (+30 min travel), not on holiday, `petsOk` when the booking has `pets`, and the job lies within their weekly hours (if set). Admin assignment checks holiday and pets only.

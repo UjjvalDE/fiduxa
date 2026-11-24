@@ -10,6 +10,7 @@ import { WORKER_LANGUAGES, WORKER_PAY, WORKER_SPECIALTIES } from "../config/pric
 import { DAY_MS, parseCalendarDate, todayInBerlin } from "../utils/helpers.js";
 import { avatarUrl, getWorkerStats } from "../services/worker-profile.service.js";
 import { displayPayoutStatus, earningsSummary, workerRateCents } from "../services/payout.service.js";
+import { requiredDocumentsVerified } from "./worker-document.controller.js"; // [E]
 
 const LOCKED_STATUSES = ["invited", "rejected", "suspended"];
 
@@ -45,6 +46,7 @@ export const getWorkerOverview = async (req, res, next) => {
       emailVerified: Boolean(worker.emailVerified),
       profileComplete: profileComplete(worker),
       bankDetailsComplete: Boolean(worker.bankAccountLast4 && worker.bankAccountHolder),
+      documentsVerified: requiredDocumentsVerified(worker), // package E
     };
 
     const today = todayInBerlin();
@@ -77,11 +79,16 @@ export const getWorkerOverview = async (req, res, next) => {
           accountHolder: worker.bankAccountHolder || "",
           iban: worker.bankAccountLast4 ? `•••• •••• •••• ${worker.bankAccountLast4}` : "Not provided",
         },
+        payoutMethod: {
+          type: worker.payoutMethod?.type ?? "bank",
+          paypalEmail: worker.payoutMethod?.paypalEmail ?? "",
+        },
         reviewNote: worker.workerStatus === "rejected" ? worker.workerReview?.note : "",
         memberSince: worker.createdAt,
       },
       checklist,
       canAccessJobs: approved,
+      paused: Boolean(worker.reliability?.pausedAt), // reliability pause (package E)
       stats,
       earnings,
       upcomingCount,
@@ -336,7 +343,7 @@ export const getEarnings = async (req, res, next) => {
         .limit(200)
         .lean(),
       Payout.find({ worker: req.user._id })
-        .select("reference amountCents bookings paidAt bankAccountLast4 note")
+        .select("reference amountCents bookings paidAt bankAccountLast4 note status provider failureReason")
         .sort({ paidAt: -1 })
         .limit(50)
         .lean(),
@@ -348,6 +355,10 @@ export const getEarnings = async (req, res, next) => {
       bank: {
         accountHolder: req.user.bankAccountHolder || "",
         iban: req.user.bankAccountLast4 ? `•••• •••• •••• ${req.user.bankAccountLast4}` : null,
+      },
+      payoutMethod: {
+        type: req.user.payoutMethod?.type ?? "bank",
+        paypalEmail: req.user.payoutMethod?.paypalEmail ?? "",
       },
       jobs: jobs.map((j) => ({
         _id: j._id,
@@ -366,7 +377,12 @@ export const getEarnings = async (req, res, next) => {
         paidAt: j.workerPayout.paidAt ?? null,
         status: displayPayoutStatus(j.workerPayout), // pending | due | on_hold | paid
       })),
-      payouts: payouts.map((p) => ({ ...p, jobCount: p.bookings.length, bookings: undefined })),
+      payouts: payouts.map((p) => ({
+        ...p,
+        status: p.status ?? "paid", // records from before the status field
+        jobCount: p.bookings.length,
+        bookings: undefined,
+      })),
     });
   } catch (error) {
     next(error);

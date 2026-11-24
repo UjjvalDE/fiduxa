@@ -1,17 +1,18 @@
 import "dotenv/config";
 import connectDB from "./src/config/db.js";
 import app from "./src/app.js";
-import { expireStaleHolds } from "./src/services/availability.service.js";
-import { alertUnassignedJobs } from "./src/services/job-dispatch.service.js";
 import { loadSettings } from "./src/services/settings.service.js";
 import { ensureDefaultPromotions } from "./src/services/promotion.service.js";
-import { expireGiftCards } from "./src/services/gift-card.service.js";
-import { deliverDueGiftCards } from "./src/services/gift-card-purchase.service.js";
+import { JOBS } from "./src/jobs/index.js";
+import { startScheduler } from "./src/jobs/scheduler.js";
+import { captureError, initErrorTracking, logger } from "./src/utils/logger.js";
 
 const PORT = process.env.PORT || 3100;
 
 const startServer = async () => {
   try {
+    await initErrorTracking();
+
     // Connect to MongoDB first
     await connectDB();
 
@@ -30,24 +31,17 @@ const startServer = async () => {
       console.log("-----------------------------------");
     });
 
-    // Release slots whose payment was not completed in time (every minute)
-    const holdTimer = setInterval(() => {
-      expireStaleHolds()
-        .then((count) => count && console.log(`Expired ${count} unpaid reservation(s).`))
-        .catch((error) => console.error("Hold expiry failed:", error.message));
-      // Gift cards: scheduled delivery, unpaid purchases, expiry
-      deliverDueGiftCards().catch((error) => console.error("Gift card delivery failed:", error.message));
-      expireGiftCards().catch((error) => console.error("Gift card expiry failed:", error.message));
-      // Pick up settings changed by another server instance
-      loadSettings().catch((error) => console.error("Settings reload failed:", error.message));
-      alertUnassignedJobs().catch((error) =>
-        console.error("Unassigned job alert failed:", error.message)
-      );
-    }, 60 * 1000);
+    // Background jobs (holds, gift cards, e-mail outbox, no-show watch, …).
+    // Single-instance deployments run them inside the API; with a dedicated
+    // worker (npm run worker) set RUN_JOBS_IN_API=false here. Either way each
+    // job is guarded by a DB lock, so running both is safe.
+    const stopScheduler =
+      process.env.RUN_JOBS_IN_API !== "false" ? startScheduler(JOBS, { label: "api" }) : () => {};
+    if (process.env.RUN_JOBS_IN_API === "false") logger.info("Background jobs disabled in API (RUN_JOBS_IN_API=false)");
 
     const shutdown = (signal) => {
       console.log(`${signal} received. Closing server...`);
-      clearInterval(holdTimer);
+      stopScheduler();
 
       server.close(() => {
         console.log("Server closed successfully.");
@@ -57,6 +51,7 @@ const startServer = async () => {
 
     process.on("SIGTERM", () => shutdown("SIGTERM"));
     process.on("SIGINT", () => shutdown("SIGINT"));
+    process.on("unhandledRejection", (reason) => captureError(reason, { source: "unhandledRejection" }));
   } catch (error) {
     console.error("Failed to start Fiduxa server:", error);
     process.exit(1);

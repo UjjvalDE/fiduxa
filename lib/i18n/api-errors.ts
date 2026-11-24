@@ -163,6 +163,77 @@ const DE: Dict = {
   'Use a path on this site, e.g. /buchung': 'Verwende einen Pfad dieser Website, z. B. /buchung',
   'Use an https image URL.': 'Verwende eine https-Bild-URL.',
   'Enter an amount.': 'Bitte gib einen Betrag ein.',
+  // cleaner settlements / payout methods
+  'This cleaner has not set a PayPal address for payouts.': 'Diese Reinigungskraft hat keine PayPal-Adresse für Auszahlungen hinterlegt.',
+  'A zero or negative amount cannot be sent via PayPal. Settle it as a bank entry.': 'Ein Betrag von null oder weniger kann nicht per PayPal gesendet werden. Bitte als Banküberweisung verrechnen.',
+  'The earnings changed while settling. Please try again.': 'Die Vergütungen haben sich während der Auszahlung geändert. Bitte versuche es erneut.',
+  'The payout was refused by the provider. The earnings are released for a retry.': 'Der Zahlungsanbieter hat die Auszahlung abgelehnt. Die Beträge sind wieder offen und können erneut ausgezahlt werden.',
+  'Payout initiated. Refresh to confirm the provider result.': 'Auszahlung gestartet. Bitte den Status aktualisieren, um das Ergebnis zu bestätigen.',
+  'Payout recorded.': 'Auszahlung erfasst.',
+  'Payout not found.': 'Auszahlung nicht gefunden.',
+  'Please enter your PayPal email address.': 'Bitte gib deine PayPal-E-Mail-Adresse ein.',
+  'Please save your bank details first.': 'Bitte speichere zuerst deine Bankverbindung.',
+  'Payout method saved.': 'Auszahlungsart gespeichert.',
+  // rating-based commission
+  'The review has been sent to the office for checking.': 'Die Bewertung wurde zur Prüfung an das Büro gesendet.',
+  'This review has already been disputed.': 'Diese Bewertung wurde bereits angefochten.',
+  'There is no open dispute for this review.': 'Für diese Bewertung liegt keine offene Anfechtung vor.',
+  'The commission override has been saved.': 'Die manuelle Provision wurde gespeichert.',
+  'The override has been removed.': 'Die manuelle Provision wurde entfernt.',
+  'Higher levels must have equal or stricter requirements.': 'Höhere Stufen müssen gleiche oder strengere Anforderungen haben.',
+  'Every higher level must have a lower commission.': 'Jede höhere Stufe braucht eine niedrigere Provision.',
+  // cleaner applications
+  'We already have your application and will get back to you soon.': 'Wir haben deine Bewerbung bereits erhalten und melden uns bald bei dir.',
+  'Please upload your CV as PDF, Word, JPG or PNG.': 'Bitte lade deinen Lebenslauf als PDF, Word, JPG oder PNG hoch.',
+  'The CV file may be at most 5 MB.': 'Der Lebenslauf darf höchstens 5 MB groß sein.',
+  'Thank you! We have received your application.': 'Danke! Wir haben deine Bewerbung erhalten.',
+  'This applicant has already been invited.': 'Diese Person wurde bereits eingeladen.',
+  'Application not found.': 'Bewerbung nicht gefunden.',
+  'No CV uploaded.': 'Kein Lebenslauf hochgeladen.',
+  // booking editing & feedback
+  'This booking can no longer be changed online.': 'Diese Buchung kann online nicht mehr geändert werden.',
+  'A reschedule needs preferredDate, slotId and startTime together.': 'Für eine Terminänderung werden Datum, Zeitfenster und Startzeit zusammen benötigt.',
+  'This service is not available for your booking frequency.': 'Diese Leistung ist für deine Buchungsfrequenz nicht verfügbar.',
+  'This booking is already paid. For changes to duration or extras please contact us.': 'Diese Buchung ist bereits bezahlt. Für Änderungen an Dauer oder Zusatzleistungen kontaktiere uns bitte.',
+  'Your cleaner is not available at the new time. Please pick another time or contact us.': 'Deine Reinigungskraft ist zum neuen Termin nicht verfügbar. Bitte wähle eine andere Zeit oder kontaktiere uns.',
+  'This time is no longer available. Please choose another slot.': 'Diese Zeit ist leider nicht mehr frei. Bitte wähle ein anderes Zeitfenster.',
+  'The new duration does not fit the booked time window. Please pick a new time.': 'Die neue Dauer passt nicht mehr in das gebuchte Zeitfenster. Bitte wähle einen neuen Termin.',
+  'The new duration does not fit the booked time window. Reschedule the booking instead.': 'Die neue Dauer passt nicht in das Zeitfenster. Bitte die Buchung stattdessen umplanen.',
+  'Bookings paid with a gift card cannot be resized online. Please contact us.': 'Mit Gutschein bezahlte Buchungen können online nicht angepasst werden. Bitte kontaktiere uns.',
+  'Your booking has been updated.': 'Deine Buchung wurde aktualisiert.',
+  'Booking updated.': 'Buchung aktualisiert.',
+  'Nothing changed.': 'Es wurde nichts geändert.',
+  'Only open bookings (payment pending / confirmed) can be edited. Use the status actions instead.': 'Nur offene Buchungen (Zahlung ausstehend / bestätigt) können bearbeitet werden. Nutze sonst die Status-Aktionen.',
+  'Email not found.': 'Diese E-Mail wurde nicht gefunden.',
+  'Email sent.': 'E-Mail wurde gesendet.',
+  'Email queued for retry.': 'E-Mail wurde erneut in die Warteschlange gestellt.',
+  'Email could not be sent.': 'Die E-Mail konnte nicht gesendet werden.',
+  'Webhook not configured.': 'Der Webhook ist nicht konfiguriert.',
+  'Invalid webhook payload.': 'Ungültige Webhook-Daten.',
+  // [slot-A-de]
+  // recurring plans (Putzplan)
+  'Invalid cleaning plan ID.': 'Ungültige Putzplan-ID.',
+  'Cleaning plan not found.': 'Putzplan nicht gefunden.',
+  'This cleaning plan has already ended.': 'Dieser Putzplan ist bereits beendet.',
+  'The pause must end on a future day.': 'Die Pause muss an einem zukünftigen Tag enden.',
+  'This date is not an upcoming cleaning of your plan.': 'Dieses Datum ist kein anstehender Termin deines Putzplans.',
+  'Your cleaning plan is paused.': 'Dein Putzplan ist pausiert.',
+  'Your cleaning plan continues.': 'Dein Putzplan läuft weiter.',
+  'Your cleaning plan has ended.': 'Dein Putzplan wurde beendet.',
+  'This cleaning is skipped.': 'Dieser Termin wird übersprungen.',
+  'Preferred cleaner updated.': 'Wunsch-Reinigungskraft aktualisiert.',
+  'Cleaning plan paused.': 'Putzplan pausiert.',
+  'Cleaning plan resumed.': 'Putzplan fortgesetzt.',
+  'Cleaning plan ended.': 'Putzplan beendet.',
+  "This job is reserved for the customer's preferred cleaner for now.": 'Dieser Auftrag ist derzeit für die Wunsch-Reinigungskraft des Kunden reserviert.',
+  'Worker not found.': 'Reinigungskraft nicht gefunden.',
+  'Invalid worker ID.': 'Ungültige ID der Reinigungskraft.',
+  'Nothing to change.': 'Es gibt nichts zu ändern.',
+  // [slot-B-de]
+  // [slot-C-de]
+  // [slot-D-de]
+  // [slot-E-de]
+  // [slot-F-de]
 };
 
 const PL: Dict = {
@@ -313,11 +384,88 @@ const PL: Dict = {
   'Use a path on this site, e.g. /buchung': 'Użyj ścieżki tej strony, np. /buchung',
   'Use an https image URL.': 'Użyj adresu obrazu https.',
   'Enter an amount.': 'Wpisz kwotę.',
+  // cleaner settlements / payout methods
+  'This cleaner has not set a PayPal address for payouts.': 'Ta osoba nie podała adresu PayPal do wypłat.',
+  'A zero or negative amount cannot be sent via PayPal. Settle it as a bank entry.': 'Kwoty zerowej lub ujemnej nie można wysłać przez PayPal. Rozlicz jako przelew bankowy.',
+  'The earnings changed while settling. Please try again.': 'Zarobki zmieniły się podczas rozliczania. Spróbuj ponownie.',
+  'The payout was refused by the provider. The earnings are released for a retry.': 'Dostawca płatności odrzucił wypłatę. Kwoty są ponownie dostępne do wypłaty.',
+  'Payout initiated. Refresh to confirm the provider result.': 'Wypłata rozpoczęta. Odśwież status, aby potwierdzić wynik.',
+  'Payout recorded.': 'Wypłata zapisana.',
+  'Payout not found.': 'Nie znaleziono wypłaty.',
+  'Please enter your PayPal email address.': 'Podaj swój adres e-mail PayPal.',
+  'Please save your bank details first.': 'Najpierw zapisz dane bankowe.',
+  'Payout method saved.': 'Metoda wypłaty zapisana.',  // rating-based commission
+  'The review has been sent to the office for checking.': 'Opinia została wysłana do biura w celu sprawdzenia.',
+  'This review has already been disputed.': 'Ta opinia została już zakwestionowana.',
+  'There is no open dispute for this review.': 'Dla tej opinii nie ma otwartego sporu.',
+  'The commission override has been saved.': 'Ręczna prowizja została zapisana.',
+  'The override has been removed.': 'Ręczna prowizja została usunięta.',
+  'Higher levels must have equal or stricter requirements.': 'Wyższe poziomy muszą mieć takie same lub surowsze wymagania.',
+  'Every higher level must have a lower commission.': 'Każdy wyższy poziom musi mieć niższą prowizję.',
+  // cleaner applications
+  'We already have your application and will get back to you soon.': 'Mamy już Twoją aplikację i wkrótce się odezwiemy.',
+  'Please upload your CV as PDF, Word, JPG or PNG.': 'Prześlij CV jako PDF, Word, JPG lub PNG.',
+  'The CV file may be at most 5 MB.': 'Plik CV może mieć maksymalnie 5 MB.',
+  'Thank you! We have received your application.': 'Dziękujemy! Otrzymaliśmy Twoją aplikację.',
+  'This applicant has already been invited.': 'Ta osoba została już zaproszona.',
+  'Application not found.': 'Nie znaleziono aplikacji.',
+  'No CV uploaded.': 'Nie przesłano CV.',
+  // booking editing & feedback
+  'This booking can no longer be changed online.': 'Tej rezerwacji nie można już zmienić online.',
+  'A reschedule needs preferredDate, slotId and startTime together.': 'Zmiana terminu wymaga podania razem daty, okna czasowego i godziny rozpoczęcia.',
+  'This service is not available for your booking frequency.': 'Ta usługa nie jest dostępna dla Twojej częstotliwości rezerwacji.',
+  'This booking is already paid. For changes to duration or extras please contact us.': 'Ta rezerwacja jest już opłacona. W sprawie zmian czasu lub usług dodatkowych skontaktuj się z nami.',
+  'Your cleaner is not available at the new time. Please pick another time or contact us.': 'Twoja osoba sprzątająca nie jest dostępna w nowym terminie. Wybierz inną godzinę lub skontaktuj się z nami.',
+  'This time is no longer available. Please choose another slot.': 'Ten termin nie jest już dostępny. Wybierz inne okno czasowe.',
+  'The new duration does not fit the booked time window. Please pick a new time.': 'Nowy czas trwania nie mieści się w zarezerwowanym oknie. Wybierz nowy termin.',
+  'The new duration does not fit the booked time window. Reschedule the booking instead.': 'Nowy czas trwania nie mieści się w oknie. Zmień termin rezerwacji.',
+  'Bookings paid with a gift card cannot be resized online. Please contact us.': 'Rezerwacji opłaconych kartą podarunkową nie można zmienić online. Skontaktuj się z nami.',
+  'Your booking has been updated.': 'Twoja rezerwacja została zaktualizowana.',
+  'Booking updated.': 'Rezerwacja zaktualizowana.',
+  'Nothing changed.': 'Nic nie zostało zmienione.',
+  'Only open bookings (payment pending / confirmed) can be edited. Use the status actions instead.': 'Można edytować tylko otwarte rezerwacje (oczekująca płatność / potwierdzone). W innym razie użyj akcji statusu.',
+  'Email not found.': 'Nie znaleziono tej wiadomości e-mail.',
+  'Email sent.': 'E-mail został wysłany.',
+  'Email queued for retry.': 'E-mail został ponownie dodany do kolejki.',
+  'Email could not be sent.': 'Nie udało się wysłać wiadomości e-mail.',
+  'Webhook not configured.': 'Webhook nie jest skonfigurowany.',
+  'Invalid webhook payload.': 'Nieprawidłowe dane webhooka.',
+  // [slot-A-pl]
+  'Invalid cleaning plan ID.': 'Nieprawidłowy identyfikator planu sprzątania.',
+  'Cleaning plan not found.': 'Nie znaleziono planu sprzątania.',
+  'This cleaning plan has already ended.': 'Ten plan sprzątania został już zakończony.',
+  'The pause must end on a future day.': 'Przerwa musi kończyć się w przyszłym dniu.',
+  'This date is not an upcoming cleaning of your plan.': 'Ta data nie jest nadchodzącym terminem Twojego planu.',
+  'Your cleaning plan is paused.': 'Twój plan sprzątania jest wstrzymany.',
+  'Your cleaning plan continues.': 'Twój plan sprzątania jest kontynuowany.',
+  'Your cleaning plan has ended.': 'Twój plan sprzątania został zakończony.',
+  'This cleaning is skipped.': 'Ten termin zostanie pominięty.',
+  'Preferred cleaner updated.': 'Preferowana osoba sprzątająca zaktualizowana.',
+  'Cleaning plan paused.': 'Plan sprzątania wstrzymany.',
+  'Cleaning plan resumed.': 'Plan sprzątania wznowiony.',
+  'Cleaning plan ended.': 'Plan sprzątania zakończony.',
+  "This job is reserved for the customer's preferred cleaner for now.": 'To zlecenie jest obecnie zarezerwowane dla preferowanej osoby sprzątającej klienta.',
+  'Worker not found.': 'Nie znaleziono osoby sprzątającej.',
+  'Invalid worker ID.': 'Nieprawidłowy identyfikator osoby sprzątającej.',
+  'Nothing to change.': 'Nie ma nic do zmiany.',
+  // [slot-B-pl]
+  // [slot-C-pl]
+  // [slot-D-pl]
+  // [slot-E-pl]
+  // [slot-F-pl]
 };
 
 type PatternRule = [RegExp, Record<Locale, (m: RegExpMatchArray) => string>];
 
 const PATTERNS: PatternRule[] = [
+  [
+    /^Bookings can be changed online up to (\d+) hours before the appointment\. Please contact us\.$/,
+    {
+      de: (m) => `Buchungen können online bis ${m[1]} Stunden vor dem Termin geändert werden. Bitte kontaktiere uns.`,
+      en: (m) => `Bookings can be changed online up to ${m[1]} hours before the appointment. Please contact us.`,
+      pl: (m) => `Rezerwacje można zmieniać online do ${m[1]} godzin przed terminem. Skontaktuj się z nami.`,
+    },
+  ],
   [
     /^Duration must be between (\d+) and (\d+) minutes\./,
     {

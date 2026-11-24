@@ -50,9 +50,12 @@ const { default: Payment } = await import(ROOT + "/src/models/payment.model.js")
 const { default: AvailabilitySlot } = await import(ROOT + "/src/models/availability-slot.model.js");
 const { todayInBerlin, DAY_MS } = await import(ROOT + "/src/utils/helpers.js");
 const { expireStaleHolds } = await import(ROOT + "/src/services/availability.service.js");
+const { OPERATIONS } = await import(ROOT + "/src/config/pricing.js");
 
 await connectDB();
 await User.db.dropDatabase();
+// Rebuild every index before testing (unique indexes back business rules)
+for (const M of Object.values(User.db.models)) await M.syncIndexes(); // syncAllIndexes
 await AvailabilitySlot.syncIndexes();
 await (await import(ROOT + "/src/models/reservation-lock.model.js")).default.syncIndexes();
 
@@ -139,8 +142,13 @@ check("capacity below booked → 409", r.status === 409, r.body);
 r = await call("DELETE", `/admin/slots/${slotsDay1[0].id}`, null, adminToken);
 check("delete slot with booking → 409", r.status === 409, r.body);
 
+// The booking is tomorrow 08:00 – between 8 and 32 hours away depending on the
+// hour this suite runs at. Widen the cutoff so it is always "too late" here.
+const savedCancelCutoff = OPERATIONS.cancellationCutoffHours;
+OPERATIONS.cancellationCutoffHours = 48;
 r = await call("POST", `/customer/bookings/${invoiceBooking}/cancel`, { reason: "test" }, customerToken);
 check("customer cannot cancel < 24 h before → 409", r.status === 409, r.body);
+OPERATIONS.cancellationCutoffHours = savedCancelCutoff;
 r = await call("PATCH", `/admin/bookings/${invoiceBooking}/status`, { status: "cancelled", note: "Kunde angerufen" }, adminToken);
 check("admin cancels confirmed booking", r.body.booking?.status === "cancelled", r.body);
 r = await call("GET", `/bookings/availability?date=${day(1)}`);

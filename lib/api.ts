@@ -42,23 +42,29 @@ export class ApiError extends Error {
   }
 }
 
+// The session now lives in an HttpOnly cookie set by the API (24 h max).
+// The token below is kept ONLY in memory for the current tab: it is never
+// written to localStorage (XSS cannot read HttpOnly cookies or steal a
+// persisted token). After a reload the cookie alone authenticates requests.
+let memoryToken: string | null = null;
+let legacyCleaned = false;
+
 export const getStoredToken = (): string | null => {
   if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem(TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
+  if (!legacyCleaned) {
+    legacyCleaned = true;
+    try {
+      // One-time migration: drop tokens persisted by earlier versions
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    } catch {
+      /* storage unavailable – ignore */
+    }
   }
+  return memoryToken;
 };
 
 export const setStoredToken = (token: string | null) => {
-  if (typeof window === 'undefined') return;
-  try {
-    if (token) window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    else window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-  } catch {
-    /* storage unavailable (private mode) – ignore */
-  }
+  memoryToken = token;
 };
 
 // Listeners notified when the API reports an expired/invalid session (401)

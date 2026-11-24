@@ -18,6 +18,8 @@ const { todayInBerlin, DAY_MS } = await import(ROOT + "/src/utils/helpers.js");
 
 await connectDB();
 await User.db.dropDatabase();
+// Rebuild every index before testing (unique indexes back business rules)
+for (const M of Object.values(User.db.models)) await M.syncIndexes(); // syncAllIndexes
 await AvailabilitySlot.syncIndexes();
 await ReservationLock.syncIndexes();
 await loadSettings();
@@ -138,14 +140,14 @@ r = await call("POST", `/worker/jobs/${cashId}/complete`, { note: "ok" }, annaT)
 check("complete without cash amount → 422", r.status === 422, r.body);
 r = await call("POST", `/worker/jobs/${cashId}/complete`, { note: "ok", cashCollectedCents: 7500 }, annaT);
 let b = await Booking.findById(cashId);
-check("cash recorded, booking paid, cash held deducted", r.status === 200 && b.payment.status === "paid" && b.payment.cashCollectedCents === 7500 && b.workerPayout.amountCents === 5400 && b.workerPayout.cashHeldCents === 7500, { p: b.payment, w: b.workerPayout });
+check("cash recorded, booking paid, cash held deducted", r.status === 200 && b.payment.status === "paid" && b.payment.cashCollectedCents === 7500 && b.workerPayout.amountCents === 5625 && b.workerPayout.cashHeldCents === 7500, { p: b.payment, w: b.workerPayout });
 r = await call("GET", "/worker/earnings", null, annaT);
-check("earnings net = 54 − 75 = −21 €", r.body.summary?.pendingCents === -2100 && r.body.summary.cashHeldCents === 7500 && r.body.jobs[0].netCents === -2100, r.body.summary);
+check("earnings net = 56.25 − 75 = −18.75 €", r.body.summary?.pendingCents === -1875 && r.body.summary.cashHeldCents === 7500 && r.body.jobs[0].netCents === -1875, r.body.summary);
 r = await call("GET", "/admin/payments", null, adminT);
 check("cash payment listed for admin", r.body.payments?.some((p) => p.provider === "cash" && p.amountCents === 7500), r.body.payments?.map((p) => p.provider));
 await Booking.updateOne({ _id: cashId }, { "workerPayout.dueAt": new Date(Date.now() - 1000) });
 r = await call("POST", "/admin/payouts", { workerId: String(anna._id), note: "Verrechnung" }, adminT);
-check("settlement payout with negative amount (cleaner owes)", r.status === 201 && r.body.payout.amountCents === -2100, r.body);
+check("settlement payout with negative amount (cleaner owes)", r.status === 201 && r.body.payout.amountCents === -1875, r.body);
 
 // ---------- Forgot password (customer + cleaner) ----------
 for (const [label, email] of [["customer", "klara@t.local"], ["cleaner", "anna@t.local"]]) {

@@ -236,6 +236,40 @@ export const reserveAndCreate = async ({ slotId, date, startTime, durationMinute
   });
 };
 
+/**
+ * Move an existing booking to a new window/start time (same or another day).
+ * Validates capacity excluding the booking itself, updates both windows'
+ * counters and sets the new time fields on the booking. Does NOT save.
+ * Returns true on success, false when the new time is not free.
+ */
+export const moveBooking = async (booking, { slotId, date, startTime, durationMinutes }) => {
+  if (!mongoose.isValidObjectId(slotId)) return false;
+  const window = await AvailabilitySlot.findById(slotId).lean();
+  if (!window || (date && window.date.getTime() !== date.getTime())) return false;
+  return withDayLock(window.date, async () => {
+    const slot = await AvailabilitySlot.findById(slotId).lean();
+    if (!slot) return false;
+    const start = toMinutes(startTime || slot.startTime);
+    const intervals = await activeBookingsOn([slot.date], booking._id);
+    if (!fitsWindow(slot, start, durationMinutes, intervals)) return false;
+    const previousSlot = booking.availabilitySlot;
+    const hadPlace = previousSlot && !booking.slotReleased;
+    if (hadPlace && String(previousSlot) !== String(slot._id)) {
+      await AvailabilitySlot.updateOne({ _id: previousSlot, booked: { $gt: 0 } }, { $inc: { booked: -1 } });
+    }
+    if (!hadPlace || String(previousSlot) !== String(slot._id)) {
+      await AvailabilitySlot.updateOne({ _id: slot._id }, { $inc: { booked: 1 } });
+    }
+    booking.availabilitySlot = slot._id;
+    booking.preferredDate = slot.date;
+    booking.slot = toHHMM(start);
+    booking.slotEnd = toHHMM(start + durationMinutes);
+    booking.slotReleased = false;
+    bumpAvailability();
+    return true;
+  });
+};
+
 // Give a booking's place back (idempotent). Does NOT save the booking.
 export const releaseSlot = async (booking) => {
   if (!booking.availabilitySlot || booking.slotReleased) return;

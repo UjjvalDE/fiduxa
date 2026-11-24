@@ -15,6 +15,10 @@ import {
   offerJob,
 } from "../services/job-dispatch.service.js";
 import { recordAudit } from "../services/audit.service.js";
+import { EDITABLE_STATUSES, logBookingChange, repriceBooking, rescheduleBooking } from "../services/booking-edit.service.js";
+import { assertBookableDate, moveBooking } from "../services/availability.service.js";
+import { findService } from "../data/catalogue.js";
+import { sendBookingUpdatedEmail, sendWorkerScheduleChangedEmail } from "../services/email.service.js";
 import {
   escapeRegex,
   getPagination,
@@ -73,7 +77,7 @@ export const getAllBookings = async (req, res, next) => {
           message: "Invalid booking status.",
         });
       }
-      filter.status = req.query.status;
+      filter.status = String(req.query.status);
     }
 
     if (req.query.search) {
@@ -515,6 +519,161 @@ export const getAuditLogs = async (req, res, next) => {
       success: true,
       pagination: paginationMeta(pagination, total),
       logs,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// PATCH /api/v1/admin/bookings/:id/details – admin booking edit.
+// Reschedule, resize (duration/extras/service/area/condition), customer
+// contact data and notes. Price changes on paid bookings never rewrite the
+// payment record: the response reports the delta and the admin settles it
+// via the existing refund tools, cash or invoice. All edits land in the
+// booking's change log and the audit log; customer and cleaner are notified.
+// ---------------------------------------------------------------------------
+export const editBookingDetails = async (req, res, next) => {
+  try {
+    const data = z
+      .object({
+        preferredDate: z.string().trim().optional(),
+        slotId: z.string().trim().optional(),
+        startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+        durationMinutes: z.number().int().min(30).max(720).optional(),
+        extras: z.array(z.string()).max(20).optional(),
+        serviceId: z.string().trim().optional(),
+        areaM2: z.number().min(15).max(1000).optional(),
+        condition: z.enum(["basic", "normal", "moderate", "heavy"]).optional(),
+        notes: z.string().trim().max(1000).optional(),
+        customerDetails: z
+          .object({
+            name: z.string().trim().min(2).max(100).optional(),
+            phone: z.string().trim().max(30).optional(),
+            address: z.string().trim().min(5).max(200).optional(),
+            postcode: z.string().trim().max(10).optional(),
+            accessNotes: z.string().trim().max(500).optional(),
+          })
+          .optional(),
+        /** Unassign the cleaner when the new time conflicts (default: 409) */
+        forceUnassign: z.boolean().optional().default(false),
+        /** Skip customer/cleaner notification emails (default: notify) */
+        notify: z.boolean().optional().default(true),
+      })
+      .refine(
+        (d) => {
+          const parts = [d.preferredDate, d.slotId, d.startTime].filter((x) => x !== undefined);
+          return parts.length === 0 || parts.length === 3;
+        },
+        { message: "A reschedule needs preferredDate, slotId and startTime together.", path: ["preferredDate"] }
+      )
+      .parse(req.body);
+
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: "Invalid booking ID." });
+    }
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ success: false, message: "Booking not found." });
+    if (!EDITABLE_STATUSES.includes(booking.status)) {
+      return res.status(409).json({
+        success: false,
+        message: "Only open bookings (payment pending / confirmed) can be edited. Use the status actions instead.",
+      });
+    }
+    if (data.serviceId && !findService(data.serviceId)) {
+      return res.status(422).json({ success: false, message: "Unknown service." });
+    }
+
+    const before = {
+      preferredDate: booking.preferredDate,
+      slot: booking.slot,
+      durationMinutes: booking.estimate?.durationMinutes,
+      extras: [...(booking.extras ?? [])],
+      serviceId: booking.serviceId,
+      areaM2: booking.areaM2,
+      condition: booking.condition,
+      notes: booking.notes,
+      totalCents: booking.pricing?.totalCents,
+      assignedWorker: booking.assignedWorker,
+    };
+
+    const priceFields = ["durationMinutes", "extras", "serviceId", "areaM2", "condition"].filter((f) => data[f] !== undefined);
+    let priceDeltaCents = 0;
+    if (priceFields.length > 0) {
+      ({ priceDeltaCents } = await repriceBooking(booking, data));
+    }
+
+    let unassignedWorker = null;
+    if (data.preferredDate) {
+      const preferredDate = assertBookableDate(data.preferredDate);
+      ({ unassignedWorker } = await rescheduleBooking(booking, {
+        slotId: data.slotId,
+        startTime: data.startTime,
+        preferredDate,
+        forceUnassign: data.forceUnassign,
+      }));
+    } else if (priceFields.length > 0) {
+      const moved = await moveBooking(booking, {
+        slotId: String(booking.availabilitySlot),
+        startTime: booking.slot,
+        durationMinutes: booking.estimate?.durationMinutes ?? 120,
+      });
+      if (!moved) {
+        return res.status(409).json({ success: false, message: "The new duration does not fit the booked time window. Reschedule the booking instead." });
+      }
+    }
+
+    if (data.notes !== undefined) booking.notes = data.notes;
+    if (data.customerDetails) {
+      for (const [k, v] of Object.entries(data.customerDetails)) {
+        if (v !== undefined) booking.set(`customerDetails.${k}`, v);
+      }
+    }
+
+    const changes = logBookingChange(booking, { by: req.user._id, role: "admin" }, [
+      { field: "preferredDate", from: before.preferredDate, to: booking.preferredDate },
+      { field: "slot", from: before.slot, to: booking.slot },
+      { field: "durationMinutes", from: before.durationMinutes, to: booking.estimate?.durationMinutes },
+      { field: "extras", from: before.extras, to: booking.extras },
+      { field: "serviceId", from: before.serviceId, to: booking.serviceId },
+      { field: "areaM2", from: before.areaM2, to: booking.areaM2 },
+      { field: "condition", from: before.condition, to: booking.condition },
+      { field: "notes", from: before.notes, to: booking.notes },
+      { field: "totalCents", from: before.totalCents, to: booking.pricing?.totalCents },
+      { field: "assignedWorker", from: before.assignedWorker, to: booking.assignedWorker },
+    ]);
+    const contactChanged = Boolean(data.customerDetails && Object.keys(data.customerDetails).length);
+    if (changes.length === 0 && !contactChanged) {
+      return res.json({ success: true, message: "Nothing changed.", priceDeltaCents: 0 });
+    }
+    await booking.save();
+
+    await recordAudit({
+      actor: req.user._id,
+      action: "booking.edited",
+      entityType: "Booking",
+      entityId: booking._id,
+      before,
+      after: { changes, priceDeltaCents },
+    });
+
+    if (data.notify) {
+      await trySend("Booking updated", () => sendBookingUpdatedEmail({ booking, changes, priceDeltaCents }));
+      if (booking.assignedWorker && changes.some((c) => ["preferredDate", "slot", "durationMinutes"].includes(c.field))) {
+        const worker = await User.findById(booking.assignedWorker).select("name email preferredLanguage");
+        if (worker) await trySend("Worker schedule change", () => sendWorkerScheduleChangedEmail({ worker, booking }));
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: "Booking updated.",
+      priceDeltaCents,
+      // Paid bookings keep their payment record – the admin settles the delta
+      paymentUntouched: booking.payment?.status === "paid" && priceDeltaCents !== 0,
+      unassignedWorker,
+      changes,
+      booking,
     });
   } catch (error) {
     next(error);

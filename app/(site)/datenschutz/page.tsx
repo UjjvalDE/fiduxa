@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import type { Locale } from '@/lib/i18n/config';
 import { getLocale } from '@/lib/i18n/server';
+import { CONTACT } from '../_shared/catalogue';
 import { LegalPage, P, type LegalSection } from '../_shared/legal';
 
 type Content = { title: string; intro: React.ReactNode; sections: LegalSection[] };
@@ -20,7 +21,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Verantwortliche Stelle',
         body: (
           <p>
-            <P>Firmenname inkl. Rechtsform</P>, <P>Anschrift</P>, E-Mail: <P>E-Mail-Adresse</P>, Telefon: <P>Telefonnummer</P>
+            <P>Firmenname inkl. Rechtsform</P>, <P>Anschrift</P>, E-Mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, Telefon: <P>Telefonnummer</P>
           </p>
         ),
       },
@@ -43,6 +44,7 @@ const CONTENT: Record<Locale, () => Content> = {
               <li>Preis-, Zahlungs- und Statusdaten zu deinen Buchungen (z. B. Festpreis, Zahlungsstatus, Stornierungen und Erstattungen)</li>
               <li>Kontaktanfragen: Name, E-Mail, optional Telefon und Betreff, Nachricht</li>
               <li>Gewerbeanfragen: Unternehmens-, Kontakt- und Objektdaten</li>
+              <li>Bewerbungen als Reinigungskraft: Kontaktdaten, Antworten im Bewerbungsformular, optional Lebenslauf</li>
               <li>Technische Daten beim Aufruf der Website (z. B. Server-Logfiles)</li>
             </ul>
             <p>
@@ -79,6 +81,28 @@ const CONTENT: Record<Locale, () => Content> = {
             Für die Durchführung eines Auftrags erhalten eingesetzte Reinigungskräfte nur die dafür erforderlichen Angaben (z. B. Name, Adresse,
             Telefonnummer, Zugangshinweise, Leistungsumfang) – keine Preise und keine E-Mail-Adresse. <P>Rechtliche Einordnung ergänzen</P>
           </p>
+        ),
+      },
+      {
+        title: 'Bewerbungen als Reinigungskraft',
+        body: (
+          <>
+            <p>
+              Wenn du dich über unser Bewerbungsformular als Reinigungskraft bewirbst, verarbeiten wir deine Kontaktdaten (Name, E-Mail-Adresse,
+              Telefonnummer, Postleitzahl), deine Antworten im Formular (z. B. Sprachen, Arbeitserlaubnis, gewünschte Wochenstunden, Erfahrung,
+              Fahrzeug, wie du von uns erfahren hast, deine Nachricht) sowie – falls du ihn hochlädst – deinen Lebenslauf.
+            </p>
+            <p>
+              Wir nutzen diese Daten ausschließlich für das Bewerbungsverfahren, also um deine Bewerbung zu prüfen, Kontakt mit dir aufzunehmen und
+              gegebenenfalls ein Konto für eine Zusammenarbeit anzulegen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Durchführung
+              vorvertraglicher Maßnahmen) bzw. § 26 BDSG.
+            </p>
+            <p>
+              Die Daten werden in unserer Datenbank gespeichert und sind nur für unser Team zugänglich. Kommt keine Zusammenarbeit zustande, löschen
+              wir deine Bewerbung einschließlich Lebenslauf spätestens 6 Monate nach Eingang. Du kannst jederzeit eine frühere Löschung verlangen –
+              eine kurze Nachricht an <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a> genügt.
+            </p>
+          </>
         ),
       },
       {
@@ -159,7 +183,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Controller',
         body: (
           <p>
-            <P>Company name incl. legal form</P>, <P>address</P>, email: <P>email address</P>, phone: <P>phone number</P>
+            <P>Company name incl. legal form</P>, <P>address</P>, email: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, phone: <P>phone number</P>
           </p>
         ),
       },
@@ -182,6 +206,7 @@ const CONTENT: Record<Locale, () => Content> = {
               <li>Price, payment and status data for your bookings (e.g. fixed price, payment status, cancellations and refunds)</li>
               <li>Contact enquiries: name, email, optionally phone and subject, message</li>
               <li>Business requests: company, contact and premises data</li>
+              <li>Cleaner applications: contact details, answers in the application form, optional CV</li>
               <li>Technical data when accessing the website (e.g. server log files)</li>
             </ul>
             <p>
@@ -219,6 +244,27 @@ const CONTENT: Record<Locale, () => Content> = {
             To carry out a job, the assigned cleaners only receive the information they need (e.g. name, address, phone number, access notes,
             scope of services) – no prices and no email address. <P>add legal classification</P>
           </p>
+        ),
+      },
+      {
+        title: 'Applications as a cleaner',
+        body: (
+          <>
+            <p>
+              If you apply as a cleaner via our application form, we process your contact details (name, email address, phone number, postcode),
+              your answers in the form (e.g. languages, work permit, preferred weekly hours, experience, vehicle, how you heard about us, your
+              message) and – if you upload it – your CV.
+            </p>
+            <p>
+              We use this data solely for the application process, i.e. to review your application, contact you and, where applicable, set up an
+              account for working together. The legal basis is Art. 6(1)(b) GDPR (steps prior to entering into a contract) and Section 26 BDSG.
+            </p>
+            <p>
+              The data is stored in our database and is only accessible to our team. If no collaboration comes about, we delete your application
+              including your CV no later than 6 months after we receive it. You can request earlier deletion at any time – a short message to{' '}
+              <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a> is enough.
+            </p>
+          </>
         ),
       },
       {
@@ -299,7 +345,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Administrator danych',
         body: (
           <p>
-            <P>nazwa firmy wraz z formą prawną</P>, <P>adres</P>, e-mail: <P>adres e-mail</P>, telefon: <P>numer telefonu</P>
+            <P>nazwa firmy wraz z formą prawną</P>, <P>adres</P>, e-mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, telefon: <P>numer telefonu</P>
           </p>
         ),
       },
@@ -322,6 +368,7 @@ const CONTENT: Record<Locale, () => Content> = {
               <li>Dane dotyczące ceny, płatności i statusu rezerwacji (np. stała cena, status płatności, anulowania i zwroty)</li>
               <li>Zapytania kontaktowe: imię, e-mail, opcjonalnie telefon i temat, wiadomość</li>
               <li>Zapytania firmowe: dane firmy, kontaktowe i dotyczące obiektu</li>
+              <li>Aplikacje osób sprzątających: dane kontaktowe, odpowiedzi w formularzu aplikacyjnym, opcjonalnie CV</li>
               <li>Dane techniczne przy odwiedzaniu strony (np. logi serwera)</li>
             </ul>
             <p>
@@ -358,6 +405,27 @@ const CONTENT: Record<Locale, () => Content> = {
             Do realizacji zlecenia osoby sprzątające otrzymują wyłącznie niezbędne informacje (np. imię i nazwisko, adres, numer telefonu,
             informacje o dostępie, zakres usług) – bez cen i adresu e-mail. <P>uzupełnić kwalifikację prawną</P>
           </p>
+        ),
+      },
+      {
+        title: 'Aplikacje na stanowisko osoby sprzątającej',
+        body: (
+          <>
+            <p>
+              Jeśli aplikujesz jako osoba sprzątająca przez nasz formularz, przetwarzamy Twoje dane kontaktowe (imię i nazwisko, adres e-mail, numer
+              telefonu, kod pocztowy), Twoje odpowiedzi w formularzu (np. języki, zezwolenie na pracę, preferowana liczba godzin tygodniowo,
+              doświadczenie, pojazd, skąd o nas wiesz, Twoja wiadomość) oraz – jeśli go prześlesz – Twoje CV.
+            </p>
+            <p>
+              Wykorzystujemy te dane wyłącznie w procesie rekrutacji, tj. aby rozpatrzyć Twoją aplikację, skontaktować się z Tobą i w razie potrzeby
+              założyć konto do współpracy. Podstawą prawną jest art. 6 ust. 1 lit. b RODO (działania przed zawarciem umowy) oraz § 26 BDSG.
+            </p>
+            <p>
+              Dane są przechowywane w naszej bazie danych i dostępne wyłącznie dla naszego zespołu. Jeśli nie dojdzie do współpracy, usuniemy Twoją
+              aplikację wraz z CV najpóźniej 6 miesięcy po jej otrzymaniu. W każdej chwili możesz zażądać wcześniejszego usunięcia – wystarczy krótka
+              wiadomość na adres <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>.
+            </p>
+          </>
         ),
       },
       {

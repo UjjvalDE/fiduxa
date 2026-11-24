@@ -30,6 +30,8 @@ export const SERVICES = [
     name: "Grundreinigung",
     nameEn: "Deep cleaning",
     bookingMode: "request",
+    // Deep cleaning needs more time per m² than maintenance cleaning
+    timeFactor: 1.4,
     frequencies: ["one-time"],
     included: [
       "Alle Leistungen der Wohnungsreinigung",
@@ -47,6 +49,8 @@ export const SERVICES = [
     name: "Umzugsreinigung",
     nameEn: "End-of-tenancy cleaning",
     bookingMode: "request",
+    // Hand-over condition: the most thorough household service
+    timeFactor: 1.6,
     frequencies: ["one-time"],
     included: [
       "Küche inkl. Schränke innen, Backofen, Kühlschrank (abgetaut und leer)",
@@ -79,18 +83,18 @@ export const SERVICES = [
 ];
 
 export const EXTRAS = [
-  { id: "interior-windows", label: "Innenfenster", labelEn: "Interior windows", description: "Glasflächen, erreichbare Rahmen und Fensterbänke", minutes: 30, priceCents: 0, icon: "app-window" },
-  { id: "door-handles", label: "Türgriffe", labelEn: "Door handles", description: "Vereinbarte Griffe abwischen und desinfizieren", minutes: 10, priceCents: 0, icon: "door-open" },
-  { id: "inside-fridge", label: "Kühlschrank innen", labelEn: "Inside fridge", description: "Muss geleert sein; Gefrierfach abgetaut", minutes: 25, priceCents: 0, icon: "refrigerator" },
-  { id: "inside-oven", label: "Backofen innen", labelEn: "Inside oven", description: "Standardverschmutzung, keine Gefahrstoffe", minutes: 40, priceCents: 0, icon: "cooking-pot" },
-  { id: "inside-cabinets", label: "Schränke innen", labelEn: "Inside cabinets", description: "Nur leere oder freigeräumte Schränke", minutes: 30, priceCents: 0, icon: "archive" },
-  { id: "baseboards", label: "Sockelleisten", labelEn: "Baseboards", description: "Erreichbare Sockelleisten abwischen", minutes: 20, priceCents: 0, icon: "brush" },
-  { id: "window-blinds", label: "Jalousien", labelEn: "Window blinds", description: "Geeignete Jalousien abstauben/abwischen", minutes: 20, priceCents: 0, icon: "blinds" },
-  { id: "balcony", label: "Balkon", labelEn: "Balcony", description: "Zugänglichen Balkonboden fegen und reinigen", minutes: 20, priceCents: 0, icon: "sun" },
-  { id: "laundry", label: "Wäsche", labelEn: "Laundry", description: "Waschen, Trocknen, Falten nach Absprache", minutes: 30, priceCents: 0, icon: "washing-machine" },
-  { id: "ironing", label: "Bügeln", labelEn: "Ironing", description: "Nach Zeit abgerechnet", minutes: 30, priceCents: 0, icon: "shirt" },
-  { id: "dishes", label: "Geschirr", labelEn: "Dishes", description: "Abwasch oder Spülmaschine einräumen", minutes: 20, priceCents: 0, icon: "utensils" },
-  { id: "glass-partitions", label: "Glastrennwände", labelEn: "Interior glass partitions", description: "Nur erreichbares Innenglas", minutes: 20, priceCents: 0, icon: "panels-top-left" },
+  { id: "interior-windows", services: ["home-cleaning", "deep-cleaning", "end-of-tenancy"], label: "Innenfenster", labelEn: "Interior windows", description: "Glasflächen, erreichbare Rahmen und Fensterbänke", minutes: 30, priceCents: 0, icon: "app-window" },
+  { id: "door-handles", services: ["home-cleaning"], label: "Türgriffe", labelEn: "Door handles", description: "Vereinbarte Griffe abwischen und desinfizieren", minutes: 10, priceCents: 0, icon: "door-open" },
+  { id: "inside-fridge", services: ["home-cleaning", "deep-cleaning"], label: "Kühlschrank innen", labelEn: "Inside fridge", description: "Muss geleert sein; Gefrierfach abgetaut", minutes: 25, priceCents: 0, icon: "refrigerator" },
+  { id: "inside-oven", services: ["home-cleaning", "deep-cleaning"], label: "Backofen innen", labelEn: "Inside oven", description: "Standardverschmutzung, keine Gefahrstoffe", minutes: 40, priceCents: 0, icon: "cooking-pot" },
+  { id: "inside-cabinets", services: ["home-cleaning", "deep-cleaning"], label: "Schränke innen", labelEn: "Inside cabinets", description: "Nur leere oder freigeräumte Schränke", minutes: 30, priceCents: 0, icon: "archive" },
+  { id: "baseboards", services: ["home-cleaning"], label: "Sockelleisten", labelEn: "Baseboards", description: "Erreichbare Sockelleisten abwischen", minutes: 20, priceCents: 0, icon: "brush" },
+  { id: "window-blinds", services: ["home-cleaning", "deep-cleaning", "end-of-tenancy"], label: "Jalousien", labelEn: "Window blinds", description: "Geeignete Jalousien abstauben/abwischen", minutes: 20, priceCents: 0, icon: "blinds" },
+  { id: "balcony", services: ["home-cleaning", "deep-cleaning", "end-of-tenancy"], label: "Balkon", labelEn: "Balcony", description: "Zugänglichen Balkonboden fegen und reinigen", minutes: 20, priceCents: 0, icon: "sun" },
+  { id: "laundry", services: ["home-cleaning"], label: "Wäsche", labelEn: "Laundry", description: "Waschen, Trocknen, Falten nach Absprache", minutes: 30, priceCents: 0, icon: "washing-machine" },
+  { id: "ironing", services: ["home-cleaning"], label: "Bügeln", labelEn: "Ironing", description: "Nach Zeit abgerechnet", minutes: 30, priceCents: 0, icon: "shirt" },
+  { id: "dishes", services: ["home-cleaning"], label: "Geschirr", labelEn: "Dishes", description: "Abwasch oder Spülmaschine einräumen", minutes: 20, priceCents: 0, icon: "utensils" },
+  { id: "glass-partitions", services: ["home-cleaning", "deep-cleaning", "end-of-tenancy"], label: "Glastrennwände", labelEn: "Interior glass partitions", description: "Nur erreichbares Innenglas", minutes: 20, priceCents: 0, icon: "panels-top-left" },
   { id: "microwave", label: "Mikrowelle", labelEn: "Microwave", description: "Innen und außen", minutes: 10, priceCents: 0, icon: "microwave" },
   { id: "coffee-machine", label: "Kaffeemaschine", labelEn: "Coffee machine", description: "Außen und abnehmbare Teile laut Anleitung", minutes: 10, priceCents: 0, icon: "coffee" },
   { id: "carpet-vacuum", label: "Teppich saugen", labelEn: "Carpet vacuum", description: "Standard-Saugen; Tiefenreinigung separat", minutes: 15, priceCents: 0, icon: "layers" },
@@ -107,3 +111,7 @@ export const EXTRA_IDS = EXTRAS.map((e) => e.id);
 export const findService = (id) => SERVICES.find((s) => s.id === id);
 export const findExtra = (id) =>
   EXTRAS.find((e) => e.id === (EXTRA_ALIASES[id] ?? id));
+
+/** Is this extra offered for the given household service? */
+export const extraAvailableFor = (extra, serviceId) =>
+  !serviceId || !extra?.services || extra.services.includes(serviceId);

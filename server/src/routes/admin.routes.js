@@ -1,4 +1,18 @@
 import { Router } from "express";
+import { getFinanceOverview } from "../controllers/admin-finance.controller.js";
+import {
+  downloadApplicationCv,
+  getApplication,
+  inviteApplicant,
+  listApplications,
+  updateApplication,
+} from "../controllers/worker-application.controller.js";
+import {
+  commissionOverview,
+  commissionReport,
+  commissionWorkerDetail,
+  setCommissionOverride,
+} from "../controllers/admin-commission.controller.js";
 
 import { protect } from "../middleware/auth.middleware.js";
 import { authorize } from "../middleware/role.middleware.js";
@@ -15,6 +29,7 @@ import {
 
 import {
   assignWorker,
+  editBookingDetails,
   getAllBookings,
   getAuditLogs,
   getBookingDetails,
@@ -36,7 +51,7 @@ import {
   updateContactMessage,
 } from "../controllers/contact.controller.js";
 
-import { getDashboardStats } from "../controllers/dashboard.controller.js";
+import { getDashboardOverview, getDashboardStats } from "../controllers/dashboard.controller.js";
 import {
   createSlots,
   deleteSlot,
@@ -45,10 +60,11 @@ import {
 } from "../controllers/admin-slot.controller.js";
 import { listPayments, refundPayment } from "../controllers/payment.controller.js";
 import { messageHandlers } from "../controllers/booking-message.controller.js";
-import { listReviews, setReviewHidden } from "../controllers/review.controller.js";
+import { listReviews, resolveReviewDispute, setReviewHidden } from "../controllers/review.controller.js";
 import {
   createWorkerPayout,
   listOpenPayouts,
+  refreshWorkerPayout,
   listPayouts,
   setBookingPayoutHold,
   setWorkerPayRate,
@@ -74,6 +90,19 @@ import {
   setGiftCardDisabled,
 } from "../controllers/admin-gift-card.controller.js";
 import { getAnalytics } from "../controllers/admin-analytics.controller.js";
+import { getEmail, listEmails, resendEmailById } from "../controllers/admin-email.controller.js";
+// [slot-A-imports]
+import { adminListSeries, adminUpdateSeries } from "../controllers/recurring-series.controller.js";
+// [slot-B-imports]
+import { downloadInvoiceAsAdmin } from "../controllers/invoice.controller.js";
+import { deleteCustomerAsAdmin } from "../controllers/account-privacy.controller.js";
+import { createCustomerByAdmin, createManualBooking, searchCustomers } from "../controllers/admin-manual.controller.js";
+// [slot-C-imports]
+// [slot-D-imports]
+import { downloadWorkerDocument, reviewWorkerDocument } from "../controllers/worker-document.controller.js";
+import { getWorkerReliability, markNoShow, unpauseWorkerAction } from "../controllers/admin-trust.controller.js";
+// [slot-E-imports]
+// [slot-F-imports]
 
 const adminMessages = messageHandlers("admin");
 
@@ -84,6 +113,7 @@ adminRouter.use(protect, authorize("admin"));
 
 // Dashboard
 adminRouter.get("/dashboard/stats", getDashboardStats);
+adminRouter.get("/dashboard/overview", getDashboardOverview);
 
 // Worker management
 adminRouter.get("/workers", listWorkers);
@@ -98,6 +128,7 @@ adminRouter.patch("/workers/:id/pay-rate", setWorkerPayRate);
 // Booking management
 adminRouter.get("/bookings", getAllBookings);
 adminRouter.get("/bookings/:id", getBookingDetails);
+adminRouter.patch("/bookings/:id/details", editBookingDetails);
 adminRouter.patch("/bookings/:id/status", updateBookingStatus);
 adminRouter.patch("/bookings/:id/assign", assignWorker);
 adminRouter.patch("/bookings/:id/notes", updateBookingNotes);
@@ -140,10 +171,26 @@ adminRouter.post("/bookings/:id/messages", adminMessages.create);
 adminRouter.get("/payouts/open", listOpenPayouts);
 adminRouter.get("/payouts", listPayouts);
 adminRouter.post("/payouts", createWorkerPayout);
+adminRouter.post("/payouts/:id/refresh", refreshWorkerPayout);
 
 // Reviews
 adminRouter.get("/reviews", listReviews);
 adminRouter.patch("/reviews/:id", setReviewHidden);
+adminRouter.patch("/reviews/:id/dispute", resolveReviewDispute);
+
+// Rating-based commission system
+adminRouter.get("/commission", commissionOverview);
+adminRouter.get("/finance", getFinanceOverview);
+
+// Cleaner job applications (public "Become a cleaner" form)
+adminRouter.get("/applications", listApplications);
+adminRouter.get("/applications/:id", getApplication);
+adminRouter.get("/applications/:id/cv", downloadApplicationCv);
+adminRouter.patch("/applications/:id", updateApplication);
+adminRouter.post("/applications/:id/invite", inviteApplicant);
+adminRouter.get("/commission/report", commissionReport);
+adminRouter.get("/commission/workers/:id", commissionWorkerDetail);
+adminRouter.patch("/workers/:id/commission-override", setCommissionOverride);
 
 // Availability slots
 adminRouter.get("/slots", listSlots);
@@ -171,3 +218,29 @@ adminRouter.post("/payments/:id/refund", refundPayment);
 
 // Audit log
 adminRouter.get("/audit-logs", getAuditLogs);
+
+// E-mail outbox / send log
+adminRouter.get("/emails", listEmails);
+adminRouter.get("/emails/:id", getEmail);
+adminRouter.post("/emails/:id/resend", resendEmailById);
+// [slot-A-routes]
+// Recurring cleaning plans (Putzpläne)
+adminRouter.get("/series", adminListSeries);
+adminRouter.patch("/series/:id", adminUpdateSeries);
+// [slot-B-routes]
+// Invoices, GDPR deletion, phone orders (manual customers + bookings)
+adminRouter.get("/bookings/:id/invoice", downloadInvoiceAsAdmin);
+adminRouter.post("/bookings", createManualBooking);
+adminRouter.get("/customer-search", searchCustomers);
+adminRouter.post("/customers", createCustomerByAdmin);
+adminRouter.delete("/customers/:id", deleteCustomerAsAdmin);
+// [slot-C-routes]
+// [slot-D-routes]
+// Trust & security (package E): documents, no-show, reliability pause
+adminRouter.get("/workers/:id/documents/:docId", downloadWorkerDocument);
+adminRouter.patch("/workers/:id/documents/:docId", reviewWorkerDocument);
+adminRouter.get("/workers/:id/reliability", getWorkerReliability);
+adminRouter.post("/workers/:id/unpause", unpauseWorkerAction);
+adminRouter.post("/bookings/:id/no-show", markNoShow);
+// [slot-E-routes]
+// [slot-F-routes]

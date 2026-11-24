@@ -13,9 +13,12 @@ const { default: Booking } = await import(ROOT + "/src/models/booking.model.js")
 const { default: AvailabilitySlot } = await import(ROOT + "/src/models/availability-slot.model.js");
 const { todayInBerlin, DAY_MS } = await import(ROOT + "/src/utils/helpers.js");
 const { alertUnassignedJobs } = await import(ROOT + "/src/services/job-dispatch.service.js");
+const { OPERATIONS } = await import(ROOT + "/src/config/pricing.js");
 
 await connectDB();
 await User.db.dropDatabase();
+// Rebuild every index before testing (unique indexes back business rules)
+for (const M of Object.values(User.db.models)) await M.syncIndexes(); // syncAllIndexes
 await AvailabilitySlot.syncIndexes();
 await (await import(ROOT + "/src/models/reservation-lock.model.js")).default.syncIndexes();
 const server = app.listen(0);
@@ -123,8 +126,13 @@ check("admin sees who declined", r.body.booking?.jobOffer?.declinedBy?.[0]?.name
 // Tomorrow job: hand back blocked (< 24 h), unassigned alert
 const jTomorrow = await book(day(1), "08:00");
 r = await call("POST", `/worker/jobs/${jTomorrow}/accept`, null, annaT);
+// Tomorrow 08:00 is 8–32 hours away depending on the hour this suite runs
+// at. Widen the cutoff so handing back is always "too late" here.
+const savedReleaseCutoff = OPERATIONS.workerReleaseCutoffHours;
+OPERATIONS.workerReleaseCutoffHours = 48;
 r = await call("POST", `/worker/jobs/${jTomorrow}/release`, { reason: "Termin" }, annaT);
 check("release < 24 h before → 409", r.status === 409, r.body);
+OPERATIONS.workerReleaseCutoffHours = savedReleaseCutoff;
 const jTomorrow2 = await book(day(1), "13:00");
 let alerts = await alertUnassignedJobs();
 check("admin alerted about unassigned job tomorrow", alerts >= 1, alerts);

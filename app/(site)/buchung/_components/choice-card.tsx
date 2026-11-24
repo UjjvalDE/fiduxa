@@ -43,7 +43,8 @@ export function ChoiceCard({
       />
       <span
         className={cn(
-          'flex h-full flex-col rounded-[14px] border bg-white p-4 text-left transition-colors',
+          'flex h-full flex-col rounded-[14px] border bg-white p-4 text-left transition-[color,background-color,border-color,transform] duration-150 ease-out',
+          !disabled && 'motion-safe:active:scale-[0.99]',
           'peer-focus-visible:ring-2 peer-focus-visible:ring-pine peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-cream',
           checked ? 'border-pine bg-mint' : 'border-border hover:border-sage',
           disabled && 'bg-gray-50 opacity-70 hover:border-border'
@@ -52,7 +53,10 @@ export function ChoiceCard({
         {children}
       </span>
       {checked && (
-        <span className="pointer-events-none absolute right-3 top-3 grid h-6 w-6 place-items-center rounded-full bg-pine text-white" aria-hidden="true">
+        <span
+          className="pointer-events-none absolute right-3 top-3 grid h-6 w-6 place-items-center rounded-full bg-pine text-white motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 motion-safe:duration-150"
+          aria-hidden="true"
+        >
           <Check className="h-3.5 w-3.5" strokeWidth={3} />
         </span>
       )}

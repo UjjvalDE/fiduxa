@@ -9,7 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { usePathname, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 
-import { api, getStoredToken, onUnauthorized, setStoredToken } from './api';
+import { api, onUnauthorized, setStoredToken } from './api';
 import { useMessages } from './i18n/client';
 import common from './i18n/messages/common';
 import type { Locale, Role, User } from './types';
@@ -39,15 +39,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
 
   const refresh = useCallback(async () => {
-    if (!getStoredToken()) {
-      setUser(null);
-      setStatus('anonymous');
-      return;
-    }
+    // Silent probe: the HttpOnly cookie restores the session after a reload;
+    // anonymous visitors get a clean 200 (no 401 noise in the console).
     try {
-      const { user: me } = await api.get<{ user: User }>('/auth/me');
-      setUser(me);
-      setStatus('authenticated');
+      const res = await api.get<{ authenticated: boolean; user?: User }>('/auth/session');
+      if (res.authenticated && res.user) {
+        setUser(res.user);
+        setStatus('authenticated');
+      } else {
+        setStoredToken(null);
+        setUser(null);
+        setStatus('anonymous');
+      }
     } catch {
       setStoredToken(null);
       setUser(null);
@@ -89,6 +92,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    // End the cookie session on the server; local state is cleared either way.
+    api.post('/auth/logout').catch(() => undefined);
     setStoredToken(null);
     setUser(null);
     setStatus('anonymous');

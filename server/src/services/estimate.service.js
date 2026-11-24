@@ -1,12 +1,14 @@
 import { PRICING } from "../config/pricing.js";
-import { findExtra } from "../data/catalogue.js";
+import { extraAvailableFor, findExtra, findService } from "../data/catalogue.js";
 
 // Server-side duration + price estimate (blueprint §8–9).
 // The returned object is stored on the booking as a price snapshot so later
 // catalogue or rate changes never rewrite old bookings.
 export const createEstimate = ({
+  serviceId,
   areaM2,
   condition = "normal",
+  bathrooms = 1,
   frequency = "one-time",
   extras = [],
   // Optional: hours chosen by the customer (blueprint §5 step 6 – manual
@@ -15,14 +17,17 @@ export const createEstimate = ({
 }) => {
   const factor =
     PRICING.conditionFactor[condition] ?? PRICING.conditionFactor.normal;
+  // Deep cleaning / end-of-tenancy need more time per m² (service.timeFactor)
+  const serviceFactor = findService(serviceId)?.timeFactor ?? 1;
 
-  const baseMinutes = (areaM2 / PRICING.areaM2PerHour) * 60;
+  const baseMinutes = (areaM2 / PRICING.areaM2PerHour) * 60 * serviceFactor;
 
   // Snapshot of selected extras (unknown IDs ignored, duplicates removed)
   const seen = new Set();
   const extraItems = extras
     .map(findExtra)
-    .filter((extra) => extra && !seen.has(extra.id) && seen.add(extra.id))
+    // Unknown IDs and extras not offered for this service are ignored
+    .filter((extra) => extra && extraAvailableFor(extra, serviceId) && !seen.has(extra.id) && seen.add(extra.id))
     .map(({ id, label, minutes, priceCents }) => ({
       id,
       label,
@@ -30,7 +35,8 @@ export const createEstimate = ({
       priceCents,
     }));
 
-  const extraMinutes = extraItems.reduce((sum, e) => sum + e.minutes, 0);
+  const bathroomMinutes = Math.max(0, Math.min(6, Math.round(Number(bathrooms) || 1)) - 1) * (PRICING.bathroomMinutes ?? 20);
+  const extraMinutes = extraItems.reduce((sum, e) => sum + e.minutes, 0) + bathroomMinutes;
   const extraFeesCents = extraItems.reduce((sum, e) => sum + e.priceCents, 0);
 
   const step = PRICING.roundingMinutes;

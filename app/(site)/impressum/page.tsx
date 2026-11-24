@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import type { Locale } from '@/lib/i18n/config';
 import { getLocale } from '@/lib/i18n/server';
+import { CONTACT } from '../_shared/catalogue';
 import { LegalPage, P, type LegalSection } from '../_shared/legal';
 
 type Content = { title: string; intro: React.ReactNode; sections: LegalSection[] };
@@ -39,7 +40,7 @@ const CONTENT: Record<Locale, () => Content> = {
           <p>
             Telefon: <P>Telefonnummer</P>
             <br />
-            E-Mail: <P>E-Mail-Adresse</P>
+            E-Mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
           </p>
         ),
       },
@@ -134,7 +135,7 @@ const CONTENT: Record<Locale, () => Content> = {
           <p>
             Phone: <P>phone number</P>
             <br />
-            Email: <P>email address</P>
+            Email: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
           </p>
         ),
       },
@@ -226,7 +227,7 @@ const CONTENT: Record<Locale, () => Content> = {
           <p>
             Telefon: <P>numer telefonu</P>
             <br />
-            E-mail: <P>adres e-mail</P>
+            E-mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
           </p>
         ),
       },

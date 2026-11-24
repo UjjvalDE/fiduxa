@@ -89,7 +89,7 @@ export const getExtrasContent = (locale: Locale): ExtraContent[] =>
 
 /** Contact details as shown on the homepage and contact page. */
 export const CONTACT = {
-  email: 'hallo@fiduxa.de',
+  email: 'service.fiduxa@gmail.com',
   phoneDisplay: '+49 30 123 45 678',
   phoneHref: 'tel:+493012345678',
 };

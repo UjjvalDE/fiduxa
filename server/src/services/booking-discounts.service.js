@@ -28,6 +28,8 @@ export const reserveBookingDiscounts = async ({ quote, user, bookingId, contact,
         orderCents: quote.lines.priceCents,
         contact,
         serviceId,
+        personalCodeId: quote.promotion.personalCodeId,
+        code: quote.promotion.code,
       });
       promoReserved = true;
     }

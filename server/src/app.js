@@ -6,18 +6,22 @@ import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import mongoose from "mongoose";
 import { ZodError } from "zod";
+import pinoHttp from "pino-http";
+import { randomUUID } from "node:crypto";
 
 import { authRouter } from "./routes/auth.routes.js";
 import { userRouter } from "./routes/user.routes.js";
 import { bookingFlowRouter } from "./routes/booking-flow.routes.js";
 import { adminRouter } from "./routes/admin.routes.js";
-import { customerBookingRouter } from "./routes/customer-booking.routes.js";
+import { customerBookingRouter, customerSeriesRouter } from "./routes/customer-booking.routes.js";
+import { customerInvoiceRouter } from "./routes/invoice.routes.js";
 import { workerOnboardingRouter } from "./routes/worker-onboarding.routes.js";
 import { workerJobRouter } from "./routes/worker-job.routes.js";
 import { catalogueRouter, publicFormRouter } from "./routes/public.routes.js";
 import { paymentRouter } from "./routes/payment.routes.js";
 import { giftCardRouter } from "./routes/gift-card.routes.js";
-import { handleStripeWebhook } from "./controllers/payment.controller.js";
+import { handlePayPalWebhook, handleStripeWebhook } from "./controllers/payment.controller.js";
+import { captureError, logger } from "./utils/logger.js";
 
 const app = express();
 
@@ -45,13 +49,42 @@ app.post(
   express.raw({ type: "application/json", limit: "1mb" }),
   handleStripeWebhook
 );
+// PayPal webhook: raw body too (verified via PayPal's verify-webhook-signature API)
+app.post(
+  "/api/v1/payments/paypal/webhook",
+  express.raw({ type: "*/*", limit: "1mb" }),
+  handlePayPalWebhook
+);
 
-app.use(express.json({ limit: "1mb" }));
+// Global 1 MB JSON limit – except the CV upload route, which gets its own
+// larger parser AFTER its rate limiter (see below)
+const jsonDefault = express.json({ limit: "1mb" });
+app.use((req, res, next) => (req.path.startsWith("/api/v1/jobs/applications") || req.path.startsWith("/api/v1/worker/documents") ? next() : jsonDefault(req, res, next)));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-if (process.env.NODE_ENV !== "test") {
+// ---------- Request logging ----------
+// Development: colourful one-liners (morgan). Everything else: structured JSON
+// via pino-http with a request id (X-Request-Id is honoured and echoed).
+if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
+} else if (process.env.NODE_ENV !== "test" || process.env.LOG_REQUESTS === "1") {
+  app.use(
+    pinoHttp({
+      logger,
+      genReqId: (req, res) => {
+        const id = String(req.headers["x-request-id"] || randomUUID());
+        res.setHeader("X-Request-Id", id);
+        return id;
+      },
+      autoLogging: { ignore: (req) => req.url === "/health" || req.url === "/ready" },
+      customLogLevel: (req, res, err) => (err || res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info"),
+      serializers: {
+        req: (req) => ({ id: req.id, method: req.method, url: req.url, ip: req.remoteAddress }),
+        res: (res) => ({ statusCode: res.statusCode }),
+      },
+    })
+  );
 }
 
 // ---------- Rate limits ----------
@@ -81,6 +114,9 @@ app.use("/api/v1/auth/reset-password", limiter(60, 10));
 app.use("/api/v1/worker/accept-invitation", limiter(60, 10));
 app.use("/api/v1/business-requests", limiter(60, 10));
 app.use("/api/v1/contact", limiter(60, 10));
+app.use("/api/v1/jobs/applications", limiter(60, 5), express.json({ limit: "8mb" })); // CV ≤ 5 MB as base64
+app.use("/api/v1/worker/documents", express.json({ limit: "8mb" })); // cleaner documents ≤ 5 MB as base64 (package E)
+app.use("/api/v1/auth/2fa/verify", limiter(15, 20)); // 2FA code guessing (package E)
 // Guessing gift card codes / coupons
 app.use("/api/v1/gift-cards/check", limiter(15, 20));
 app.use("/api/v1/bookings/quote", limiter(15, 200));
@@ -98,6 +134,17 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Readiness: only "ready" when MongoDB answers a ping (load balancer / compose healthcheck)
+app.get("/ready", async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) throw new Error("database not connected");
+    await mongoose.connection.db.admin().ping();
+    return res.status(200).json({ success: true, ready: true, database: "connected", timestamp: new Date().toISOString() });
+  } catch (error) {
+    return res.status(503).json({ success: false, ready: false, database: "unavailable", reason: error.message });
+  }
+});
+
 // ---------- Routes ----------
 app.use("/api/v1", catalogueRouter);
 app.use("/api/v1", publicFormRouter);
@@ -105,6 +152,8 @@ app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/bookings", bookingFlowRouter);
 app.use("/api/v1/customer/bookings", customerBookingRouter);
+app.use("/api/v1/customer", customerInvoiceRouter);
+app.use("/api/v1/customer/series", customerSeriesRouter);
 app.use("/api/v1/payments", paymentRouter);
 app.use("/api/v1/gift-cards", giftCardRouter);
 app.use("/api/v1/admin", adminRouter);
@@ -171,12 +220,18 @@ app.use((err, req, res, next) => {
 
   // 503 = expected "feature not configured" responses – no stack trace needed
   if (statusCode >= 500 && statusCode !== 503) {
-    console.error(err);
+    captureError(err, {
+      requestId: req.id,
+      method: req.method,
+      path: req.originalUrl,
+      userId: req.user?._id ? String(req.user._id) : undefined,
+    });
   }
 
   return res.status(statusCode).json({
     success: false,
     message: statusCode >= 500 ? "Internal server error." : err.message,
+    ...(err.code && statusCode < 500 && { code: err.code }),
     ...(err.details && { details: err.details }),
   });
 });

@@ -23,7 +23,7 @@ import { CleanerAvatar } from '@/componets/site/cleaner-avatar';
 import { StatusBadge } from '@/componets/site/status-badge';
 import { api, ApiError } from '@/lib/api';
 import { useFormat, useLocale, useMessages } from '@/lib/i18n/client';
-import type { AdminWorker, Holiday, WeeklyWindow, WorkerStats } from '@/lib/types';
+import type { AdminWorker, Holiday, PayoutMethod, WeeklyWindow, WorkerStats } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 import { ConfirmAction } from '../../_components/confirm-action';
@@ -48,6 +48,8 @@ interface WorkerReviewResponse {
     holidays?: Holiday[];
     payRateCents?: number;
     customPayRate?: boolean;
+    /** Full PayPal address – visible to admins */
+    payoutMethod?: PayoutMethod;
   };
   stats?: WorkerStats | null;
 }
@@ -328,6 +330,22 @@ export default function AdminWorkerDetailPage({ params }: { params: { id: string
               items={[
                 [t.accountHolder, w.bankDetails?.accountHolder || '–'],
                 [t.iban, w.bankDetails?.status === 'saved' ? <span className="font-mono">{w.bankDetails.iban}</span> : t.notSaved],
+                [
+                  t.payoutMethodLabel,
+                  w.payoutMethod?.type === 'paypal' ? (
+                    <span key="pm">
+                      {t.payoutPaypal}
+                      {w.payoutMethod.paypalEmail && (
+                        <>
+                          {' · '}
+                          <span className="font-mono">{w.payoutMethod.paypalEmail}</span>
+                        </>
+                      )}
+                    </span>
+                  ) : (
+                    t.payoutBank
+                  ),
+                ],
               ]}
             />
           </SectionCard>

@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, CircleAlert, LoaderCircle, MailCheck, PartyPopper } from 'lucide-react';
 
-import { api, getStoredToken } from '@/lib/api';
+import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useLocale, useMessages } from '@/lib/i18n/client';
 import type { User } from '@/lib/types';
@@ -34,7 +34,8 @@ export function VerifyEmailView() {
       .post<{ welcomePercent: number | null; user: User }>('/auth/verify-email', { token })
       .then(async (res) => {
         setView({ kind: 'success', welcomePercent: res.welcomePercent ?? null });
-        if (getStoredToken()) await refresh();
+        // Refresh the session user (cookie-based – works without a local token)
+        await refresh();
       })
       .catch(() => setView({ kind: 'error' }));
   }, [valid, token, refresh]);

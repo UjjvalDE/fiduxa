@@ -19,7 +19,7 @@ export function WizardProgress({ step, onSelect, locked }: { step: number; onSel
           const badge = (
             <span
               className={cn(
-                'grid h-8 w-8 shrink-0 place-items-center rounded-full border text-xs font-bold',
+                'grid h-8 w-8 shrink-0 place-items-center rounded-full border text-xs font-bold transition-[color,background-color,border-color,box-shadow] duration-200 ease-out',
                 done && 'border-pine bg-pine text-white',
                 isCurrent && 'border-pine bg-white text-pine ring-4 ring-mint',
                 !done && !isCurrent && 'border-border bg-white text-muted-grey'
@@ -32,7 +32,7 @@ export function WizardProgress({ step, onSelect, locked }: { step: number; onSel
           const label = (
             <span
               className={cn(
-                'text-xs font-bold sm:text-sm',
+                'text-xs font-bold transition-colors duration-200 sm:text-sm',
                 isCurrent ? 'text-pine-dark' : 'text-muted-grey',
                 // On narrow phones only the current label is shown
                 !isCurrent && 'sr-only sm:not-sr-only'
@@ -60,7 +60,9 @@ export function WizardProgress({ step, onSelect, locked }: { step: number; onSel
                   {label}
                 </span>
               )}
-              {index < STEPS.length - 1 && <span className={cn('h-0.5 min-w-[12px] flex-1 rounded-full', done ? 'bg-pine' : 'bg-border')} aria-hidden="true" />}
+              {index < STEPS.length - 1 && (
+                <span className={cn('h-0.5 min-w-[12px] flex-1 rounded-full transition-colors duration-200', done ? 'bg-pine' : 'bg-border')} aria-hidden="true" />
+              )}
             </li>
           );
         })}

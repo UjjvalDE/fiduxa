@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2, ShieldCheck, ShieldX } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { StarDisplay } from '@/componets/site/star-rating';
@@ -14,9 +14,20 @@ import type { AdminReview } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 import reviewMessages from '../bewertungen/_messages';
+import { ConfirmAction } from './confirm-action';
 import { useErrorText } from './use-api';
 
-function HiddenToggle({ review, onChanged }: { review: AdminReview; onChanged: (review: AdminReview) => void }) {
+/** Cleaner dispute attached to a review (GET /admin/reviews) */
+export interface ReviewDispute {
+  status: 'open' | 'approved' | 'rejected';
+  message: string;
+  openedAt?: string;
+  adminNote?: string;
+}
+
+export type DisputedAdminReview = AdminReview & { dispute?: ReviewDispute | null };
+
+function HiddenToggle({ review, onChanged }: { review: DisputedAdminReview; onChanged: (review: DisputedAdminReview) => void }) {
   const t = useMessages(reviewMessages);
   const errorText = useErrorText();
   const [pending, setPending] = useState(false);
@@ -49,14 +60,114 @@ function HiddenToggle({ review, onChanged }: { review: AdminReview; onChanged: (
   );
 }
 
+function DisputeBadge({ status }: { status: ReviewDispute['status'] }) {
+  const t = useMessages(reviewMessages);
+  return (
+    <span
+      className={cn(
+        'inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold',
+        status === 'open'
+          ? 'border-amber-200 bg-amber-50 text-amber-800'
+          : status === 'approved'
+            ? 'border-sage bg-mint text-pine'
+            : 'border-border bg-cream text-charcoal'
+      )}
+    >
+      {status === 'open' ? t.disputeOpenBadge : status === 'approved' ? t.disputeApprovedBadge : t.disputeRejectedBadge}
+    </span>
+  );
+}
+
+/** Cleaner dispute of a review: message + approve/reject while open, outcome afterwards */
+function DisputeBlock({
+  review,
+  onChanged,
+}: {
+  review: DisputedAdminReview;
+  onChanged: (review: DisputedAdminReview) => void;
+}) {
+  const t = useMessages(reviewMessages);
+  const f = useFormat();
+  const dispute = review.dispute;
+  if (!dispute) return null;
+
+  const resolve = (resolution: 'approved' | 'rejected') => async (note: string) => {
+    await api.patch(`/admin/reviews/${review._id}/dispute`, { resolution, ...(note ? { note } : {}) });
+    toast.success(resolution === 'approved' ? t.disputeApprovedToast : t.disputeRejectedToast);
+    onChanged({
+      ...review,
+      hidden: resolution === 'approved' ? true : review.hidden,
+      dispute: { ...dispute, status: resolution, adminNote: note || dispute.adminNote },
+    });
+  };
+
+  return (
+    <div
+      className={cn(
+        'mt-3 rounded-xl border p-3 text-sm',
+        dispute.status === 'open' ? 'border-amber-200 bg-amber-50' : 'border-border bg-cream/50'
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <DisputeBadge status={dispute.status} />
+        {dispute.openedAt && <span className="text-xs text-muted-grey">{t.disputeOpenedAt(f.dateTime(dispute.openedAt))}</span>}
+      </div>
+      {dispute.message && (
+        <p className="mt-2 whitespace-pre-line break-words text-charcoal">
+          <span className="font-medium">{t.disputeMessage}:</span> {dispute.message}
+        </p>
+      )}
+      {dispute.status === 'open' ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <ConfirmAction
+            trigger={
+              <>
+                <ShieldCheck className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {t.approveDispute}
+              </>
+            }
+            triggerVariant="default"
+            triggerSize="sm"
+            title={t.approveTitle}
+            description={t.approveText}
+            confirmLabel={t.approveDispute}
+            withNote
+            onConfirm={resolve('approved')}
+          />
+          <ConfirmAction
+            trigger={
+              <>
+                <ShieldX className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {t.rejectDispute}
+              </>
+            }
+            triggerSize="sm"
+            title={t.rejectTitle}
+            description={t.rejectText}
+            confirmLabel={t.rejectDispute}
+            withNote
+            onConfirm={resolve('rejected')}
+          />
+        </div>
+      ) : (
+        dispute.adminNote && (
+          <p className="mt-2 text-xs text-muted-grey">
+            {t.disputeAdminNote}: <span className="text-charcoal">{dispute.adminNote}</span>
+          </p>
+        )
+      )}
+    </div>
+  );
+}
+
 /** Review cards with hide/show moderation */
 export function ReviewList({
   reviews,
   onChanged,
   showWorker = true,
 }: {
-  reviews: AdminReview[];
-  onChanged: (review: AdminReview) => void;
+  reviews: DisputedAdminReview[];
+  onChanged: (review: DisputedAdminReview) => void;
   showWorker?: boolean;
 }) {
   const t = useMessages(reviewMessages);
@@ -137,6 +248,7 @@ export function ReviewList({
                 ))}
               </p>
             )}
+            <DisputeBlock review={r} onChanged={onChanged} />
           </li>
         );
       })}

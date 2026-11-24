@@ -4,18 +4,17 @@ import { z } from "zod";
 import Booking from "../models/booking.model.js";
 import Payout from "../models/payout.model.js";
 import User from "../models/user.model.js";
-import { createPayout, displayPayoutStatus } from "../services/payout.service.js";
+import { displayPayoutStatus, payoutTarget, refreshPayout, settleWorker } from "../services/payout.service.js";
 import { recordAudit } from "../services/audit.service.js";
-import { sendPayoutEmail, trySend } from "../services/email.service.js";
 import { WORKER_PAY } from "../config/pricing.js";
 
 // GET /api/v1/admin/payouts/open – unpaid cleaner earnings grouped by cleaner
 export const listOpenPayouts = async (req, res, next) => {
   try {
     const now = new Date();
-    const rows = await Booking.find({ "workerPayout.status": { $in: ["pending", "on_hold"] } })
+    const rows = await Booking.find({ "workerPayout.status": { $in: ["pending", "on_hold", "processing"] } })
       .select("reference preferredDate assignedWorker workerPayout")
-      .populate("assignedWorker", "name email bankAccountLast4 bankAccountHolder")
+      .populate("assignedWorker", "name email bankAccountLast4 bankAccountHolder payoutMethod")
       .sort({ "workerPayout.dueAt": 1 })
       .lean();
 
@@ -26,10 +25,21 @@ export const listOpenPayouts = async (req, res, next) => {
       const key = String(w._id);
       if (!byWorker.has(key)) {
         byWorker.set(key, {
-          worker: { _id: w._id, name: w.name, email: w.email, bankAccountLast4: w.bankAccountLast4, bankAccountHolder: w.bankAccountHolder },
+          worker: {
+            _id: w._id,
+            name: w.name,
+            email: w.email,
+            bankAccountLast4: w.bankAccountLast4,
+            bankAccountHolder: w.bankAccountHolder,
+            // How this cleaner wants to be paid (paypal target is masked)
+            payout: payoutTarget(w),
+          },
           dueCents: 0,
           pendingCents: 0,
           onHoldCents: 0,
+          processingCents: 0,
+          grossCents: 0,
+          commissionCents: 0,
           jobs: [],
         });
       }
@@ -39,12 +49,17 @@ export const listOpenPayouts = async (req, res, next) => {
       const net = (row.workerPayout.amountCents ?? 0) - (row.workerPayout.cashHeldCents ?? 0);
       if (status === "due") group.dueCents += net;
       else if (status === "pending") group.pendingCents += net;
+      else if (status === "processing") group.processingCents += net;
       else group.onHoldCents += net;
+      group.grossCents += row.workerPayout.grossCents ?? 0;
+      group.commissionCents += row.workerPayout.commissionCents ?? 0;
       group.jobs.push({
         _id: row._id,
         reference: row.reference,
         date: row.preferredDate,
         amountCents: row.workerPayout.amountCents,
+        grossCents: row.workerPayout.grossCents ?? null,
+        commissionCents: row.workerPayout.commissionCents ?? null,
         cashHeldCents: row.workerPayout.cashHeldCents ?? 0,
         netCents: net,
         minutes: row.workerPayout.minutes,
@@ -63,6 +78,9 @@ export const listOpenPayouts = async (req, res, next) => {
         dueCents: groups.reduce((s, g) => s + g.dueCents, 0),
         pendingCents: groups.reduce((s, g) => s + g.pendingCents, 0),
         onHoldCents: groups.reduce((s, g) => s + g.onHoldCents, 0),
+        processingCents: groups.reduce((s, g) => s + g.processingCents, 0),
+        grossCents: groups.reduce((s, g) => s + g.grossCents, 0),
+        commissionCents: groups.reduce((s, g) => s + g.commissionCents, 0),
       },
       now,
       groups,
@@ -72,8 +90,10 @@ export const listOpenPayouts = async (req, res, next) => {
   }
 };
 
-// POST /api/v1/admin/payouts  { workerId, bookingIds?, includeNotYetDue?, note? }
-// Call AFTER the bank transfer was made – marks the jobs as paid.
+// POST /api/v1/admin/payouts  { workerId, bookingIds?, includeNotYetDue?, note?, method? }
+//   method "bank"   = the admin made the transfer themselves → recorded as paid
+//   method "paypal" = initiate a payout via the PayPal Payouts API (sandbox/live)
+// Omitted method = the cleaner's own preference.
 export const createWorkerPayout = async (req, res, next) => {
   try {
     const data = z
@@ -82,26 +102,65 @@ export const createWorkerPayout = async (req, res, next) => {
         bookingIds: z.array(z.string().refine((id) => mongoose.isValidObjectId(id))).max(500).optional(),
         includeNotYetDue: z.boolean().optional().default(false),
         note: z.string().trim().max(500).optional().default(""),
+        method: z.enum(["bank", "paypal"]).optional(),
       })
       .parse(req.body);
 
-    const payout = await createPayout({ ...data, adminId: req.user._id });
+    const payout = await settleWorker({ ...data, adminId: req.user._id });
     if (!payout) {
       return res.status(409).json({ success: false, message: "There is nothing to pay out for this cleaner." });
     }
 
-    const worker = await User.findById(data.workerId).select("name email preferredLanguage");
-    if (worker) await trySend("Payout", () => sendPayoutEmail({ worker, payout }));
-
     await recordAudit({
       actor: req.user._id,
-      action: "payout.created",
+      action: payout.status === "failed" ? "payout.failed" : "payout.created",
       entityType: "Payout",
       entityId: payout._id,
-      after: { worker: data.workerId, amountCents: payout.amountCents, jobs: payout.bookings.length },
+      after: {
+        worker: data.workerId,
+        amountCents: payout.amountCents,
+        jobs: payout.bookings.length,
+        provider: payout.provider,
+        status: payout.status,
+        providerBatchId: payout.providerBatchId,
+        failureReason: payout.failureReason,
+      },
     });
 
-    return res.status(201).json({ success: true, message: "Payout recorded.", payout });
+    if (payout.status === "failed") {
+      return res.status(502).json({
+        success: false,
+        message: "The payout was refused by the provider. The earnings are released for a retry.",
+        payout,
+      });
+    }
+    return res.status(201).json({
+      success: true,
+      message: payout.status === "paid" ? "Payout recorded." : "Payout initiated. Refresh to confirm the provider result.",
+      payout,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/v1/admin/payouts/:id/refresh  { forceFail? }
+// Re-check a processing PayPal payout against the provider.
+export const refreshWorkerPayout = async (req, res, next) => {
+  try {
+    const { forceFail } = z.object({ forceFail: z.boolean().optional().default(false) }).parse(req.body ?? {});
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: "Invalid ID." });
+    }
+    const payout = await refreshPayout(req.params.id, { forceFail });
+    await recordAudit({
+      actor: req.user._id,
+      action: "payout.refreshed",
+      entityType: "Payout",
+      entityId: payout._id,
+      after: { status: payout.status, failureReason: payout.failureReason },
+    });
+    return res.json({ success: true, payout });
   } catch (error) {
     next(error);
   }

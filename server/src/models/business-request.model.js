@@ -16,7 +16,7 @@ export const BUSINESS_REQUEST_STATUSES = [
 
 const businessRequestSchema = new mongoose.Schema(
   {
-    reference: { type: String, required: true, unique: true, index: true },
+    reference: { type: String, required: true, unique: true },
 
     company: {
       name: { type: String, required: true, maxlength: 200 },
@@ -82,7 +82,6 @@ const businessRequestSchema = new mongoose.Schema(
       type: String,
       enum: BUSINESS_REQUEST_STATUSES,
       default: "new_request",
-      index: true,
     },
 
     locale: { type: String, enum: ["de", "en", "pl"], default: "de" },
@@ -93,6 +92,7 @@ const businessRequestSchema = new mongoose.Schema(
 );
 
 businessRequestSchema.index({ createdAt: -1 });
+businessRequestSchema.index({ status: 1, createdAt: -1 });
 
 const BusinessRequest = mongoose.model("BusinessRequest", businessRequestSchema);
 

@@ -3,7 +3,7 @@
 import { CheckCircle2, Circle } from 'lucide-react';
 
 import { useMessages } from '@/lib/i18n/client';
-import type { WorkerOverview, WorkerProfile } from '@/lib/types';
+import type { PayoutMethod, WorkerOverview, WorkerProfile } from '@/lib/types';
 
 import messages from '../_messages';
 import { isProfileComplete, useWorkerOverview } from './worker-context';
@@ -47,6 +47,8 @@ export function useOverviewUpdaters() {
             }
           : prev
       ),
+    payoutMethodSaved: (payoutMethod: PayoutMethod) =>
+      setData((prev) => (prev ? { ...prev, worker: { ...prev.worker, payoutMethod } } : prev)),
     bankSaved: (bank: { accountHolder: string; iban: string }) =>
       setData((prev) =>
         prev

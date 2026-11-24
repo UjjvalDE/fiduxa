@@ -4,7 +4,7 @@
 // (once paid), recipient and delivery. Open payments can be retried.
 import { useState } from 'react';
 import Link from 'next/link';
-import { Gift, LoaderCircle, Lock } from 'lucide-react';
+import { Gift, LoaderCircle, Lock, Printer } from 'lucide-react';
 
 import { api } from '@/lib/api';
 import { useFormat, useLocale, useMessages } from '@/lib/i18n/client';
@@ -95,6 +95,16 @@ function GiftCardItem({ card }: { card: CustomerGiftCard }) {
             </div>
           )}
         </dl>
+        {(card.status === 'active' || card.status === 'redeemed') && (
+          <div>
+            <Link
+              href={`/konto/gutscheine/${encodeURIComponent(card.id)}/drucken`}
+              className="button button-quiet button-small min-h-[44px]"
+            >
+              <Printer className="h-4 w-4" aria-hidden="true" /> {t.print.action}
+            </Link>
+          </div>
+        )}
         {card.status === 'pending_payment' && (
           <div className="grid gap-2">
             <button type="button" onClick={pay} disabled={paying} className="button button-small min-h-[44px]">

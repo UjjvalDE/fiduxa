@@ -56,7 +56,9 @@ export const apiClient = (base) => {
  */
 export const startPayPalMock = async () => {
   const orders = new Map();
-  const mock = { orders, nextCapture: "COMPLETED", captures: 0, refunds: 0, created: 0 };
+  const payoutBatches = new Map();
+  // nextPayout: "SUCCESS" (default) | "DENIED" | "PENDING" | "ERROR" (HTTP 422)
+  const mock = { orders, payoutBatches, nextCapture: "COMPLETED", nextPayout: "SUCCESS", captures: 0, refunds: 0, created: 0, payouts: 0 };
   let seq = 0;
   const server = http.createServer(async (req, res) => {
     let raw = "";
@@ -67,6 +69,14 @@ export const startPayPalMock = async () => {
       res.end(JSON.stringify(json));
     };
     if (req.url === "/v1/oauth2/token") return send(200, { access_token: "mock-token", expires_in: 3600 });
+    // Webhook signature verification (mock.nextWebhookVerification = "FAILURE" to reject once)
+    if (req.method === "POST" && req.url === "/v1/notifications/verify-webhook-signature") {
+      const status = mock.nextWebhookVerification ?? "SUCCESS";
+      mock.nextWebhookVerification = "SUCCESS";
+      mock.webhookVerifications = (mock.webhookVerifications ?? 0) + 1;
+      mock.lastWebhookVerification = body;
+      return send(200, { verification_status: status });
+    }
     if (req.method === "POST" && req.url === "/v2/checkout/orders") {
       const id = `MOCK${String(++seq).padStart(6, "0")}`;
       const unit = body.purchase_units[0];
@@ -94,6 +104,41 @@ export const startPayPalMock = async () => {
     if (req.method === "GET" && get) {
       const order = orders.get(get[1]);
       return order ? send(200, orderBody(order, order.status)) : send(404, {});
+    }
+    // ---- Payouts API (cleaner settlements) ----
+    if (req.method === "POST" && req.url === "/v1/payments/payouts") {
+      const senderId = body.sender_batch_header?.sender_batch_id;
+      if ([...payoutBatches.values()].some((b) => b.senderId === senderId)) {
+        return send(400, { name: "USER_BUSINESS_ERROR", message: "sender_batch_id already submitted" });
+      }
+      if (mock.nextPayout === "ERROR") {
+        mock.nextPayout = "SUCCESS";
+        return send(422, { name: "VALIDATION_ERROR", message: "Payout refused by mock" });
+      }
+      const batchId = `PB${String(++seq).padStart(6, "0")}`;
+      const behaviour = mock.nextPayout;
+      mock.nextPayout = "SUCCESS";
+      mock.payouts++;
+      payoutBatches.set(batchId, { batchId, senderId, item: body.items[0], behaviour, polls: 0 });
+      return send(201, { batch_header: { payout_batch_id: batchId, batch_status: "PENDING" } });
+    }
+    const payoutGet = req.url.match(/^\/v1\/payments\/payouts\/([^/?]+)/);
+    if (req.method === "GET" && payoutGet) {
+      const batch = payoutBatches.get(payoutGet[1]);
+      if (!batch) return send(404, { name: "RESOURCE_NOT_FOUND" });
+      batch.polls++;
+      const status = batch.behaviour === "PENDING" && batch.polls < 7 ? "PENDING" : batch.behaviour === "DENIED" ? "DENIED" : "SUCCESS";
+      return send(200, {
+        batch_header: { payout_batch_id: batch.batchId, batch_status: status },
+        items: [
+          {
+            payout_item_id: `PI${batch.batchId}`,
+            transaction_id: status === "SUCCESS" ? `TX${batch.batchId}` : null,
+            transaction_status: status === "DENIED" ? "DENIED" : status === "SUCCESS" ? "SUCCESS" : "PENDING",
+            ...(status === "DENIED" && { errors: { message: "Receiver is unable to receive payouts (mock)" } }),
+          },
+        ],
+      });
     }
     if (req.method === "POST" && /^\/v2\/payments\/captures\/[^/]+\/refund$/.test(req.url)) {
       mock.refunds++;

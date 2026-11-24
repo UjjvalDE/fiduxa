@@ -15,6 +15,7 @@ import {
   LoaderCircle,
   MessageSquare,
   PawPrint,
+  Repeat,
   Search,
   Sparkles,
   TimerOff,
@@ -28,7 +29,7 @@ import { translateApiError } from '@/lib/i18n/api-errors';
 import catalogue from '@/lib/i18n/messages/catalogue';
 import common from '@/lib/i18n/messages/common';
 import profileMessages from '@/lib/i18n/messages/profile';
-import type { Booking, BookingPayment, BookingStatus, CleanerCard as CleanerCardData, CustomerReview, PublicPricing } from '@/lib/types';
+import type { Booking, BookingPayment, BookingStatus, BookingWithSeries, CleanerCard as CleanerCardData, CustomerReview, PublicPricing } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { CleanerAvatar } from '@/componets/site/cleaner-avatar';
 import { MessageThread } from '@/componets/site/message-thread';
@@ -49,9 +50,11 @@ import { EstimateBreakdown } from '../../buchung/_components/estimate-panel';
 import { PricingBreakdown } from '../../_shared/price-breakdown';
 import { HoldCountdown } from '../../zahlung/_components/countdown';
 import messages from '../_messages';
+import putzplanMessages from '../_putzplan-messages';
 import feedbackMessages from './feedback-messages';
 import { slotRange } from '../../_shared/slot-range';
 import { ReviewSection } from './review-section';
+import { EditBooking } from './booking-edit';
 import {
   DEFAULT_CANCELLATION_HOURS,
   bookingAmount,
@@ -62,6 +65,7 @@ import {
   needsPayment,
   nextActionKey,
   paymentHref,
+  slotStartInstant,
 } from './booking-helpers';
 
 function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
@@ -118,6 +122,7 @@ export function BookingDetail({ id }: { id: string }) {
   const cancellationHours = useCancellationHours();
 
   const tf = useMessages(feedbackMessages);
+  const tpp = useMessages(putzplanMessages);
   const [detail, setDetail] = useState<Omit<BookingDetailResponse, 'booking'>>({ cleaner: null, review: null, canReview: false, unreadMessages: 0 });
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
@@ -149,15 +154,18 @@ export function BookingDetail({ id }: { id: string }) {
     load();
   }, [load]);
 
-  // Content loads client-side, so jump to #nachrichten / #bewertung (email links) once it is there
+  // Content loads client-side, so jump to #nachrichten / #bewertung (email links)
+  // or to the review form (?feedback=1 from the feedback email) once it is there
   const loaded = Boolean(booking);
   const scrolledToHash = useRef(false);
   useEffect(() => {
     if (!loaded || scrolledToHash.current) return;
     scrolledToHash.current = true;
     const hash = window.location.hash.slice(1);
-    if (!hash) return;
-    window.requestAnimationFrame(() => document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    const feedback = new URLSearchParams(window.location.search).get('feedback') === '1';
+    const target = hash || (feedback ? 'bewertung' : '');
+    if (!target) return;
+    window.requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }, [loaded]);
 
   const onMessagesRead = useCallback(() => setDetail((d) => (d.unreadMessages ? { ...d, unreadMessages: 0 } : d)), []);
@@ -185,6 +193,11 @@ export function BookingDetail({ id }: { id: string }) {
   const expired = isHoldExpired(booking);
   const canCancel = isCancellableStatus(booking.status) && !expired;
   const beforeCutoff = isBeforeCutoff(booking, cancellationHours);
+  // Mirror of the server rule for PATCH /customer/bookings/:id (server still enforces):
+  // editable statuses and more than the cutoff (24 h) before the start
+  const editStart = slotStartInstant(booking.preferredDate, booking.slot);
+  const canEdit =
+    isCancellableStatus(booking.status) && !expired && (!editStart || Date.now() < editStart.getTime() - cancellationHours * 3600 * 1000);
   const worker = booking.assignedWorker && typeof booking.assignedWorker === 'object' ? booking.assignedWorker : null;
   const history = (booking.statusHistory ?? []).slice().sort((a, b) => new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime());
   const isLegacy = nextActionKey(booking.status) === 'legacy';
@@ -202,23 +215,49 @@ export function BookingDetail({ id }: { id: string }) {
             <h1 className="!m-0 !text-2xl !leading-tight sm:!text-3xl">{tc.services[booking.serviceId] ?? booking.serviceId}</h1>
             <StatusBadge kind="booking" status={booking.status} />
             {booking.payment && !isLegacy && booking.status !== 'expired' && <StatusBadge kind="payment" status={booking.payment.status} />}
+            {(booking as BookingWithSeries).series && (
+              <Link
+                href="/konto/putzplan"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-sage bg-mint px-2.5 py-0.5 text-xs font-semibold text-pine-dark hover:border-pine"
+              >
+                <Repeat className="h-3 w-3" aria-hidden="true" /> {tpp.chip}
+              </Link>
+            )}
           </div>
           <p className="mb-0 mt-2 text-sm text-muted-grey">
             {t.detail.reference} <strong className="text-pine-dark">{booking.reference}</strong> · {t.detail.bookedAt(f.dateTime(booking.createdAt))}
           </p>
           {!payNow && !expired && <p className="mb-0 mt-2 text-sm text-charcoal">{t.nextAction[nextActionKey(booking.status)]}</p>}
         </div>
-        {canCancel &&
-          (beforeCutoff ? (
-            <CancelBooking booking={booking} cancellationHours={cancellationHours} onDone={setBooking} />
-          ) : (
-            <p className="m-0 max-w-xs text-xs leading-relaxed text-muted-grey sm:text-right">
-              {t.cancel.tooLate(cancellationHours)}{' '}
-              <Link href="/kontakt" className="font-bold text-pine underline underline-offset-2">
-                {t.detail.contact_link}
+        {(canEdit || canCancel || booking.status === 'completed') && (
+          <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+            {booking.status === 'completed' && HOUSEHOLD_IDS.includes(booking.serviceId) && (
+              <Link href={`/buchung?rebook=${encodeURIComponent(booking._id)}`} className="button button-small" data-testid="rebook">
+                <CalendarPlus className="h-4 w-4" aria-hidden="true" /> {t.detail.rebook}
               </Link>
-            </p>
-          ))}
+            )}
+            {canEdit && (
+              <EditBooking
+                booking={booking}
+                onSaved={(next) => {
+                  setBooking(next);
+                  load();
+                }}
+              />
+            )}
+            {canCancel &&
+              (beforeCutoff ? (
+                <CancelBooking booking={booking} cancellationHours={cancellationHours} onDone={setBooking} />
+              ) : (
+                <p className="m-0 max-w-xs text-xs leading-relaxed text-muted-grey sm:text-right">
+                  {t.cancel.tooLate(cancellationHours)}{' '}
+                  <Link href="/kontakt" className="font-bold text-pine underline underline-offset-2">
+                    {t.detail.contact_link}
+                  </Link>
+                </p>
+              ))}
+          </div>
+        )}
       </header>
 
       {detail.unreadMessages > 0 && (
@@ -245,6 +284,8 @@ export function BookingDetail({ id }: { id: string }) {
             cleanerName={detail.cleaner?.firstName ?? (worker ? firstName(worker.name) : '')}
             review={detail.review}
             canReview={detail.canReview}
+            plannedDurationMinutes={booking.estimate?.durationMinutes ?? null}
+            recurring={booking.frequency !== 'one-time'}
             onSaved={(review) => setDetail((d) => ({ ...d, review, canReview: false }))}
           />
           <Card title={t.detail.appointmentTitle}>
@@ -476,6 +517,8 @@ function BackLink() {
     </Link>
   );
 }
+
+const HOUSEHOLD_IDS: string[] = ['home-cleaning', 'deep-cleaning', 'end-of-tenancy'];
 
 /* ---------- Pay now (payment_pending with an active hold) ---------- */
 function PayNowCard({ booking, onHoldExpired }: { booking: Booking; onHoldExpired: () => void }) {

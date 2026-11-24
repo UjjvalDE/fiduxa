@@ -11,7 +11,6 @@ const contactMessageSchema = new mongoose.Schema(
       type: String,
       enum: ["new", "in_progress", "closed"],
       default: "new",
-      index: true,
     },
     privacyAcceptedAt: { type: Date, required: true },
   },
@@ -19,6 +18,7 @@ const contactMessageSchema = new mongoose.Schema(
 );
 
 contactMessageSchema.index({ createdAt: -1 });
+contactMessageSchema.index({ status: 1, createdAt: -1 });
 
 const ContactMessage = mongoose.model("ContactMessage", contactMessageSchema);
 

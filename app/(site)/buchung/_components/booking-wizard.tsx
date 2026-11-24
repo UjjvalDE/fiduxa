@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 import { ApiError, api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useFormat, useLocale, useMessages } from '@/lib/i18n/client';
-import type { Condition, Frequency, GiftCardConfig, PaymentMethod, Quote, Slot, User } from '@/lib/types';
+import type { Booking, Condition, Frequency, GiftCardConfig, PaymentMethod, Quote, Slot, User } from '@/lib/types';
 import { useApi } from '@/app/admin/_components/use-api';
 import pricingMessages from '../../_shared/pricing-messages';
 import { normalizeGiftCode } from '../../_shared/promotions';
@@ -60,7 +60,6 @@ import {
   type HouseholdServiceId,
 } from '../_lib/wizard';
 import { SummaryCard, SummaryMobileBar, type SummaryData } from './estimate-panel';
-import { WelcomeHint } from './checkout-discounts';
 import { WizardProgress } from './wizard-progress';
 import { Confirmation, type CreatedBooking } from './steps/confirmation';
 import { StepCheckout } from './steps/step-checkout';
@@ -114,6 +113,11 @@ export function BookingWizard() {
   const [timeNote, setTimeNote] = useState<string | null>(null);
   /** Applied discount code ('' = none) and entered gift card codes (in order) */
   const [promoCode, setPromoCode] = useState('');
+  // Link from the welcome email: /buchung?code=FX-XXXX-XXXX prefills the code field
+  const codeFromLink = params.get('code');
+  useEffect(() => {
+    if (codeFromLink) setPromoCode(codeFromLink.trim().toUpperCase().slice(0, 40));
+  }, [codeFromLink]);
   const [giftCodes, setGiftCodes] = useState<string[]>([]);
   /** Shown above the price after the server re-priced on submit */
   const [priceNotice, setPriceNotice] = useState<string | null>(null);
@@ -125,6 +129,8 @@ export function BookingWizard() {
   const pendingCard = useRef<string | null>(null);
   const autoAdvance = useRef(false);
   const range = useMemo(() => bookableRange(), []);
+  const pristine = useRef(false);
+  const prefilled = useRef(false);
 
   /* ---------- Hydrate from sessionStorage + query params ---------- */
   useEffect(() => {
@@ -143,6 +149,8 @@ export function BookingWizard() {
     if (next.step > STEP_POSTCODE && !(next.serviceId && next.verifiedPostcode === next.postcode)) next = { ...next, step: STEP_POSTCODE };
     if (next.step > STEP_DETAILS && !(isAreaValid(next.areaM2) && next.date && next.windowId && next.startTime)) next = { ...next, step: STEP_DETAILS };
 
+    // A completely empty draft may be prefilled from the saved household profile
+    pristine.current = next === EMPTY_DRAFT && !service && !validPlz;
     setDraft(next);
     setHydrated(true);
     // Only on first mount – later param changes are not expected on this page
@@ -180,20 +188,35 @@ export function BookingWizard() {
     return {
       serviceId: draft.serviceId,
       areaM2: draft.areaM2,
+      ...(draft.bathrooms > 1 ? { bathrooms: draft.bathrooms } : {}),
       condition: draft.condition,
       frequency: draft.frequency,
       extras: draft.extras,
       ...(draft.durationTouched && draft.durationMinutes != null ? { durationMinutes: draft.durationMinutes } : {}),
     };
-  }, [draft.serviceId, draft.areaM2, draft.condition, draft.frequency, draft.extras, draft.durationTouched, draft.durationMinutes, frequencyAllowed]);
+  }, [draft.serviceId, draft.areaM2, draft.bathrooms, draft.condition, draft.frequency, draft.extras, draft.durationTouched, draft.durationMinutes, frequencyAllowed]);
+
+  // The extras catalogue is service-specific: after a service switch, drop
+  // selections the new service does not offer (and re-derive the duration).
+  useEffect(() => {
+    if (!extras.extras) return;
+    const valid = new Set(extras.extras.map((e) => e.id));
+    setDraft((d) => {
+      const kept = d.extras.filter((id) => valid.has(id));
+      return kept.length === d.extras.length ? d : { ...d, extras: kept, durationMinutes: null, durationTouched: false };
+    });
+  }, [extras.extras]);
 
   const estimate = useEstimate(estimateInput);
 
   /* ---------- Duration: manual value or recommendation (server wins, preview meanwhile) ---------- */
   const p = pricing.pricing;
   const preview = useMemo(
-    () => (p && extras.extras && estimateInput ? previewEstimate(p, extras.extras, estimateInput) : null),
-    [p, extras.extras, estimateInput]
+    () =>
+      p && extras.extras && estimateInput
+        ? previewEstimate(p, extras.extras, { ...estimateInput, serviceTimeFactor: service?.timeFactor })
+        : null,
+    [p, extras.extras, estimateInput, service?.timeFactor]
   );
   const serverEstimate = estimate.isCurrent ? estimate.estimate : null;
   const shownEstimate = serverEstimate ?? preview ?? estimate.estimate;
@@ -303,6 +326,53 @@ export function BookingWizard() {
     }));
   }, [status, user]);
 
+  /* ---------- Household profile / rebook prefill (logged-in customers) ---------- */
+  const rebookId = params.get('rebook');
+  useEffect(() => {
+    if (!hydrated || prefilled.current || status !== 'authenticated' || !user || user.role !== 'consumer') return;
+    const rebook = rebookId && /^[a-f\d]{24}$/i.test(rebookId) ? rebookId : null;
+    if (!rebook && !pristine.current) return;
+    prefilled.current = true;
+    void (async () => {
+      try {
+        if (rebook) {
+          const res = await api.get<{ booking: Booking }>(`/customer/bookings/${rebook}`);
+          const b = res.booking;
+          if (isHouseholdService(b.serviceId)) {
+            setDraft((d) => ({
+              ...d,
+              serviceId: b.serviceId as HouseholdServiceId,
+              areaM2: b.areaM2,
+              bathrooms: b.bathrooms ?? 1,
+              condition: b.condition,
+              extras: b.extras ?? [],
+              pets: typeof b.pets === 'boolean' ? b.pets : d.pets,
+              step: STEP_POSTCODE,
+            }));
+          }
+        }
+        const res = await api.get<{ household: { areaM2?: number; condition?: Condition; extras?: string[]; notes?: string; pets?: boolean; accessNotes?: string; address?: string; postcode?: string } | null }>('/users/me/household');
+        const h = res.household;
+        if (!h) return;
+        setDraft((d) =>
+          rebook
+            ? { ...d, postcode: d.postcode || h.postcode || '', pets: d.pets ?? (typeof h.pets === 'boolean' ? h.pets : null) }
+            : {
+                ...d,
+                areaM2: h.areaM2 ?? d.areaM2,
+                condition: h.condition ?? d.condition,
+                extras: h.extras ?? d.extras,
+                postcode: d.postcode || h.postcode || '',
+                pets: typeof h.pets === 'boolean' ? h.pets : d.pets,
+              }
+        );
+        setContact((c) => ({ ...c, address: c.address || h.address || '', notes: c.notes || h.notes || '', accessNotes: c.accessNotes || h.accessNotes || '' }));
+      } catch {
+        /* prefill is a convenience – the wizard works without it */
+      }
+    })();
+  }, [hydrated, status, user, rebookId]);
+
   /* ---------- Focus & scroll management ---------- */
   useEffect(() => {
     if (pendingCard.current) {
@@ -348,6 +418,14 @@ export function BookingWizard() {
   const update = <K extends keyof Draft>(key: K, value: Draft[K], clear: string[] = []) => {
     setDraft((d) => ({ ...d, [key]: value }));
     if (clear.length) clearErrors(clear);
+  };
+
+  // Size, condition and extras drive the recommended duration. When one of
+  // them changes, a manually chosen duration is discarded so the duration –
+  // and with it the price – follows the new inputs again.
+  const updateSizing = <K extends keyof Draft>(key: K, value: Draft[K], clear: string[] = []) => {
+    setDraft((d) => (d[key] === value ? d : { ...d, [key]: value, durationMinutes: null, durationTouched: false }));
+    clearErrors([...clear, 'durationMinutes']);
   };
 
   /* ---------- Postcode ---------- */
@@ -520,6 +598,7 @@ export function BookingWizard() {
       const body = {
         serviceId: draft.serviceId,
         areaM2: draft.areaM2,
+        bathrooms: draft.bathrooms,
         condition: draft.condition,
         frequency: draft.frequency,
         extras: draft.extras,
@@ -547,6 +626,19 @@ export function BookingWizard() {
       setPriceNotice(null);
       const res = await api.post<CreateBookingResponse>('/bookings', body);
       clearDraft();
+      // Remember the household for next time (best effort)
+      await api
+        .put('/users/me/household', {
+          areaM2: draft.areaM2,
+          condition: draft.condition,
+          extras: draft.extras,
+          pets: draft.pets === true,
+          address: contact.address.trim(),
+          postcode: draft.postcode,
+          notes: contact.notes.trim(),
+          accessNotes: contact.accessNotes.trim(),
+        })
+        .catch(() => undefined);
 
       if (res.checkoutUrl) {
         // Stripe hosted checkout / PayPal approval – keep the button in its "redirecting" state
@@ -703,7 +795,9 @@ export function BookingWizard() {
     return (
       <section className="bg-cream py-10 sm:py-16">
         <div className="shell" ref={topRef}>
-          <Confirmation booking={created} headingRef={headingRef} email={createdEmail} />
+          <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-safe:ease-out">
+            <Confirmation booking={created} headingRef={headingRef} email={createdEmail} />
+          </div>
         </div>
       </section>
     );
@@ -744,12 +838,13 @@ export function BookingWizard() {
         <WizardProgress step={draft.step} onSelect={goToStep} locked={submitting} />
 
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="min-w-0">
+          {/* Keyed on the step: a short fade + 4 px slide-up on step change (CSS only, no layout shift) */}
+          <div key={draft.step} className="min-w-0 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-safe:ease-out">
             {draft.step === STEP_POSTCODE && (
               <StepService
                 headingRef={headingRef}
                 serviceId={draft.serviceId}
-                onServiceChange={(id: HouseholdServiceId) => update('serviceId', id, ['serviceId'])}
+                onServiceChange={(id: HouseholdServiceId) => updateSizing('serviceId', id, ['serviceId'])}
                 postcode={draft.postcode}
                 onPostcodeChange={onPostcodeChange}
                 postcodeStatus={postcodeVerified ? 'ok' : plzStatus}
@@ -777,9 +872,11 @@ export function BookingWizard() {
                 frequency={draft.frequency}
                 onFrequencyChange={(f: Frequency) => update('frequency', f, ['frequency'])}
                 areaM2={draft.areaM2}
-                onAreaChange={(a) => update('areaM2', a, ['areaM2'])}
+                onAreaChange={(a) => updateSizing('areaM2', a, ['areaM2'])}
+                bathrooms={draft.bathrooms}
+                onBathroomsChange={(n) => updateSizing('bathrooms', n)}
                 condition={draft.condition}
-                onConditionChange={(c: Condition) => update('condition', c, ['condition'])}
+                onConditionChange={(c: Condition) => updateSizing('condition', c, ['condition'])}
                 pets={draft.pets}
                 onPetsChange={(p) => update('pets', p, ['pets'])}
                 duration={durationState}
@@ -794,11 +891,12 @@ export function BookingWizard() {
                 onRetryExtras={extras.reload}
                 selectedExtras={draft.extras}
                 onToggleExtra={(id, checked) => {
-                  setDraft((d) => ({
-                    ...d,
-                    extras: checked ? (d.extras.includes(id) ? d.extras : d.extras.concat(id)) : d.extras.filter((x) => x !== id),
-                  }));
-                  clearErrors(['extras']);
+                  setDraft((d) => {
+                    if (checked === d.extras.includes(id)) return d;
+                    const extras = checked ? d.extras.concat(id) : d.extras.filter((x) => x !== id);
+                    return { ...d, extras, durationMinutes: null, durationTouched: false };
+                  });
+                  clearErrors(['extras', 'durationMinutes']);
                 }}
                 availabilityDuration={availabilityDuration}
                 days={availableDays.days}
@@ -918,24 +1016,7 @@ export function BookingWizard() {
             </div>
           </div>
 
-          <SummaryCard
-            data={summaryData}
-            state={displayState}
-            quote={quote}
-            hasInput={hasEstimateInput}
-            aside={
-              draft.step !== STEP_CHECKOUT ? (
-                <WelcomeHint
-                  quote={quote}
-                  user={user}
-                  authStatus={status}
-                  compact
-                  registerHref={`/registrieren?next=${encodeURIComponent('/buchung')}`}
-                  loginHref={`/login?next=${encodeURIComponent('/buchung')}`}
-                />
-              ) : null
-            }
-          />
+          <SummaryCard data={summaryData} state={displayState} quote={quote} hasInput={hasEstimateInput} />
         </div>
       </div>
       <SummaryMobileBar data={summaryData} state={displayState} quote={quote} hasInput={hasEstimateInput} />

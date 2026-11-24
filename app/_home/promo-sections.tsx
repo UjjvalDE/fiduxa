@@ -1,7 +1,7 @@
 // Reusable homepage sections for live promotions (server components):
 //   <CampaignHero promo />      placement "hero" (highest priority)
 //   <PromoBannerStrip promos /> placement "banner"
-//   <OffersSection promos />    placement "card" incl. the welcome offer
+//   <OffersSection promos />    placement "card" (campaign cards from the API)
 //   <GiftCardPromo />           gift card teaser → /gutscheine
 // Every campaign text, code and value comes from the API (pickText → locale, de fallback).
 import Link from 'next/link';
@@ -196,7 +196,7 @@ export function CampaignHero({ promo, locale, t, children }: { promo: PromotionB
                 className="aspect-[3/2] h-auto w-full object-cover"
                 referrerPolicy="no-referrer"
                 decoding="async"
-                {...{ fetchpriority: 'high' }}
+                fetchPriority="high"
               />
             </div>
           ) : (
@@ -268,15 +268,17 @@ export function PromoBannerStrip({ promos, locale, t }: { promos: PromotionBanne
   );
 }
 
-/* ---------- Offer cards (welcome offer + seasonal cards) ---------- */
+/* ---------- Offer cards (seasonal campaign cards) ---------- */
 export function OffersSection({ promos, locale, t }: { promos: PromotionBanner[]; locale: Locale; t: PromoMessages }) {
-  if (promos.length === 0) return null;
+  // The welcome offer is pitched in the booking checkout and in the account
+  // area only – the homepage shows campaign cards from the API.
+  const cards = promos.filter((promo) => promo.kind !== 'welcome');
+  if (cards.length === 0) return null;
   return (
     <section className="bg-white py-14 sm:py-16" aria-label={t.campaign.offersLabel}>
-      <div className={`shell grid gap-5 ${promos.length > 1 ? 'md:grid-cols-2' : ''}`}>
-        {promos.map((promo) => {
+      <div className={`shell grid gap-5 ${cards.length > 1 ? 'md:grid-cols-2' : ''}`}>
+        {cards.map((promo) => {
           const theme = themeOf(promo);
-          const welcome = promo.kind === 'welcome';
           const title = pickText(promo.title, locale);
           const text = pickText(promo.text, locale);
           const cta = pickText(promo.ctaText, locale);
@@ -296,7 +298,7 @@ export function OffersSection({ promos, locale, t }: { promos: PromotionBanner[]
                 {badge}
               </span>
               <div className="grid min-w-0 gap-2">
-                {(welcome || promo.firstBookingOnly) && (
+                {promo.firstBookingOnly && (
                   <span className="text-[11px] font-extrabold uppercase tracking-[0.14em]" style={{ color: theme.muted }}>
                     {t.campaign.firstBooking}
                   </span>

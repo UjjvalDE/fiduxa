@@ -384,7 +384,7 @@ export function WorkerPayouts({ workerId }: { workerId: string }) {
       ) : !data || data.payouts.length === 0 ? (
         <p className="text-sm text-muted-grey">{t.payoutsEmpty}</p>
       ) : (
-        <PayoutHistoryTable payouts={data.payouts} showWorker={false} />
+        <PayoutHistoryTable payouts={data.payouts} showWorker={false} onChanged={reload} />
       )}
     </SectionCard>
   );

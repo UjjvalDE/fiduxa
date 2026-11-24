@@ -14,6 +14,8 @@ import type { Booking } from '@/lib/types';
 import adminMessages from '../../_messages';
 import bookingMessages, { LANGUAGE_NAMES } from '../_messages';
 import { AdminNotes, AssignWorker, StatusActions } from '../../_components/booking-actions';
+import { EditBookingButton } from '../../_components/booking-edit';
+import { ChangeLogCard, FeedbackCard } from '../../_components/booking-insights';
 import { QuotationHistory } from '../../_components/booking-quotation';
 import { BookingPaymentCard } from '../../_components/booking-payment';
 import { BookingPricingCard } from '../../_components/booking-pricing';
@@ -158,13 +160,16 @@ export default function AdminBookingDetailPage({ params }: { params: { id: strin
         }
         description={`${serviceName} · ${f.dateLong(b.preferredDate)} · ${slotLabel} · ${t.detail.received(f.dateTime(b.createdAt))}`}
         actions={
-          <Link
-            href={`/admin/protokoll?entityId=${b._id}`}
-            className="inline-flex items-center gap-2 rounded-md border border-input bg-white px-3 py-2 text-sm font-medium text-pine hover:bg-mint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <ScrollText className="h-4 w-4" aria-hidden="true" />
-            {t.detail.audit}
-          </Link>
+          <>
+            <EditBookingButton booking={b} onChanged={reload} />
+            <Link
+              href={`/admin/protokoll?entityId=${b._id}`}
+              className="inline-flex items-center gap-2 rounded-md border border-input bg-white px-3 py-2 text-sm font-medium text-pine hover:bg-mint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ScrollText className="h-4 w-4" aria-hidden="true" />
+              {t.detail.audit}
+            </Link>
+          </>
         }
       />
 
@@ -313,7 +318,9 @@ export default function AdminBookingDetailPage({ params }: { params: { id: strin
             </SectionCard>
           )}
 
+          <FeedbackCard booking={b} />
           <AdminNotes booking={b} />
+          <ChangeLogCard booking={b} />
           <StatusTimeline booking={b} />
 
           <Link

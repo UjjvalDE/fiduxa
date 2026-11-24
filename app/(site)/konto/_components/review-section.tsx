@@ -10,9 +10,10 @@ import { useFormat, useLocale, useMessages } from '@/lib/i18n/client';
 import { translateApiError } from '@/lib/i18n/api-errors';
 import profileMessages from '@/lib/i18n/messages/profile';
 import type { CustomerReview } from '@/lib/types';
+import { cn } from '@/lib/utils';
 import { StarDisplay, StarInput } from '@/componets/site/star-rating';
 import { Textarea } from '@/componets/ui/tesxtarea';
-import { ErrorBox, FieldError, textareaClass } from '../../buchung/_components/form-field';
+import { ErrorBox, FieldError, inputClass, textareaClass } from '../../buchung/_components/form-field';
 import feedbackMessages from './feedback-messages';
 
 const MAX_COMMENT = 1000;
@@ -24,12 +25,18 @@ export function ReviewSection({
   cleanerName,
   review,
   canReview,
+  plannedDurationMinutes,
+  recurring,
   onSaved,
 }: {
   bookingId: string;
   cleanerName: string;
   review: CustomerReview | null;
   canReview: boolean;
+  /** Booked duration – prefill for "how long did it actually take?" */
+  plannedDurationMinutes?: number | null;
+  /** Recurring booking → ask who should clean next time */
+  recurring?: boolean;
   onSaved: (review: CustomerReview) => void;
 }) {
   const t = useMessages(feedbackMessages).review;
@@ -59,6 +66,8 @@ export function ReviewSection({
         <ReviewForm
           bookingId={bookingId}
           cleanerName={cleanerName}
+          plannedDurationMinutes={plannedDurationMinutes ?? null}
+          recurring={Boolean(recurring)}
           onSaved={(r) => {
             setJustSaved(true);
             onSaved(r);
@@ -99,13 +108,36 @@ function SavedReview({ review }: { review: CustomerReview }) {
   );
 }
 
-function ReviewForm({ bookingId, cleanerName, onSaved }: { bookingId: string; cleanerName: string; onSaved: (review: CustomerReview) => void }) {
+type KeepCleaner = 'same' | 'different' | 'auto';
+const KEEP_OPTIONS: KeepCleaner[] = ['same', 'different', 'auto'];
+const MIN_ACTUAL_MINUTES = 15;
+const MAX_ACTUAL_MINUTES = 1440;
+
+function ReviewForm({
+  bookingId,
+  cleanerName,
+  plannedDurationMinutes,
+  recurring,
+  onSaved,
+}: {
+  bookingId: string;
+  cleanerName: string;
+  plannedDurationMinutes: number | null;
+  recurring: boolean;
+  onSaved: (review: CustomerReview) => void;
+}) {
   const t = useMessages(feedbackMessages).review;
   const tp = useMessages(profileMessages);
   const { locale } = useLocale();
+  const f = useFormat();
   const [rating, setRating] = useState(0);
   const [details, setDetails] = useState<Record<Detail, number>>({ punctuality: 0, quality: 0, friendliness: 0 });
   const [comment, setComment] = useState('');
+  // Optional follow-up questions (actual duration prefilled with the plan)
+  const [durH, setDurH] = useState(() => (plannedDurationMinutes != null ? String(Math.floor(plannedDurationMinutes / 60)) : ''));
+  const [durM, setDurM] = useState(() => (plannedDurationMinutes != null ? String(plannedDurationMinutes % 60) : ''));
+  const [recommend, setRecommend] = useState<boolean | null>(null);
+  const [keepCleaner, setKeepCleaner] = useState<KeepCleaner | ''>('');
   const [ratingError, setRatingError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -123,6 +155,19 @@ function ReviewForm({ bookingId, cleanerName, onSaved }: { bookingId: string; cl
       setError(t.tooLong);
       return;
     }
+    // Optional actual duration – validated only when the customer filled it in
+    let actualDurationMinutes: number | null = null;
+    if (durH.trim() !== '' || durM.trim() !== '') {
+      const h = Number(durH.trim() || 0);
+      const m = Number(durM.trim() || 0);
+      const total = h * 60 + m;
+      if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || m < 0 || m > 59 || total < MIN_ACTUAL_MINUTES || total > MAX_ACTUAL_MINUTES) {
+        setError(t.durationInvalid);
+        document.getElementById('review-duration-hours')?.focus();
+        return;
+      }
+      actualDurationMinutes = total;
+    }
     busyRef.current = true;
     setBusy(true);
     setError(null);
@@ -131,6 +176,9 @@ function ReviewForm({ bookingId, cleanerName, onSaved }: { bookingId: string; cl
       DETAILS.forEach((d) => {
         if (details[d] > 0) body[d] = details[d];
       });
+      if (actualDurationMinutes != null) body.actualDurationMinutes = actualDurationMinutes;
+      if (recommend != null) body.recommend = recommend;
+      if (recurring && keepCleaner) body.keepCleaner = keepCleaner;
       const res = await api.post<{ review?: CustomerReview; message?: string }>(`/customer/bookings/${encodeURIComponent(bookingId)}/review`, body);
       const saved: CustomerReview = res.review ?? {
         rating,
@@ -186,6 +234,106 @@ function ReviewForm({ bookingId, cleanerName, onSaved }: { bookingId: string; cl
               onChange={(v) => setDetails((prev) => ({ ...prev, [d]: v }))}
             />
           ))}
+        </div>
+      </fieldset>
+
+      {/* Follow-up questions (all optional, sent with the same review POST) */}
+      <fieldset className="m-0 min-w-0 border-0 border-t border-border p-0 pt-4">
+        <legend className="sr-only">{t.moreLegend}</legend>
+        <p className="mb-3 mt-0 text-sm font-bold text-pine-dark" aria-hidden="true">
+          {t.moreLegend}
+        </p>
+        <div className="grid gap-5">
+          <div className="grid gap-1.5">
+            <span id="review-duration-label" className="text-sm font-semibold text-charcoal">
+              {t.durationQuestion}
+            </span>
+            <div role="group" aria-labelledby="review-duration-label" className="flex flex-wrap items-center gap-2">
+              <input
+                id="review-duration-hours"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={24}
+                step={1}
+                value={durH}
+                onChange={(e) => setDurH(e.target.value)}
+                aria-label={t.durationHours}
+                className={cn(inputClass, 'w-20 border px-3 text-center')}
+              />
+              <span className="text-sm text-muted-grey">{t.durationHours}</span>
+              <input
+                id="review-duration-minutes"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={59}
+                step={5}
+                value={durM}
+                onChange={(e) => setDurM(e.target.value)}
+                aria-label={t.durationMinutes}
+                className={cn(inputClass, 'w-20 border px-3 text-center')}
+              />
+              <span className="text-sm text-muted-grey">{t.durationMinutes}</span>
+            </div>
+            {plannedDurationMinutes != null && <p className="m-0 text-xs text-muted-grey">{t.durationPlanned(f.hours(plannedDurationMinutes))}</p>}
+          </div>
+
+          <div className="grid gap-1.5">
+            <span id="review-recommend-label" className="text-sm font-semibold text-charcoal">
+              {t.recommendQuestion}
+            </span>
+            <div role="group" aria-labelledby="review-recommend-label" className="flex gap-2">
+              {([true, false] as const).map((value) => {
+                const active = recommend === value;
+                return (
+                  <button
+                    key={String(value)}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setRecommend(active ? null : value)}
+                    className={cn(
+                      'min-h-[44px] rounded-full border px-5 text-sm font-bold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pine',
+                      active ? 'border-pine bg-pine text-white' : 'border-border bg-white text-pine-dark hover:border-sage hover:bg-mint'
+                    )}
+                  >
+                    {value ? t.yes : t.no}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {recurring && (
+            <fieldset className="m-0 min-w-0 border-0 p-0">
+              <legend className="p-0 text-sm font-semibold text-charcoal">{t.keepCleanerQuestion}</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {KEEP_OPTIONS.map((value) => {
+                  const checked = keepCleaner === value;
+                  const label = value === 'same' ? t.keepSame : value === 'different' ? t.keepDifferent : t.keepAuto;
+                  return (
+                    <label
+                      key={value}
+                      className={cn(
+                        'flex cursor-pointer items-center gap-2 rounded-[12px] border p-3 text-sm transition-colors',
+                        checked ? 'border-pine bg-mint font-semibold text-pine-dark' : 'border-border bg-white text-charcoal hover:border-sage'
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="review-keep-cleaner"
+                        value={value}
+                        checked={checked}
+                        onChange={() => setKeepCleaner(value)}
+                        className="h-4 w-4 shrink-0 accent-pine"
+                      />
+                      {label}
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          )}
         </div>
       </fieldset>
 

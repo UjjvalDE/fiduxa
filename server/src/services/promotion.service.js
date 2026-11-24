@@ -6,6 +6,14 @@ import PromotionRedemption from "../models/promotion-redemption.model.js";
 import Booking from "../models/booking.model.js";
 import Settings from "../models/settings.model.js";
 import { fingerprintOf } from "../utils/identity.js";
+import PersonalCode from "../models/personal-code.model.js";
+import {
+  normalizePersonalCode,
+  reacquirePersonalCodeForBooking,
+  releasePersonalCodeForBooking,
+  reservePersonalCode,
+  usePersonalCodeForBooking,
+} from "./personal-code.service.js";
 import { httpError } from "../utils/helpers.js";
 
 const ACTIVE_REDEMPTION = ["reserved", "applied"];
@@ -109,44 +117,77 @@ const promoSummary = (promo, discountCents) => ({
 });
 
 /**
- * Pick the best promotion for an order: welcome offer, automatic campaigns
- * and the entered code compete – the highest discount wins (no stacking).
+ * Check a personal code (e.g. the welcome code FX-XXXX-XXXX).
+ * Extra reasons: not_yours (someone else's code), expired, already_used.
+ */
+const checkPersonalCode = async (code, ctx) => {
+  const fail = (reason) => ({ ok: false, reason, discountCents: 0 });
+  const personal = await PersonalCode.findOne({ code }).lean();
+  if (!personal) return { ...fail("not_found") };
+  if (!ctx.user) return fail("login_required");
+  if (String(personal.customer) !== String(ctx.user._id)) return fail("not_yours");
+  const reservedForThis = personal.status === "reserved" && ctx.excludeBookingId && String(personal.booking) === String(ctx.excludeBookingId);
+  if (personal.status === "expired" || (personal.expiresAt && personal.expiresAt <= ctx.now)) return fail("expired");
+  if (personal.status === "revoked") return fail("inactive");
+  if (personal.status !== "issued" && !reservedForThis) return fail("already_used");
+  const promo = await Promotion.findById(personal.promotion).lean();
+  if (!promo) return fail("not_found");
+  const result = await checkPromotion(promo, ctx);
+  return { ...result, promo, personal };
+};
+
+/**
+ * Pick the best promotion for an order: automatic campaigns and the entered
+ * code (coupon, campaign code or the customer's personal welcome code) compete
+ * – the highest discount wins (no stacking).
  */
 export const findBestPromotion = async ({ user, serviceId, orderCents, code, contact, excludeBookingId }) => {
   const now = new Date();
   const ctx = { user, serviceId, orderCents, contact, excludeBookingId, now };
   const normalized = normalizeCode(code);
 
-  const automatic = await Promotion.find({
-    active: true,
-    $or: [{ kind: "welcome" }, { kind: "campaign", code: null }],
-  }).lean();
-
+  const automatic = await Promotion.find({ active: true, kind: "campaign", code: null }).lean();
   const candidates = [];
-  let welcome = null;
   for (const promo of automatic) {
     if (!isLive(promo, now)) continue;
     const result = await checkPromotion(promo, ctx);
-    if (promo.kind === "welcome") {
-      welcome = {
-        eligible: result.ok,
-        reason: result.reason,
-        discountType: promo.discountType,
-        discountValue: promo.discountValue,
-        discountCents: result.discountCents,
-      };
-    }
     if (result.ok) candidates.push({ promo, discountCents: result.discountCents });
+  }
+
+  // Welcome offer: needs the customer's personal code (sent by email after signup)
+  let welcome = null;
+  const welcomePromo = await Promotion.findOne({ kind: "welcome", active: true }).lean();
+  if (welcomePromo && isLive(welcomePromo, now)) {
+    const result = await checkPromotion(welcomePromo, ctx);
+    const own = user ? await PersonalCode.findOne({ promotion: welcomePromo._id, customer: user._id }).lean() : null;
+    const ownUsable = own && (own.status === "issued" || (own.status === "reserved" && excludeBookingId && String(own.booking) === String(excludeBookingId))) && (!own.expiresAt || own.expiresAt > now);
+    welcome = {
+      eligible: result.ok && Boolean(ownUsable),
+      reason: !result.ok ? result.reason : !own ? "code_pending" : ownUsable ? null : own.status === "expired" || (own.expiresAt && own.expiresAt <= now) ? "expired" : "already_used",
+      discountType: welcomePromo.discountType,
+      discountValue: welcomePromo.discountValue,
+      discountCents: result.ok ? result.discountCents : computeDiscount(welcomePromo, orderCents),
+      // The owner's own code (only ever returned to its owner) so the checkout can offer "apply"
+      code: ownUsable ? own.code : null,
+      codeExpiresAt: ownUsable ? own.expiresAt : null,
+    };
   }
 
   let codeResult = null;
   if (normalized) {
-    const promo = await Promotion.findOne({ code: normalized }).lean();
-    if (!promo) codeResult = { code: normalized, ok: false, reason: "not_found", discountCents: 0 };
-    else {
-      const result = await checkPromotion(promo, ctx);
-      codeResult = { code: normalized, ...result, name: promo.name };
-      if (result.ok) candidates.push({ promo, discountCents: result.discountCents, viaCode: true });
+    const personalCode = normalizePersonalCode(normalized);
+    if (personalCode) {
+      const result = await checkPersonalCode(personalCode, ctx);
+      codeResult = { code: personalCode, ok: result.ok, reason: result.reason, discountCents: result.discountCents, name: result.promo?.name, personal: true };
+      if (result.ok) candidates.push({ promo: result.promo, discountCents: result.discountCents, viaCode: true, personal: result.personal });
+    } else {
+      const promo = await Promotion.findOne({ code: normalized }).lean();
+      if (!promo) codeResult = { code: normalized, ok: false, reason: "not_found", discountCents: 0 };
+      else {
+        const result = await checkPromotion(promo, ctx);
+        codeResult = { code: normalized, ...result, name: promo.name };
+        if (result.ok) candidates.push({ promo, discountCents: result.discountCents, viaCode: true });
+      }
     }
   }
 
@@ -155,7 +196,13 @@ export const findBestPromotion = async ({ user, serviceId, orderCents, code, con
   if (codeResult?.ok && best && !best.viaCode) codeResult.superseded = true; // a better automatic offer applies
 
   return {
-    applied: best ? { ...promoSummary(best.promo, best.discountCents), promo: best.promo } : null,
+    applied: best
+      ? {
+          ...promoSummary(best.promo, best.discountCents),
+          ...(best.personal && { code: best.personal.code, personalCodeId: best.personal._id }),
+          promo: best.promo,
+        }
+      : null,
     codeResult,
     welcome,
   };
@@ -165,7 +212,21 @@ export const findBestPromotion = async ({ user, serviceId, orderCents, code, con
  * Reserve a promotion for a new booking (call inside the customer lock).
  * Re-checks eligibility and atomically counts the use against usageLimit.
  */
-export const reservePromotion = async (promo, { user, bookingId, discountCents, orderCents, contact, serviceId }) => {
+export const reservePromotion = async (promo, { user, bookingId, discountCents, orderCents, contact, serviceId, personalCodeId, code }) => {
+  // Personal code: atomically take it (single use, owner only)
+  if (personalCodeId) {
+    const taken = await reservePersonalCode(personalCodeId, user._id, bookingId);
+    if (!taken) throw httpError(409, "This offer is no longer available. Please check the price again.");
+  }
+  try {
+    return await reservePromotionInner(promo, { user, bookingId, discountCents, orderCents, contact, serviceId, code });
+  } catch (error) {
+    if (personalCodeId) await releasePersonalCodeForBooking(bookingId);
+    throw error;
+  }
+};
+
+const reservePromotionInner = async (promo, { user, bookingId, discountCents, orderCents, contact, serviceId, code }) => {
   const fresh = await Promotion.findById(promo._id).lean();
   const check = fresh && (await checkPromotion(fresh, { user, serviceId, orderCents, contact, excludeBookingId: bookingId }));
   if (!check?.ok || check.discountCents !== discountCents) {
@@ -185,7 +246,7 @@ export const reservePromotion = async (promo, { user, bookingId, discountCents, 
     return await PromotionRedemption.create({
       promotion: promo._id,
       kind: fresh.kind,
-      code: fresh.code,
+      code: code ?? fresh.code,
       customer: user._id,
       booking: bookingId,
       discountCents,
@@ -199,11 +260,13 @@ export const reservePromotion = async (promo, { user, bookingId, discountCents, 
 };
 
 /** Booking confirmed/paid → the reservation becomes final */
-export const applyPromotionForBooking = (bookingId) =>
-  PromotionRedemption.updateOne(
+export const applyPromotionForBooking = async (bookingId) => {
+  await PromotionRedemption.updateOne(
     { booking: bookingId, status: "reserved" },
     { $set: { status: "applied", appliedAt: new Date() } }
   );
+  await usePersonalCodeForBooking(bookingId);
+};
 
 /** Booking cancelled/expired before completion → offer can be used again */
 export const releasePromotionForBooking = async (bookingId) => {
@@ -214,6 +277,7 @@ export const releasePromotionForBooking = async (bookingId) => {
   if (redemption) {
     await Promotion.updateOne({ _id: redemption.promotion, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } });
   }
+  await releasePersonalCodeForBooking(bookingId);
   return Boolean(redemption);
 };
 
@@ -226,6 +290,10 @@ export const reacquirePromotionForBooking = async (bookingId) => {
     { $inc: { usedCount: 1 } }
   );
   if (!promo) return false;
+  if (redemption.kind === "welcome" && !(await reacquirePersonalCodeForBooking(bookingId, redemption.code))) {
+    await Promotion.updateOne({ _id: redemption.promotion, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } });
+    return false;
+  }
   redemption.status = "reserved";
   redemption.releasedAt = undefined;
   await redemption.save();
@@ -259,6 +327,13 @@ export const activePromotionsForDisplay = async () => {
 // ---------------------------------------------------------------------------
 // Default promotions (created once; admins can edit or delete them afterwards)
 // ---------------------------------------------------------------------------
+const WELCOME_TEXT = {
+  de: "10 % Rabatt auf deine erste Reinigung – nach der Registrierung erhältst du deinen persönlichen Code per E-Mail.",
+  en: "Enjoy 10% OFF your first cleaning – sign up and we email you your personal code.",
+  pl: "10% zniżki na pierwsze sprzątanie – po rejestracji wyślemy Ci osobisty kod e-mailem.",
+};
+const OLD_WELCOME_TEXT_DE = "10 % Rabatt auf deine erste Reinigung – automatisch nach Bestätigung deiner E-Mail-Adresse.";
+
 const berlinEndOfDay = (y, m, d) => new Date(Date.UTC(y, m - 1, d, 22, 59, 59)); // 23:59:59 CET
 
 const DEFAULT_PROMOTIONS = [
@@ -272,53 +347,9 @@ const DEFAULT_PROMOTIONS = [
       firstBookingOnly: true,
       requiresVerifiedEmail: true,
       perCustomerLimit: 1,
-      display: {
-        placement: "card",
-        priority: 50,
-        theme: "pine",
-        ctaHref: "/registrieren",
-        title: { de: "Willkommen bei Fiduxa!", en: "Welcome to Fiduxa!", pl: "Witamy w Fiduxa!" },
-        text: {
-          de: "10 % Rabatt auf deine erste Reinigung – automatisch nach Bestätigung deiner E-Mail-Adresse.",
-          en: "Enjoy 10% OFF your first cleaning – applied automatically once you confirm your email address.",
-          pl: "10% zniżki na pierwsze sprzątanie – automatycznie po potwierdzeniu adresu e-mail.",
-        },
-        ctaText: { de: "Konto erstellen & sparen", en: "Sign up & save", pl: "Załóż konto i oszczędzaj" },
-        badge: { de: "−10 %", en: "−10%", pl: "−10%" },
-      },
-    },
-  },
-  {
-    seedKey: "christmas-2026",
-    doc: {
-      name: "Weihnachtsreinigung 2026",
-      kind: "campaign",
-      code: "XMAS10",
-      discountType: "percent",
-      discountValue: 10,
-      maxDiscountCents: 5000,
-      minOrderCents: 5000,
-      perCustomerLimit: 1,
-      startsAt: new Date(Date.UTC(2026, 10, 15)),
-      endsAt: berlinEndOfDay(2026, 12, 24),
-      display: {
-        placement: "hero",
-        priority: 100,
-        theme: "festive",
-        ctaHref: "/buchung",
-        title: {
-          de: "Bring deine Familie an Weihnachten in einem frischen, sauberen Zuhause zusammen!",
-          en: "Bring Your Family Together in a Fresh, Clean Home This Christmas!",
-          pl: "Zbierz rodzinę w świeżym, czystym domu na Boże Narodzenie!",
-        },
-        text: {
-          de: "Mehr Zeit für deine Liebsten in der Festtagszeit. Fiduxa übernimmt das Putzen, während du ein frisches, einladendes Zuhause genießt.",
-          en: "Make more time for your loved ones this festive season. Let Fiduxa take care of the cleaning while you enjoy a fresh and welcoming home.",
-          pl: "Więcej czasu dla bliskich w okresie świąt. Fiduxa zajmie się sprzątaniem, a Ty ciesz się świeżym i przytulnym domem.",
-        },
-        ctaText: { de: "Weihnachtsreinigung buchen", en: "Book Your Christmas Cleaning", pl: "Zarezerwuj świąteczne sprzątanie" },
-        badge: { de: "Code XMAS10: −10 %", en: "Code XMAS10: −10%", pl: "Kod XMAS10: −10%" },
-      },
+      // No homepage/banner advertising: the welcome code lives in the signup
+      // email, the customer profile and the checkout prompt only.
+      display: { placement: "none" },
     },
   },
 ];
@@ -330,6 +361,15 @@ export const ensureDefaultPromotions = async () => {
     { upsert: true, returnDocument: "after" }
   );
   const done = new Set(settings.seeds ?? []);
+  // Welcome offer switched to personal codes: update the default banner text
+  // (only if the admin has not changed it)
+  if (!done.has("welcome-personal-code-text")) {
+    await Promotion.updateMany(
+      { kind: "welcome", "display.text.de": OLD_WELCOME_TEXT_DE },
+      { $set: { "display.text": WELCOME_TEXT } }
+    );
+    await Settings.updateOne({ key: "platform" }, { $addToSet: { seeds: "welcome-personal-code-text" } });
+  }
   for (const { seedKey, doc } of DEFAULT_PROMOTIONS) {
     if (done.has(seedKey)) continue;
     const exists = doc.code ? await Promotion.exists({ code: doc.code }) : await Promotion.exists({ kind: doc.kind });

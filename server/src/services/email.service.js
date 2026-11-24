@@ -1,12 +1,18 @@
 import nodemailer from "nodemailer";
 import { escapeHtml, slotLabel } from "../utils/helpers.js";
 import { getSiteUrl } from "../utils/site-url.js";
+import EmailMessage from "../models/email.model.js";
+import { logger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // Transport
 // ---------------------------------------------------------------------------
 
 const createTransporter = () => {
+  // Automated tests only: render mails without sending (never in production)
+  if (process.env.NODE_ENV === "test" && process.env.EMAIL_TRANSPORT === "json") {
+    return nodemailer.createTransport({ jsonTransport: true });
+  }
   const required = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"];
 
   const missing = required.filter((key) => !process.env[key]);
@@ -26,16 +32,113 @@ const createTransporter = () => {
   });
 };
 
-const send = async ({ to, subject, text, html }) => {
-  const transporter = createTransporter();
-  return transporter.sendMail({ from: process.env.SMTP_FROM, to, subject, text, html });
+const BOOKING_REF = /FID-\d{4}-\d{5}/;
+// Retry schedule after a failed delivery (minutes); the 5th failure is final.
+const RETRY_MINUTES = [1, 5, 30, 120];
+export const MAX_EMAIL_ATTEMPTS = 5;
+
+/**
+ * Deliver ONE outbox record. Claims it atomically (nextAttemptAt pushed into
+ * the future) so the API process and the worker never send the same mail
+ * twice. Never throws – the outcome is stored on the record.
+ * Returns "sent" | "queued" (retry scheduled) | "failed" | "skipped".
+ */
+export const deliverEmail = async (record) => {
+  const claimed = await EmailMessage.findOneAndUpdate(
+    { _id: record._id, status: "queued", nextAttemptAt: { $lte: new Date() } },
+    { $set: { nextAttemptAt: new Date(Date.now() + 2 * 60_000) } },
+    { returnDocument: "after" }
+  );
+  if (!claimed) return "skipped";
+
+  try {
+    const transporter = createTransporter();
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM,
+      to: claimed.to,
+      subject: claimed.subject,
+      text: claimed.text,
+      html: claimed.html,
+      ...(claimed.attachments?.length && {
+        attachments: claimed.attachments.map((a) => ({ filename: a.filename, contentType: a.contentType, content: a.content })),
+      }),
+    });
+    claimed.status = "sent";
+    claimed.sentAt = new Date();
+    claimed.attempts += 1;
+    claimed.lastError = "";
+    claimed.providerMessageId = String(info?.messageId || "");
+    await claimed.save();
+    return "sent";
+  } catch (error) {
+    claimed.attempts += 1;
+    claimed.lastError = String(error?.message || error).slice(0, 1000);
+    if (claimed.attempts >= MAX_EMAIL_ATTEMPTS) {
+      claimed.status = "failed";
+    } else {
+      const minutes = RETRY_MINUTES[Math.min(claimed.attempts - 1, RETRY_MINUTES.length - 1)];
+      claimed.nextAttemptAt = new Date(Date.now() + minutes * 60_000);
+    }
+    await claimed.save();
+    logger.warn(
+      { emailId: String(claimed._id), to: claimed.to, attempts: claimed.attempts, err: claimed.lastError },
+      claimed.status === "failed" ? "E-mail delivery failed permanently" : "E-mail delivery failed – retry scheduled"
+    );
+    return claimed.status === "failed" ? "failed" : "queued";
+  }
+};
+
+/**
+ * Enqueue a mail in the outbox and try to deliver it right away. A transport
+ * failure does NOT throw – the worker retries with exponential backoff.
+ * Resolves with { id, status } ("sent" | "queued" | "failed").
+ */
+const send = async ({ to, subject, text, html, template = "", bookingRef = "", attachments }) => {
+  if (!to) throw new Error("E-mail without recipient");
+  const ref = bookingRef || `${subject} ${text}`.match(BOOKING_REF)?.[0] || "";
+  const record = await EmailMessage.create({
+    to,
+    subject,
+    text,
+    html,
+    template,
+    bookingRef: ref,
+    // Optional [{ filename, contentType, content: Buffer }] (e.g. invoice PDF)
+    ...(attachments?.length && { attachments }),
+  });
+  const status = await deliverEmail(record);
+  return { id: record._id, status };
+};
+
+/** Outbox job: deliver every due queued mail (oldest first). */
+export const processEmailOutbox = async ({ limit = 50 } = {}) => {
+  const due = await EmailMessage.find({ status: "queued", nextAttemptAt: { $lte: new Date() } })
+    .sort({ nextAttemptAt: 1 })
+    .limit(limit);
+  const result = { sent: 0, queued: 0, failed: 0, skipped: 0 };
+  for (const record of due) result[await deliverEmail(record)] += 1;
+  return result;
+};
+
+/** Admin resend: back to the queue with a fresh attempt budget, then deliver now. */
+export const resendEmail = async (record, adminId) => {
+  record.status = "queued";
+  record.attempts = 0;
+  record.lastError = "";
+  record.nextAttemptAt = new Date();
+  record.resentBy = adminId ?? null;
+  record.resentAt = new Date();
+  await record.save();
+  const status = await deliverEmail(record);
+  return { status, record: await EmailMessage.findById(record._id) };
 };
 
 // Fire-and-report helper: returns "sent" | "failed" instead of throwing.
+// "sent" includes "queued for retry" – the outbox guarantees delivery attempts.
 export const trySend = async (label, fn) => {
   try {
-    await fn();
-    return "sent";
+    const result = await fn();
+    return result?.status === "failed" ? "failed" : "sent";
   } catch (error) {
     console.error(`${label} email failed:`, error.message);
     return "failed";
@@ -121,6 +224,9 @@ const T = {
     onTheWaySubject: (ref) => `Deine Reinigungskraft ist unterwegs – ${ref}`,
     onTheWayTitle: "Deine Reinigungskraft ist unterwegs",
     onTheWayBody: (name) => `${name} ist auf dem Weg zu dir.`,
+    delayedSubject: (ref) => `Wir prüfen, wo deine Reinigungskraft bleibt – ${ref}`,
+    delayedTitle: "Deine Reinigungskraft verspätet sich",
+    delayedBody: "Deine Reinigungskraft hat sich zum geplanten Start noch nicht gemeldet. Wir prüfen gerade, wo sie bleibt, und melden uns bei dir, sobald wir mehr wissen. Entschuldige bitte die Unannehmlichkeiten.",
     b2bSubject: (ref) => `Ihre Angebotsanfrage ${ref} – Fiduxa`,
     b2bTitle: "Vielen Dank für Ihre Anfrage",
     b2bBody: (ref) =>
@@ -176,6 +282,9 @@ const T = {
     onTheWaySubject: (ref) => `Your cleaner is on the way – ${ref}`,
     onTheWayTitle: "Your cleaner is on the way",
     onTheWayBody: (name) => `${name} is on the way to you.`,
+    delayedSubject: (ref) => `We are checking where your cleaner is – ${ref}`,
+    delayedTitle: "Your cleaner is running late",
+    delayedBody: "Your cleaner has not checked in for the planned start yet. We are finding out where they are and will get back to you as soon as we know more. Sorry for the inconvenience.",
     b2bSubject: (ref) => `Your quotation request ${ref} – Fiduxa`,
     b2bTitle: "Thank you for your request",
     b2bBody: (ref) =>
@@ -231,6 +340,9 @@ const T = {
     onTheWaySubject: (ref) => `Osoba sprzątająca jest w drodze – ${ref}`,
     onTheWayTitle: "Osoba sprzątająca jest w drodze",
     onTheWayBody: (name) => `${name} jest w drodze do Ciebie.`,
+    delayedSubject: (ref) => `Sprawdzamy, gdzie jest Twoja osoba sprzątająca – ${ref}`,
+    delayedTitle: "Twoja osoba sprzątająca się spóźnia",
+    delayedBody: "Twoja osoba sprzątająca nie zgłosiła się jeszcze na zaplanowany start. Właśnie sprawdzamy, gdzie jest, i odezwiemy się, gdy tylko będziemy wiedzieć więcej. Przepraszamy za niedogodności.",
     b2bSubject: (ref) => `Twoje zapytanie ofertowe ${ref} – Fiduxa`,
     b2bTitle: "Dziękujemy za zapytanie",
     b2bBody: (ref) =>
@@ -285,7 +397,7 @@ const detailRows = (rows) =>
 // ---------------------------------------------------------------------------
 // Customer: booking confirmed (after payment, or immediately in invoice mode)
 // ---------------------------------------------------------------------------
-export const sendBookingConfirmedEmail = async ({ booking, paid }) => {
+export const sendBookingConfirmedEmail = async ({ booking, paid, attachments }) => {
   const l = lang(booking.locale);
   const t = T[l];
   const rows = [
@@ -311,6 +423,8 @@ export const sendBookingConfirmedEmail = async ({ booking, paid }) => {
   ];
 
   return send({
+    template: "bookingConfirmed",
+    attachments,
     to: booking.customerDetails.email,
     subject: t.confirmedSubject(booking.reference),
     text: `${t.hello(booking.customerDetails.name)}
@@ -349,6 +463,7 @@ export const sendBookingStatusEmail = async ({ booking, status, refund = false }
   const x = X[l];
 
   return send({
+    template: "bookingStatus",
     to: booking.customerDetails.email,
     subject: t.statusSubject(booking.reference),
     text: `${t.hello(booking.customerDetails.name)}
@@ -377,14 +492,18 @@ ${t.regards}`,
 // ---------------------------------------------------------------------------
 // Password reset
 // ---------------------------------------------------------------------------
-export const sendPasswordResetEmail = async ({ to, name, resetUrl, locale }) => {
+// `intro` / `subject` (optional) turn the mail into a "Welcome – set your
+// password" variant for accounts created by the office (phone orders).
+export const sendPasswordResetEmail = async ({ to, name, resetUrl, locale, intro, subject }) => {
   const t = T[lang(locale)];
+  const body = intro || t.resetBody;
   return send({
+    template: intro ? "setPassword" : "passwordReset",
     to,
-    subject: t.resetSubject,
+    subject: subject || t.resetSubject,
     text: `${t.hello(name)}
 
-${t.resetBody}
+${body}
 ${resetUrl}
 
 ${t.resetIgnore}
@@ -393,7 +512,7 @@ ${t.regards}`,
     html: layout(
       t.resetTitle,
       `<p>${escapeHtml(t.hello(name))}</p>
-       <p>${escapeHtml(t.resetBody)}</p>
+       <p>${escapeHtml(body)}</p>
        ${button(resetUrl, t.resetButton)}
        <p style="font-size:13px;color:#65736B">${escapeHtml(t.resetIgnore)}</p>`,
       t.regardsHtml
@@ -407,6 +526,7 @@ ${t.regards}`,
 export const sendWorkerInvitationEmail = async ({ to, name, invitationUrl, locale }) => {
   const t = T[lang(locale)];
   return send({
+    template: "workerInvitation",
     to,
     subject: t.inviteSubject,
     text: `${t.hello(name || "")}
@@ -434,6 +554,7 @@ ${t.regards}`,
 export const sendBusinessRequestReceivedEmail = async ({ to, contactPerson, reference, locale }) => {
   const t = T[lang(locale)];
   return send({
+    template: "businessRequestReceived",
     to,
     subject: t.b2bSubject(reference),
     text: `${t.hello(contactPerson)}
@@ -468,6 +589,7 @@ export const sendNewJobAvailableEmail = async ({ worker, booking }) => {
   const rows = jobRows(booking, t, l);
   const url = portalUrl();
   return send({
+    template: "newJobAvailable",
     to: worker.email,
     subject: t.jobNewSubject(formatDay(booking.preferredDate, l)),
     text: `${t.hello(worker.name)}
@@ -496,6 +618,7 @@ export const sendJobAssignedToWorkerEmail = async ({ worker, booking }) => {
   const rows = [[t.reference, booking.reference], ...jobRows(booking, t, l)];
   const url = portalUrl(`/jobs/${booking._id}`);
   return send({
+    template: "jobAssignedToWorker",
     to: worker.email,
     subject: t.jobAssignedSubject(booking.reference),
     text: `${t.hello(worker.name)}
@@ -532,6 +655,7 @@ export const sendCleanerAssignedEmail = async ({ booking, workerName }) => {
   ];
   const body = t.cleanerAssignedBody(firstName(workerName));
   return send({
+    template: "cleanerAssigned",
     to: booking.customerDetails.email,
     subject: t.cleanerAssignedSubject(booking.reference),
     text: `${t.hello(booking.customerDetails.name)}
@@ -556,6 +680,7 @@ export const sendCleanerOnTheWayEmail = async ({ booking, workerName }) => {
   const t = T[l];
   const body = t.onTheWayBody(firstName(workerName));
   return send({
+    template: "cleanerOnTheWay",
     to: booking.customerDetails.email,
     subject: t.onTheWaySubject(booking.reference),
     text: `${t.hello(booking.customerDetails.name)}
@@ -572,6 +697,36 @@ ${t.regards}`,
   });
 };
 
+/** Customer notice when the no-show watch flags a late cleaner (de/en/pl). */
+export const sendCleanerDelayedEmail = async ({ booking }) => {
+  const l = lang(booking.locale);
+  const t = T[l];
+  const rows = [
+    [t.reference, booking.reference],
+    [t.appointment, `${formatDay(booking.preferredDate, l)}, ${slotLabel(booking.slot, booking.slotEnd)}`],
+  ];
+  return send({
+    template: "cleanerDelayed",
+    bookingRef: booking.reference,
+    to: booking.customerDetails.email,
+    subject: t.delayedSubject(booking.reference),
+    text: `${t.hello(booking.customerDetails.name)}
+
+${t.delayedBody}
+
+${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}
+
+${t.regards}`,
+    html: layout(
+      t.delayedTitle,
+      `<p>${escapeHtml(t.hello(booking.customerDetails.name))}</p>
+       <p>${escapeHtml(t.delayedBody)}</p>
+       ${detailRows(rows)}`,
+      t.regardsHtml
+    ),
+  });
+};
+
 // ---------------------------------------------------------------------------
 // Internal admin notification (German)
 // ---------------------------------------------------------------------------
@@ -580,6 +735,7 @@ export const sendAdminNotificationEmail = async ({ subject, lines }) => {
   if (!to) return null;
 
   return send({
+    template: "adminNotification",
     to,
     subject: `[Fiduxa] ${subject}`,
     text: lines.join("\n"),
@@ -605,6 +761,7 @@ const X = {
     payoutSubject: (ref) => `Auszahlung ${ref} ist unterwegs`,
     payoutTitle: "Deine Auszahlung ist unterwegs",
     payoutBody: (amount, last4) => `Wir haben ${amount} auf dein Konto mit Endung ${last4 || "–"} überwiesen. Je nach Bank dauert die Gutschrift 1–2 Werktage.`,
+    payoutBodyPaypal: (amount, email) => `Wir haben ${amount} an dein PayPal-Konto ${email} gesendet. Das Geld ist in der Regel sofort verfügbar.`,
     payoutJobs: "Aufträge",
     payoutButton: "Verdienst ansehen",
   },
@@ -620,6 +777,7 @@ const X = {
     payoutSubject: (ref) => `Payout ${ref} is on its way`,
     payoutTitle: "Your payout is on its way",
     payoutBody: (amount, last4) => `We have transferred ${amount} to your account ending in ${last4 || "–"}. Depending on your bank it arrives within 1–2 working days.`,
+    payoutBodyPaypal: (amount, email) => `We have sent ${amount} to your PayPal account ${email}. The money is usually available immediately.`,
     payoutJobs: "Jobs",
     payoutButton: "View earnings",
   },
@@ -635,6 +793,7 @@ const X = {
     payoutSubject: (ref) => `Wypłata ${ref} jest w drodze`,
     payoutTitle: "Twoja wypłata jest w drodze",
     payoutBody: (amount, last4) => `Przelaliśmy ${amount} na Twoje konto kończące się na ${last4 || "–"}. W zależności od banku środki dotrą w ciągu 1–2 dni roboczych.`,
+    payoutBodyPaypal: (amount, email) => `Wysłaliśmy ${amount} na Twoje konto PayPal ${email}. Pieniądze są zwykle dostępne od razu.`,
     payoutJobs: "Zlecenia",
     payoutButton: "Zobacz zarobki",
   },
@@ -652,6 +811,7 @@ export const sendNewMessageEmail = async ({ to, name, locale, booking, authorKin
   const url = `${siteUrl()}${path}`;
   const excerpt = body.length > 500 ? `${body.slice(0, 500)}…` : body;
   return send({
+    template: "newMessage",
     to,
     subject: x.messageSubject(booking.reference),
     text: `${t.hello(name)}
@@ -680,17 +840,22 @@ export const sendPayoutEmail = async ({ worker, payout }) => {
   const x = X[l];
   const amount = formatMoney(payout.amountCents, l);
   const url = `${siteUrl()}/worker/verdienst`;
+  const body =
+    payout.provider === "paypal"
+      ? x.payoutBodyPaypal(amount, payout.paypalEmail)
+      : x.payoutBody(amount, payout.bankAccountLast4);
   const rows = [
     ["Ref.", payout.reference],
     [t.amount, amount],
     [x.payoutJobs, String(payout.bookings.length)],
   ];
   return send({
+    template: "payout",
     to: worker.email,
     subject: x.payoutSubject(payout.reference),
     text: `${t.hello(worker.name)}
 
-${x.payoutBody(amount, payout.bankAccountLast4)}
+${body}
 
 ${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}
 
@@ -700,7 +865,7 @@ ${t.regards}`,
     html: layout(
       x.payoutTitle,
       `<p>${escapeHtml(t.hello(worker.name))}</p>
-       <p>${escapeHtml(x.payoutBody(amount, payout.bankAccountLast4))}</p>
+       <p>${escapeHtml(body)}</p>
        ${detailRows(rows)}
        ${button(url, x.payoutButton)}`,
       t.regardsHtml
@@ -737,6 +902,7 @@ export const sendAdminInviteEmail = async ({ to, name, url, invitedBy, locale })
   const t = T[l];
   const x = ADMIN_INVITE[l];
   return send({
+    template: "adminInvite",
     to,
     subject: x.subject,
     text: `${t.hello(name)}
@@ -763,33 +929,39 @@ const VERIFY = {
     subject: "Bitte bestätige deine E-Mail-Adresse – Fiduxa",
     title: "E-Mail-Adresse bestätigen",
     body: "Bitte bestätige deine E-Mail-Adresse, damit wir dich zuverlässig über deine Buchungen informieren können. Der Link ist 24 Stunden gültig.",
-    offer: (pct) => `Danach erhältst du automatisch ${pct} % Rabatt auf deine erste Reinigung.`,
+    offer: (pct) => `Danach schicken wir dir deinen persönlichen Code für ${pct} % Rabatt auf deine erste Reinigung.`,
     button: "E-Mail-Adresse bestätigen",
     welcomeSubject: (pct) => `Willkommen bei Fiduxa – ${pct} % auf deine erste Reinigung`,
     welcomeTitle: "Willkommen bei Fiduxa!",
-    welcomeBody: (pct) => `Deine E-Mail-Adresse ist bestätigt. Dein Willkommensrabatt von ${pct} % wird bei deiner ersten Buchung automatisch abgezogen – ganz ohne Code.`,
+    welcomeBody: (pct) => `Deine E-Mail-Adresse ist bestätigt. Hier ist dein persönlicher Code für ${pct} % Rabatt auf deine erste Reinigung. Gib ihn bei der Buchung im Feld „Rabattcode“ ein – er gilt nur für dein Konto und einmalig.`,
+    codeLabel: "Dein persönlicher Code",
+    validUntil: "Gültig bis",
     welcomeButton: "Jetzt Reinigung buchen",
   },
   en: {
     subject: "Please confirm your email address – Fiduxa",
     title: "Confirm your email address",
     body: "Please confirm your email address so we can keep you updated about your bookings. The link is valid for 24 hours.",
-    offer: (pct) => `After that you automatically get ${pct}% off your first cleaning.`,
+    offer: (pct) => `After that we send you your personal code for ${pct}% off your first cleaning.`,
     button: "Confirm email address",
     welcomeSubject: (pct) => `Welcome to Fiduxa – ${pct}% off your first cleaning`,
     welcomeTitle: "Welcome to Fiduxa!",
-    welcomeBody: (pct) => `Your email address is confirmed. Your ${pct}% welcome discount is applied automatically to your first booking – no code needed.`,
+    welcomeBody: (pct) => `Your email address is confirmed. Here is your personal code for ${pct}% off your first cleaning. Enter it in the "Promo code" field when booking – it only works for your account and once.`,
+    codeLabel: "Your personal code",
+    validUntil: "Valid until",
     welcomeButton: "Book a cleaning",
   },
   pl: {
     subject: "Potwierdź swój adres e-mail – Fiduxa",
     title: "Potwierdź adres e-mail",
     body: "Potwierdź swój adres e-mail, abyśmy mogli informować Cię o rezerwacjach. Link jest ważny 24 godziny.",
-    offer: (pct) => `Następnie automatycznie otrzymasz ${pct}% zniżki na pierwsze sprzątanie.`,
+    offer: (pct) => `Następnie wyślemy Ci osobisty kod na ${pct}% zniżki na pierwsze sprzątanie.`,
     button: "Potwierdź adres e-mail",
     welcomeSubject: (pct) => `Witamy w Fiduxa – ${pct}% zniżki na pierwsze sprzątanie`,
     welcomeTitle: "Witamy w Fiduxa!",
-    welcomeBody: (pct) => `Twój adres e-mail jest potwierdzony. Zniżka powitalna ${pct}% zostanie automatycznie odjęta przy pierwszej rezerwacji – bez kodu.`,
+    welcomeBody: (pct) => `Twój adres e-mail jest potwierdzony. Oto Twój osobisty kod na ${pct}% zniżki na pierwsze sprzątanie. Wpisz go przy rezerwacji w polu „Kod rabatowy” – działa tylko dla Twojego konta i jednorazowo.`,
+    codeLabel: "Twój osobisty kod",
+    validUntil: "Ważny do",
     welcomeButton: "Zarezerwuj sprzątanie",
   },
 };
@@ -800,6 +972,7 @@ export const sendEmailVerificationEmail = async ({ to, name, url, locale, welcom
   const v = VERIFY[l];
   const offer = welcomePercent ? v.offer(welcomePercent) : "";
   return send({
+    template: "emailVerification",
     to,
     subject: v.subject,
     text: `${t.hello(name)}\n\n${v.body}\n${offer}\n\n${url}\n\n${t.regards}`,
@@ -814,19 +987,26 @@ export const sendEmailVerificationEmail = async ({ to, name, url, locale, welcom
   });
 };
 
-export const sendWelcomeOfferEmail = async ({ to, name, locale, percent }) => {
+export const sendWelcomeOfferEmail = async ({ to, name, locale, percent, code, expiresAt }) => {
   const l = lang(locale);
   const t = T[l];
   const v = VERIFY[l];
-  const url = `${getSiteUrl()}/buchung`;
+  const url = `${getSiteUrl()}/buchung?code=${encodeURIComponent(code)}`;
+  const until = expiresAt ? new Date(expiresAt).toLocaleDateString(LOCALES[l], { timeZone: "Europe/Berlin" }) : null;
   return send({
+    template: "welcomeOffer",
     to,
     subject: v.welcomeSubject(percent),
-    text: `${t.hello(name)}\n\n${v.welcomeBody(percent)}\n\n${url}\n\n${t.regards}`,
+    text: `${t.hello(name)}\n\n${v.welcomeBody(percent)}\n\n${v.codeLabel}: ${code}${until ? `\n${v.validUntil}: ${until}` : ""}\n\n${url}\n\n${t.regards}`,
     html: layout(
       v.welcomeTitle,
       `<p>${escapeHtml(t.hello(name))}</p>
        <p>${escapeHtml(v.welcomeBody(percent))}</p>
+       <div style="margin:20px 0;padding:20px;border-radius:14px;background:#E4EFE7;text-align:center">
+         <div style="font-size:13px;color:#65736B">${escapeHtml(v.codeLabel)}</div>
+         <div style="font-size:28px;font-weight:bold;letter-spacing:3px;font-family:monospace;color:#174D3A;margin:6px 0">${escapeHtml(code)}</div>
+         ${until ? `<div style="font-size:12px;color:#65736B">${escapeHtml(v.validUntil)}: ${escapeHtml(until)}</div>` : ""}
+       </div>
        ${button(url, v.welcomeButton)}`,
       t.regardsHtml
     ),
@@ -907,6 +1087,7 @@ export const sendGiftCardEmail = async (card) => {
   const amount = formatMoney(card.initialCents, l);
   const url = `${getSiteUrl()}/buchung`;
   return send({
+    template: "giftCard",
     to: card.recipientEmail,
     subject: g.recipientSubject(from),
     text: `${t.hello(card.recipientName)}\n\n${g.recipientIntro(from, amount)}\n${card.message ? `\n${g.message}: "${card.message}"\n` : ""}\n${g.code}: ${card.code}\n${g.value}: ${amount}\n\n${g.howTo}\n${url}\n\n${t.regards}`,
@@ -935,6 +1116,7 @@ export const sendGiftCardPurchaseEmail = async ({ card, to, name, delivered }) =
       ? g.buyerSent(card.recipientName)
       : g.buyerScheduled(card.recipientName, new Date(card.deliverAt).toLocaleDateString(LOCALES[l], { timeZone: "Europe/Berlin" }));
   return send({
+    template: "giftCardPurchase",
     to,
     subject: g.buyerSubject(amount),
     text: `${t.hello(name)}\n\n${status}\n\n${g.code}: ${card.code}\n${g.value}: ${amount}\n\n${g.note}\n\n${t.regards}`,
@@ -948,3 +1130,323 @@ export const sendGiftCardPurchaseEmail = async ({ card, to, name, delivered }) =
     ),
   });
 };
+
+// ---------------------------------------------------------------------------
+// Customer + cleaner: booking was edited (reschedule / resize / price change)
+// ---------------------------------------------------------------------------
+const EDIT_LABELS = {
+  de: {
+    subject: (ref) => `Deine Buchung ${ref} wurde aktualisiert`,
+    title: "Buchung aktualisiert",
+    intro: "die folgenden Angaben deiner Buchung wurden geändert:",
+    newState: "Neuer Stand deiner Buchung:",
+    fields: { preferredDate: "Datum", slot: "Uhrzeit", durationMinutes: "Dauer", extras: "Zusatzleistungen", serviceId: "Leistung", areaM2: "Wohnfläche", condition: "Zustand", notes: "Hinweise", totalCents: "Preis", assignedWorker: "Reinigungskraft" },
+    priceNote: (delta, l) => (delta > 0 ? `Der Preis hat sich um ${formatMoney(delta, l)} erhöht.` : `Der Preis hat sich um ${formatMoney(-delta, l)} verringert.`),
+    workerSubject: (ref) => `Terminänderung: Einsatz ${ref}`,
+    workerIntro: "der Termin eines deiner Einsätze wurde geändert:",
+  },
+  en: {
+    subject: (ref) => `Your booking ${ref} has been updated`,
+    title: "Booking updated",
+    intro: "the following details of your booking have changed:",
+    newState: "Your booking now:",
+    fields: { preferredDate: "Date", slot: "Time", durationMinutes: "Duration", extras: "Extras", serviceId: "Service", areaM2: "Living area", condition: "Condition", notes: "Notes", totalCents: "Price", assignedWorker: "Cleaner" },
+    priceNote: (delta, l) => (delta > 0 ? `The price increased by ${formatMoney(delta, l)}.` : `The price decreased by ${formatMoney(-delta, l)}.`),
+    workerSubject: (ref) => `Schedule change: job ${ref}`,
+    workerIntro: "the appointment of one of your jobs has changed:",
+  },
+  pl: {
+    subject: (ref) => `Twoja rezerwacja ${ref} została zaktualizowana`,
+    title: "Rezerwacja zaktualizowana",
+    intro: "zmieniły się następujące dane Twojej rezerwacji:",
+    newState: "Aktualny stan rezerwacji:",
+    fields: { preferredDate: "Data", slot: "Godzina", durationMinutes: "Czas trwania", extras: "Usługi dodatkowe", serviceId: "Usługa", areaM2: "Powierzchnia", condition: "Stan", notes: "Uwagi", totalCents: "Cena", assignedWorker: "Osoba sprzątająca" },
+    priceNote: (delta, l) => (delta > 0 ? `Cena wzrosła o ${formatMoney(delta, l)}.` : `Cena spadła o ${formatMoney(-delta, l)}.`),
+    workerSubject: (ref) => `Zmiana terminu: zlecenie ${ref}`,
+    workerIntro: "zmienił się termin jednego z Twoich zleceń:",
+  },
+};
+
+export const sendBookingUpdatedEmail = async ({ booking, changes = [], priceDeltaCents = 0 }) => {
+  const l = lang(booking.locale);
+  const t = T[l];
+  const e = EDIT_LABELS[l];
+  const changeRows = changes.map((c) => [e.fields[c.field] ?? c.field, `${c.from || "—"} → ${c.to || "—"}`]);
+  const rows = [
+    [t.reference, booking.reference],
+    [t.service, SERVICE_NAMES[l][booking.serviceId] ?? booking.serviceId],
+    [t.appointment, `${formatDay(booking.preferredDate, l)}, ${slotLabel(booking.slot, booking.slotEnd)}`],
+    [t.duration, t.hours((booking.estimate?.durationMinutes ?? 0) / 60)],
+    [t.amount, formatMoney(booking.pricing?.payableCents ?? booking.payment?.amountCents ?? 0, l)],
+  ];
+  const priceLine = priceDeltaCents !== 0 ? e.priceNote(priceDeltaCents, l) : "";
+  return send({
+    template: "bookingUpdated",
+    to: booking.customerDetails.email,
+    subject: e.subject(booking.reference),
+    text: `${t.hello(booking.customerDetails.name)}
+
+${e.intro}
+
+${changeRows.map(([k, v]) => `${k}: ${v}`).join("\n")}
+${priceLine ? `\n${priceLine}\n` : ""}
+${e.newState}
+
+${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}
+
+${t.regards}`,
+    html: layout(
+      e.title,
+      `<p>${escapeHtml(t.hello(booking.customerDetails.name))}</p>
+       <p>${escapeHtml(e.intro)}</p>
+       ${detailRows(changeRows)}
+       ${priceLine ? `<p><strong>${escapeHtml(priceLine)}</strong></p>` : ""}
+       <p>${escapeHtml(e.newState)}</p>
+       ${detailRows(rows)}`,
+      t.regardsHtml
+    ),
+  });
+};
+
+export const sendWorkerScheduleChangedEmail = async ({ worker, booking }) => {
+  const l = lang(worker.preferredLanguage);
+  const t = T[l];
+  const e = EDIT_LABELS[l];
+  const rows = [
+    [t.reference, booking.reference],
+    [t.appointment, `${formatDay(booking.preferredDate, l)}, ${slotLabel(booking.slot, booking.slotEnd)}`],
+    [t.duration, t.hours((booking.estimate?.durationMinutes ?? 0) / 60)],
+  ];
+  return send({
+    template: "workerScheduleChanged",
+    to: worker.email,
+    subject: e.workerSubject(booking.reference),
+    text: `${t.hello(worker.name)}
+
+${e.workerIntro}
+
+${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}
+
+${t.regards}`,
+    html: layout(
+      e.title,
+      `<p>${escapeHtml(t.hello(worker.name))}</p><p>${escapeHtml(e.workerIntro)}</p>${detailRows(rows)}`,
+      t.regardsHtml
+    ),
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Customer: post-cleaning feedback request ("How was your cleaning?")
+// Sent once per completed booking; links to the account's feedback form.
+// ---------------------------------------------------------------------------
+const FEEDBACK_TEXTS = {
+  de: {
+    subject: "Wie war deine Fiduxa-Reinigung?",
+    title: "Wie war deine Reinigung?",
+    intro: (ref) => `deine Reinigung (${ref}) ist abgeschlossen. Wir würden uns sehr über dein Feedback freuen:`,
+    questions: [
+      "Wurde die Reinigung erfolgreich abgeschlossen?",
+      "War deine Reinigungskraft professionell und freundlich?",
+      "Warst du mit der Qualität zufrieden?",
+      "Hat die tatsächliche Dauer gepasst – kürzer oder länger als geplant?",
+      "Gab es zusätzliche Aufgaben oder Änderungen?",
+      "Würdest du deine Reinigungskraft weiterempfehlen?",
+    ],
+    cta: "Feedback geben",
+    note: "Das Feedback dauert nur eine Minute und hilft uns und deiner Reinigungskraft.",
+  },
+  en: {
+    subject: "How was your Fiduxa cleaning experience?",
+    title: "How was your cleaning?",
+    intro: (ref) => `your cleaning (${ref}) is complete. We would love your feedback:`,
+    questions: [
+      "Was the cleaning completed successfully?",
+      "Was your cleaner professional and friendly?",
+      "Were you satisfied with the cleaning quality?",
+      "Was the actual duration right – shorter or longer than planned?",
+      "Were there any additional tasks or changes?",
+      "Would you recommend your cleaner?",
+    ],
+    cta: "Give feedback",
+    note: "It only takes a minute and helps us and your cleaner.",
+  },
+  pl: {
+    subject: "Jak minęło sprzątanie z Fiduxa?",
+    title: "Jak minęło sprzątanie?",
+    intro: (ref) => `Twoje sprzątanie (${ref}) zostało zakończone. Będziemy wdzięczni za opinię:`,
+    questions: [
+      "Czy sprzątanie zostało ukończone pomyślnie?",
+      "Czy osoba sprzątająca była profesjonalna i miła?",
+      "Czy jakość sprzątania była zadowalająca?",
+      "Czy rzeczywisty czas się zgadzał – krócej czy dłużej niż planowano?",
+      "Czy były dodatkowe zadania lub zmiany?",
+      "Czy polecasz tę osobę sprzątającą?",
+    ],
+    cta: "Przekaż opinię",
+    note: "To tylko minuta – pomaga nam i Twojej osobie sprzątającej.",
+  },
+};
+
+export const sendFeedbackRequestEmail = async ({ booking }) => {
+  const l = lang(booking.locale);
+  const t = T[l];
+  const f = FEEDBACK_TEXTS[l];
+  const url = `${siteUrl()}/konto/buchungen/${booking._id}?feedback=1`;
+  return send({
+    template: "feedbackRequest",
+    to: booking.customerDetails.email,
+    subject: f.subject,
+    text: `${t.hello(booking.customerDetails.name)}
+
+${f.intro(booking.reference)}
+
+${f.questions.map((q) => `• ${q}`).join("\n")}
+
+${f.cta}: ${url}
+
+${f.note}
+
+${t.regards}`,
+    html: layout(
+      f.title,
+      `<p>${escapeHtml(t.hello(booking.customerDetails.name))}</p>
+       <p>${escapeHtml(f.intro(booking.reference))}</p>
+       <ul>${f.questions.map((q) => `<li>${escapeHtml(q)}</li>`).join("")}</ul>
+       ${button(url, f.cta)}
+       <p style="color:#65736B;font-size:13px">${escapeHtml(f.note)}</p>`,
+      t.regardsHtml
+    ),
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Applicant: "Become a cleaner" application received
+// ---------------------------------------------------------------------------
+const APPLICATION_TEXTS = {
+  de: {
+    subject: "Deine Bewerbung bei Fiduxa",
+    title: "Danke für deine Bewerbung!",
+    body: "wir haben deine Bewerbung als Reinigungskraft erhalten. Unser Team meldet sich innerhalb weniger Werktage bei dir – telefonisch oder per E-Mail.",
+    privacy: "Deine Angaben nutzen wir ausschließlich für das Bewerbungsverfahren und löschen sie spätestens nach 6 Monaten, falls keine Zusammenarbeit entsteht.",
+  },
+  en: {
+    subject: "Your application at Fiduxa",
+    title: "Thank you for applying!",
+    body: "we have received your application as a cleaner. Our team will get back to you within a few working days – by phone or email.",
+    privacy: "We use your details only for the application process and delete them after 6 months at the latest if we do not start working together.",
+  },
+  pl: {
+    subject: "Twoja aplikacja w Fiduxa",
+    title: "Dziękujemy za aplikację!",
+    body: "otrzymaliśmy Twoją aplikację na stanowisko osoby sprzątającej. Nasz zespół odezwie się w ciągu kilku dni roboczych – telefonicznie lub e-mailem.",
+    privacy: "Twoje dane wykorzystujemy wyłącznie w procesie rekrutacji i usuwamy je najpóźniej po 6 miesiącach, jeśli nie podejmiemy współpracy.",
+  },
+};
+
+export const sendApplicationReceivedEmail = async ({ to, name, locale }) => {
+  const l = lang(locale);
+  const t = T[l];
+  const a = APPLICATION_TEXTS[l];
+  return send({
+    template: "applicationReceived",
+    to,
+    subject: a.subject,
+    text: `${t.hello(name)}
+
+${a.body}
+
+${a.privacy}
+
+${t.regards}`,
+    html: layout(
+      a.title,
+      `<p>${escapeHtml(t.hello(name))}</p><p>${escapeHtml(a.body)}</p><p style="color:#65736B;font-size:13px">${escapeHtml(a.privacy)}</p>`,
+      t.regardsHtml
+    ),
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Recurring plan (Putzplan): next occurrence created – pay link (online plans)
+// ---------------------------------------------------------------------------
+const SERIES_LABELS = {
+  de: {
+    subject: (ref) => `Dein nächster Putztermin – ${ref}`,
+    title: "Dein nächster Putztermin steht",
+    intro: "wir haben den nächsten Termin deines Putzplans für dich reserviert. Bitte bezahle ihn online, damit der Termin bestätigt wird:",
+    hold: (days) => `Der Termin bleibt ${days} Tage für dich reserviert. Danach wird er automatisch freigegeben.`,
+    button: "Jetzt bezahlen",
+    manage: "Pausieren, überspringen oder beenden kannst du deinen Putzplan jederzeit unter „Mein Putzplan“ in deinem Konto.",
+    noLink: "Den Zahlungslink findest du in deinem Fiduxa-Konto unter „Buchungen“.",
+  },
+  en: {
+    subject: (ref) => `Your next cleaning – ${ref}`,
+    title: "Your next cleaning is scheduled",
+    intro: "we have reserved the next appointment of your cleaning plan. Please pay online to confirm it:",
+    hold: (days) => `The appointment stays reserved for you for ${days} days. After that it is released automatically.`,
+    button: "Pay now",
+    manage: "You can pause, skip or end your cleaning plan at any time under “My cleaning plan” in your account.",
+    noLink: "You find the payment link in your Fiduxa account under “Bookings”.",
+  },
+  pl: {
+    subject: (ref) => `Twoje następne sprzątanie – ${ref}`,
+    title: "Twoje następne sprzątanie jest zaplanowane",
+    intro: "zarezerwowaliśmy kolejny termin Twojego planu sprzątania. Opłać go online, aby potwierdzić termin:",
+    hold: (days) => `Termin pozostaje zarezerwowany dla Ciebie przez ${days} dni. Potem zostanie automatycznie zwolniony.`,
+    button: "Zapłać teraz",
+    manage: "Plan sprzątania możesz w każdej chwili wstrzymać, pominąć lub zakończyć w sekcji „Mój plan sprzątania” na swoim koncie.",
+    noLink: "Link do płatności znajdziesz na swoim koncie Fiduxa w sekcji „Rezerwacje”.",
+  },
+};
+
+export const sendSeriesPaymentEmail = async ({ booking, url }) => {
+  const l = lang(booking.locale);
+  const t = T[l];
+  const x = SERIES_LABELS[l];
+  const payUrl = url || `${siteUrl()}/zahlung/${booking._id}`;
+  const holdDays = booking.holdExpiresAt ? Math.max(1, Math.round((new Date(booking.holdExpiresAt).getTime() - Date.now()) / 86400000)) : 7;
+  const rows = [
+    [t.reference, booking.reference],
+    [t.service, SERVICE_NAMES[l][booking.serviceId] ?? booking.serviceId],
+    [t.appointment, `${formatDay(booking.preferredDate, l)}, ${slotLabel(booking.slot, booking.slotEnd)}`],
+    [t.duration, t.hours((booking.estimate?.durationMinutes ?? 0) / 60)],
+    [t.amount, formatMoney(booking.payment?.amountCents ?? booking.pricing?.payableCents ?? 0, l)],
+  ];
+  return send({
+    template: "seriesPayment",
+    to: booking.customerDetails.email,
+    subject: x.subject(booking.reference),
+    text: `${t.hello(booking.customerDetails.name)}
+
+${x.intro}
+
+${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}
+
+${x.button}: ${payUrl}
+${x.hold(holdDays)}
+
+${x.manage}
+
+${t.regards}`,
+    html: layout(
+      x.title,
+      `<p>${escapeHtml(t.hello(booking.customerDetails.name))}</p>
+       <p>${escapeHtml(x.intro)}</p>
+       ${detailRows(rows)}
+       ${button(payUrl, x.button)}
+       <p style="color:#65736B;font-size:13px">${escapeHtml(x.hold(holdDays))}</p>
+       <p style="color:#65736B;font-size:13px">${escapeHtml(x.manage)}</p>`,
+      t.regardsHtml
+    ),
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Low-level access for feature modules that render their own mails
+// (invoice / pay-link mails live in services/invoice-email.service.js)
+// ---------------------------------------------------------------------------
+export const sendRawEmail = (mail) => send(mail);
+export const emailLayout = (title, bodyHtml, regardsHtml) => layout(title, bodyHtml, regardsHtml);
+export const emailButton = (url, label) => button(url, label);
+export const emailGreeting = (locale) => ({ hello: T[lang(locale)].hello, regards: T[lang(locale)].regards, regardsHtml: T[lang(locale)].regardsHtml });

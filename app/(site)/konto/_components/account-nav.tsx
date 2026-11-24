@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, Gift, LogOut, UserRound } from 'lucide-react';
+import { CalendarDays, Gift, LogOut, Repeat, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useAuth } from '@/lib/auth';
@@ -13,6 +13,7 @@ import { firstName } from './booking-helpers';
 
 const LINKS = [
   { href: '/konto', key: 'bookings', icon: CalendarDays, match: (p: string) => p === '/konto' || p.startsWith('/konto/buchungen') },
+  { href: '/konto/putzplan', key: 'putzplan', icon: Repeat, match: (p: string) => p.startsWith('/konto/putzplan') },
   { href: '/konto/gutscheine', key: 'giftCards', icon: Gift, match: (p: string) => p.startsWith('/konto/gutscheine') },
   { href: '/konto/profil', key: 'profile', icon: UserRound, match: (p: string) => p.startsWith('/konto/profil') },
 ] as const;

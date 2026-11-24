@@ -1,0 +1,48 @@
+# Local/staging stack: MongoDB + API + background worker.
+#   cp server/.env.example server/.env   (fill in secrets)
+#   docker compose up --build
+# The frontend (Next.js) is deployed separately (see docs/DEPLOYMENT.md).
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./server
+    restart: unless-stopped
+    env_file: ./server/.env
+    environment:
+      NODE_ENV: production
+      PORT: "3100"
+      MONGODB_URI: mongodb://mongo:27017/fiduxa
+      # Jobs run in the dedicated worker below
+      RUN_JOBS_IN_API: "false"
+      TRUST_PROXY: "1"
+    ports:
+      - "3100:3100"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  worker:
+    build: ./server
+    restart: unless-stopped
+    command: ["node", "worker.js"]
+    env_file: ./server/.env
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/fiduxa
+      SERVICE_NAME: fiduxa-worker
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo-data:

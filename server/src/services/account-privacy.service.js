@@ -1,0 +1,218 @@
+// GDPR self-service: data export (Art. 15/20) and account deletion (Art. 17).
+//
+// Deletion = anonymisation. Bookings, invoices and payout records are
+// accounting documents and must be kept for 10 years (§ 147 AO, § 14b UStG);
+// every personal detail on them is replaced, the account is deactivated and
+// all sessions are invalidated (tokenVersion++).
+import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
+
+import Booking from "../models/booking.model.js";
+import BookingMessage from "../models/booking-message.model.js";
+import GiftCard from "../models/gift-card.model.js";
+import Payout from "../models/payout.model.js";
+import PersonalCode from "../models/personal-code.model.js";
+import Review from "../models/review.model.js";
+import User from "../models/user.model.js";
+import { httpError } from "../utils/helpers.js";
+import { todayInBerlin } from "../utils/helpers.js";
+import { recordAudit } from "./audit.service.js";
+
+export const RETENTION_YEARS = 10;
+const TOMBSTONE_EMAIL = "tombstone@anonymised.invalid";
+const DELETED_CUSTOMER = "Gelöschter Kunde";
+const DELETED_WORKER = "Gelöschte Reinigungskraft";
+const REMOVED = "entfernt";
+
+/** Statuses that still need the customer (upcoming or unpaid work) */
+const OPEN_CUSTOMER_STATUSES = ["payment_pending", "confirmed", "in_progress"];
+const OPEN_WORKER_STATUSES = ["confirmed", "in_progress"];
+
+// ---------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------
+
+const BOOKING_EXPORT_FIELDS =
+  "reference serviceId areaM2 condition frequency extras customerDetails preferredDate slot slotEnd locale notes pets estimate pricing status statusHistory.status statusHistory.changedAt payment.status payment.method payment.amountCents payment.paidAt payment.refundedAt payment.cashCollectedCents cancellation.cancelledAt cancellation.reason feedback.customer job.completedAt invoice.number invoice.issuedAt invoice.totalCents invoice.vatCents invoice.taxDeductible createdAt updatedAt";
+
+/** Everything we store about the user, as plain JSON */
+export const exportUserData = async (user) => {
+  const id = user._id;
+  const [bookings, reviewsWritten, reviewsReceived, messages, giftCards, personalCodes, payouts, assignedJobs] = await Promise.all([
+    Booking.find({ customer: id }).select(BOOKING_EXPORT_FIELDS).sort({ createdAt: -1 }).lean(),
+    Review.find({ customer: id }).select("booking worker rating punctuality quality friendliness comment recommend createdAt").lean(),
+    user.role === "worker" ? Review.find({ worker: id }).select("booking rating punctuality quality friendliness comment createdAt").lean() : [],
+    BookingMessage.find({ author: id }).select("booking body createdAt").sort({ createdAt: 1 }).lean(),
+    GiftCard.find({ purchaser: id }).select("code status initialCents balanceCents recipientName recipientEmail message deliverAt deliveredAt expiresAt createdAt").lean(),
+    PersonalCode.find({ customer: id }).select("code status expiresAt usedAt createdAt").lean(),
+    user.role === "worker" ? Payout.find({ worker: id }).select("reference status provider amountCents bookings paidAt createdAt").lean() : [],
+    user.role === "worker"
+      ? Booking.find({ assignedWorker: id }).select("reference serviceId preferredDate slot slotEnd status job workerPayout createdAt").sort({ preferredDate: -1 }).lean()
+      : [],
+  ]);
+
+  const profile = {
+    id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    preferredLanguage: user.preferredLanguage,
+    emailVerified: Boolean(user.emailVerified),
+    emailVerifiedAt: user.emailVerifiedAt ?? null,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    household: user.household ?? null,
+    recurringCleanerPreference: user.recurringCleanerPreference ?? null,
+    ...(user.role === "worker" && {
+      workerStatus: user.workerStatus,
+      workerProfile: user.workerProfile,
+      availability: user.availability,
+      holidays: user.holidays,
+      bankAccountLast4: user.bankAccountLast4,
+      bankAccountHolder: user.bankAccountHolder,
+      payoutMethod: user.payoutMethod,
+    }),
+  };
+
+  const invoices = bookings
+    .filter((b) => b.invoice?.number)
+    .map((b) => ({ number: b.invoice.number, issuedAt: b.invoice.issuedAt, totalCents: b.invoice.totalCents, vatCents: b.invoice.vatCents, taxDeductible: b.invoice.taxDeductible, bookingReference: b.reference }));
+
+  return {
+    exportedAt: new Date().toISOString(),
+    format: "fiduxa-user-export/1",
+    retentionNote: `Buchungen und Rechnungen werden nach § 147 AO ${RETENTION_YEARS} Jahre aufbewahrt.`,
+    profile,
+    bookings,
+    invoices,
+    reviews: { written: reviewsWritten, received: reviewsReceived },
+    messages,
+    giftCards: giftCards.map((g) => ({ ...g, code: g.status === "pending_payment" ? undefined : g.code })),
+    personalCodes,
+    ...(user.role === "worker" && { assignedJobs, payouts }),
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Deletion / anonymisation
+// ---------------------------------------------------------------------------
+
+/** Throws 409 while the account still has open obligations */
+export const assertDeletable = async (user) => {
+  if (user.role === "admin") throw httpError(403, "Admin accounts cannot be deleted here. Ask another administrator.");
+  if (user.role === "consumer") {
+    const open = await Booking.exists({ customer: user._id, status: { $in: OPEN_CUSTOMER_STATUSES } });
+    if (open) {
+      throw Object.assign(httpError(409, "You still have an upcoming or unpaid booking. Please cancel it first or contact us."), { code: "OPEN_BOOKINGS" });
+    }
+  } else if (user.role === "worker") {
+    const open = await Booking.exists({ assignedWorker: user._id, status: { $in: OPEN_WORKER_STATUSES }, preferredDate: { $gte: todayInBerlin() } });
+    if (open) {
+      throw Object.assign(httpError(409, "You are still assigned to upcoming jobs. Please release them first or contact the office."), { code: "OPEN_JOBS" });
+    }
+  }
+};
+
+/** Placeholder account that anonymised reviews point to */
+const tombstoneUser = async () => {
+  const existing = await User.findOne({ email: TOMBSTONE_EMAIL }).select("_id");
+  if (existing) return existing._id;
+  const created = await User.create({
+    name: DELETED_CUSTOMER,
+    email: TOMBSTONE_EMAIL,
+    password: await bcrypt.hash(randomBytes(32).toString("hex"), 10),
+    role: "consumer",
+    isActive: false,
+    anonymisedAt: new Date(),
+  });
+  return created._id;
+};
+
+/**
+ * Anonymise a user and the personal data on their records. Idempotent.
+ * Returns a summary of what was changed.
+ */
+export const anonymiseUser = async (user, { actorId, reason = "", self = false } = {}) => {
+  const id = user._id;
+  const now = new Date();
+  const isWorker = user.role === "worker";
+  const anonEmail = `deleted+${id}@anonymised.invalid`;
+  const before = { name: user.name, email: user.email, role: user.role };
+
+  // 1. Bookings: customer details (kept for accounting with the invoice)
+  const bookingUpdate = await Booking.updateMany(
+    { customer: id },
+    {
+      $set: {
+        "customerDetails.name": DELETED_CUSTOMER,
+        "customerDetails.email": anonEmail,
+        "customerDetails.phone": "",
+        "customerDetails.address": REMOVED,
+        "customerDetails.accessNotes": "",
+        notes: "",
+      },
+    }
+  );
+
+  // 2. Reviews stay (ratings are the cleaner's track record) but point to the tombstone
+  let reviews = 0;
+  if (!isWorker) {
+    const tombstone = await tombstoneUser();
+    reviews = (await Review.updateMany({ customer: id }, { $set: { customer: tombstone } })).modifiedCount;
+  }
+
+  // 3. Messages written by the user
+  const messages = (await BookingMessage.updateMany({ author: id }, { $set: { body: "[gelöscht]" } })).modifiedCount;
+
+  // 4. Personal codes (welcome offer) are revoked
+  const codes = (await PersonalCode.updateMany({ customer: id, status: { $in: ["issued", "reserved"] } }, { $set: { status: "revoked" } })).modifiedCount;
+
+  // 5. Gift cards bought by the user: sender data removed (the card itself stays valid for the recipient)
+  await GiftCard.updateMany({ purchaser: id }, { $set: { senderName: DELETED_CUSTOMER, senderEmail: "", message: "" } });
+
+  // 6. The account itself
+  const fresh = await User.findById(id).select("+password +avatarData");
+  fresh.name = isWorker ? DELETED_WORKER : DELETED_CUSTOMER;
+  fresh.email = anonEmail;
+  fresh.phone = "";
+  fresh.password = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
+  fresh.passwordChangedAt = now;
+  fresh.tokenVersion = (fresh.tokenVersion ?? 0) + 1;
+  fresh.isActive = false;
+  fresh.anonymisedAt = now;
+  fresh.emailVerified = false;
+  fresh.household = undefined;
+  fresh.recurringCleanerPreference = undefined;
+  fresh.passwordResetTokenHash = undefined;
+  fresh.passwordResetExpires = undefined;
+  fresh.emailVerificationTokenHash = undefined;
+  fresh.emailVerificationExpires = undefined;
+  fresh.avatarData = undefined;
+  fresh.avatarType = "";
+  fresh.avatarUpdatedAt = null;
+  if (isWorker) {
+    fresh.workerStatus = "suspended";
+    fresh.workerProfile = { address: "", serviceAreas: [], experienceYears: 0, bio: "", languages: [], specialties: [], petsOk: false, bringsSupplies: false, publicVisible: false };
+    fresh.availability = [];
+    fresh.holidays = [];
+    fresh.bankDetailsEncrypted = undefined;
+    fresh.bankDetailsIv = undefined;
+    fresh.bankDetailsAuthTag = undefined;
+    fresh.bankAccountLast4 = "";
+    fresh.bankAccountHolder = "";
+    fresh.payoutMethod = { type: "bank", paypalEmail: "" };
+  }
+  await fresh.save();
+
+  await recordAudit({
+    actor: actorId ?? id,
+    action: self ? "account.deleted.self" : "customer.deleted",
+    entityType: "User",
+    entityId: id,
+    before,
+    after: { reason, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messages, codesRevoked: codes, retentionYears: RETENTION_YEARS },
+  });
+
+  return { bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messagesAnonymised: messages, codesRevoked: codes, retentionYears: RETENTION_YEARS };
+};

@@ -173,6 +173,7 @@ export function useBerlinDate() {
 export const PAYOUT_STATUS_CLASSES: Record<PayoutStatus, string> = {
   pending: 'border-sky-200 bg-sky-50 text-sky-800',
   due: 'border-sage bg-mint text-pine-dark',
+  processing: 'border-amber-200 bg-amber-50 text-amber-900',
   on_hold: 'border-red-200 bg-red-50 text-red-700',
   paid: 'border-gray-200 bg-gray-100 text-gray-700',
 };
@@ -192,7 +193,15 @@ export function PayoutStatusBadge({
   const t = useMessages(portalMessages).earnings.status;
   const date = useBerlinDate();
   const label =
-    status === 'pending' ? t.pending(date(dueAt)) : status === 'paid' ? t.paid(date(paidAt)) : status === 'due' ? t.due : t.on_hold;
+    status === 'pending'
+      ? t.pending(date(dueAt))
+      : status === 'paid'
+        ? t.paid(date(paidAt))
+        : status === 'due'
+          ? t.due
+          : status === 'processing'
+            ? t.processing
+            : t.on_hold;
   return (
     <span
       className={cn(
@@ -207,5 +216,5 @@ export function PayoutStatusBadge({
 }
 
 /** Display status of a job payout: a pending payout past its due date is "due" (mirrors server displayPayoutStatus) */
-export const payoutDisplayStatus = (p: { status: 'pending' | 'on_hold' | 'paid'; dueAt: string }): PayoutStatus =>
+export const payoutDisplayStatus = (p: { status: Exclude<PayoutStatus, 'due'>; dueAt: string }): PayoutStatus =>
   p.status === 'pending' && new Date(p.dueAt).getTime() <= Date.now() ? 'due' : p.status;

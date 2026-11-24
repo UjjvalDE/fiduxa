@@ -34,6 +34,8 @@ export interface Draft {
   /** Postcode that the API confirmed as serviceable */
   verifiedPostcode: string | null;
   areaM2: number | null;
+  /** Bathrooms 1–6 */
+  bathrooms: number;
   condition: Condition;
   extras: string[];
   frequency: Frequency;
@@ -68,6 +70,7 @@ export const EMPTY_DRAFT: Draft = {
   postcode: '',
   verifiedPostcode: null,
   areaM2: AREA_DEFAULT,
+  bathrooms: 1,
   condition: 'normal',
   extras: [],
   frequency: 'one-time',
@@ -186,6 +189,7 @@ export function loadDraft(): Draft | null {
       postcode: typeof data.postcode === 'string' ? data.postcode.slice(0, 5) : '',
       verifiedPostcode: typeof data.verifiedPostcode === 'string' ? data.verifiedPostcode : null,
       areaM2: typeof data.areaM2 === 'number' && Number.isFinite(data.areaM2) ? data.areaM2 : AREA_DEFAULT,
+      bathrooms: typeof data.bathrooms === 'number' && Number.isInteger(data.bathrooms) && data.bathrooms >= 1 && data.bathrooms <= 6 ? data.bathrooms : 1,
       condition: CONDITIONS.includes(data.condition as Condition) ? (data.condition as Condition) : 'normal',
       extras: Array.isArray(data.extras) ? data.extras.filter((x): x is string => typeof x === 'string').slice(0, 20) : [],
       frequency: FREQUENCIES.includes(data.frequency as Frequency) ? (data.frequency as Frequency) : 'one-time',

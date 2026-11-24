@@ -33,6 +33,7 @@ const propertySchema = {
       "Unknown service. Business cleaning uses /api/v1/business-requests.",
   }),
   areaM2: z.coerce.number().min(15).max(1000),
+  bathrooms: z.coerce.number().int().min(1).max(6).default(1),
   condition: z.enum(["basic", "normal", "moderate", "heavy"]).default("normal"),
   frequency: z
     .enum(["one-time", "weekly", "biweekly", "monthly"])
@@ -191,6 +192,7 @@ export const createBookingRequest = async (req, res, next) => {
       input: {
         serviceId: data.serviceId,
         areaM2: data.areaM2,
+        bathrooms: data.bathrooms,
         condition: data.condition,
         frequency: data.frequency,
         extras: data.extras,
@@ -248,6 +250,7 @@ export const createBookingRequest = async (req, res, next) => {
 
             serviceId: data.serviceId,
             areaM2: data.areaM2,
+            bathrooms: data.bathrooms,
             condition: data.condition,
             frequency: data.frequency,
             extras: estimate.extras.map((extra) => extra.id),
@@ -380,6 +383,7 @@ export const getQuote = async (req, res, next) => {
       input: {
         serviceId: data.serviceId,
         areaM2: data.areaM2,
+        bathrooms: data.bathrooms,
         condition: data.condition,
         frequency: data.frequency,
         extras: data.extras,

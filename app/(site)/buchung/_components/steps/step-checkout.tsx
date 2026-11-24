@@ -25,6 +25,7 @@ import { LoginForm, RegisterForm } from '../auth-forms';
 import { GiftCardField, PromoCodeField, WelcomeHint } from '../checkout-discounts';
 import { QuoteBreakdown } from '../../../_shared/price-breakdown';
 import pricingMessages from '../../../_shared/pricing-messages';
+import { PriceSplit } from '../price-split';
 import { SectionCard, StepHeader } from './step-header';
 import type { EstimateState, QuoteState } from '../../_lib/hooks';
 import { dateValueToIso, type Contact } from '../../_lib/wizard';
@@ -267,8 +268,9 @@ export function StepCheckout({
             </p>
           )}
         </div>
+        {quote.quote && <PriceSplit quote={quote.quote} />}
         <div className="mt-4">
-          <WelcomeHint quote={quote} user={user} authStatus={authStatus} registerHref="#card-account" loginHref="#card-account" />
+          <WelcomeHint quote={quote} user={user} authStatus={authStatus} onApplyCode={onPromoApply} registerHref="#card-account" loginHref="#card-account" />
         </div>
         <div className="mt-5 grid gap-5 border-t border-border pt-5 md:grid-cols-2">
           <PromoCodeField applied={promoCode} onApply={onPromoApply} onRemove={onPromoRemove} quote={quote} error={errors.promoCode} disabled={submitting} />

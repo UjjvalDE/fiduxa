@@ -329,7 +329,7 @@ The suites cover the areas in your list: customer authentication and email verif
 ## 14. Remaining issues and recommendations
 
 1. **Not clicked through in a browser yet.** All new screens compile, build, return 200 in DE/EN/PL, and the APIs behind them are tested. Please click through the checkout with codes, the gift-card purchase, the email links and the admin screens once.
-2. **PayPal is in sandbox mode.** For live payments, set live keys and `PAYPAL_MODE=live`. Stripe is optional (`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`).
+2. **PayPal is LIVE since 20 Nov 2026** (`PAYPAL_MODE=live`, keys `PAYPAL_CLIENT_ID` / `PAYPAL_SECRET_KEY`). Every PayPal payment now moves real money, including tests on localhost. For tests, set `PAYPAL_MODE=sandbox`, which uses the sandbox keys `PAYPALAPIKEY` / `PAYPALSECRET_KEY`. The automated tests never use the live keys. Stripe is optional (`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`).
 3. **No PayPal webhook.** If a customer approves a payment at PayPal and then closes the browser before returning, the order is never captured. No money moves and the hold expires. A PayPal webhook would capture these too.
 4. **Tax treatment needs confirmation:** confirm the VAT treatment of discounts and gift cards, and the 19 % rate, with your tax adviser.
 5. **Login token storage:** move the token from `localStorage` to an httpOnly cookie and add a Content-Security-Policy (needs nonce support for the inline scripts in `app/layout.tsx`).
@@ -340,6 +340,19 @@ The suites cover the areas in your list: customer authentication and email verif
 10. **Unused dependencies** (§1) can be removed in a cleanup.
 
 ---
+
+## Update: personal welcome codes and index cleanup (20 Nov 2026)
+- **Personal codes:**
+  - The 10 % welcome offer now works with a personal code (format `FX-XXXX-XXXX`). Each customer gets their own unique code once they confirm their email address.
+  - The code is shown only in the welcome email and in the account ("Mein Willkommenscode"); the email button links to `/buchung?code=…`.
+  - It works only for its owner (anyone else gets `not_yours`), only once, and for 90 days. The validity is set per promotion with `codeValidityDays`.
+  - If the booking is cancelled before the cleaning, the code becomes usable again. The duplicate-account checks still apply.
+- **Storage:** the rules stay in ONE `promotions` record; each code is a small `personalcodes` record (`code` unique, `{promotion, customer}` unique). State changes are atomic, and an expiry job runs every minute.
+- **New endpoint:** `GET /users/me/welcome-code`.
+- **Index cleanup:**
+  - Removed redundant single-field indexes (they cost write time and memory) and added compound indexes for the background jobs and admin lists.
+  - New script `node src/scripts/sync-indexes.js [--dry-run]` aligns any database with the models without changing data. It has been applied to the database; all 18 collections are in sync.
+- **Tests:** 250 end-to-end checks and 14 unit tests pass. The promotions suite now has 74 checks, including code uniqueness, `not_yours`, single use, expiry and release.
 
 ## 15. Deployment
 
@@ -362,7 +375,7 @@ The suites cover the areas in your list: customer authentication and email verif
 | `PUBLIC_SITE_URL` | Website origin for links in emails and payment redirects (e.g. `https://fiduxa.de`) |
 | `CLIENT_URL` | Allowed browser origins (CORS) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `ADMIN_NOTIFICATION_EMAIL` | Email (verification, gift cards, bookings) |
-| `PAYPALAPIKEY`, `PAYPALSECRET_KEY`, `PAYPAL_MODE` (sandbox\|live) | PayPal |
+| `PAYPAL_MODE` (sandbox\|live), `PAYPAL_CLIENT_ID` + `PAYPAL_SECRET_KEY` (live), `PAYPALAPIKEY` + `PAYPALSECRET_KEY` (sandbox) | PayPal: live keys are only used with `PAYPAL_MODE=live` |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Stripe (optional) |
 | `VAT_RATE` (default 0.19), `HOURLY_RATE_CENTS` (default 2500) | Defaults; admins can override both in Einstellungen |
 | `WORKER_HOURLY_RATE_CENTS`, `WORKER_PAYOUT_DELAY_DAYS` | Cleaner pay defaults |

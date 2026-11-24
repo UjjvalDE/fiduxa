@@ -105,6 +105,7 @@ export function useDebouncedValue<T>(value: T, delay = 400): T {
 export interface EstimateInput {
   serviceId: string;
   areaM2: number;
+  bathrooms?: number;
   condition: Condition;
   frequency: Frequency;
   extras: string[];

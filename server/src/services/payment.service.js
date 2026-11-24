@@ -5,6 +5,7 @@ import { findService } from "../data/catalogue.js";
 import { OPERATIONS, PAYMENT_OPTIONS } from "../config/pricing.js";
 import { httpError, slotLabel } from "../utils/helpers.js";
 import {
+  createPayPalOrder,
   createPayPalOrderForBooking,
   isPayPalConfigured,
   refundPayPalCapture,
@@ -225,42 +226,156 @@ export const expireOpenCheckouts = async (bookingId) => {
   }
 };
 
-/** Refund one paid Payment at its provider and record it. Throws on provider errors. */
-export const refundPaymentRecord = async (payment) => {
+/** Amount of a payment that can still be refunded */
+export const refundableCents = (payment) => Math.max(0, (payment?.amountCents ?? 0) - (payment?.refundedCents ?? 0));
+
+/**
+ * Refund one paid Payment at its provider – fully (default) or partially
+ * (`amountCents` ≤ remaining) – and record it (cumulative `refundedCents`,
+ * one `refunds[]` entry per refund). Throws on provider errors or a bad amount.
+ * Returns the provider refund id.
+ */
+export const refundPaymentRecord = async (payment, { amountCents, reason = "", by } = {}) => {
+  const remaining = refundableCents(payment);
+  const amount = amountCents ?? remaining;
+  if (!Number.isInteger(amount) || amount < 1 || amount > remaining) {
+    throw httpError(422, `The refund amount must be between 0.01 € and ${(remaining / 100).toFixed(2)} €.`);
+  }
+  const attempt = (payment.refunds?.length ?? 0) + 1;
+  const partial = amount < (payment.amountCents ?? 0);
+
   let refundId;
   if (payment.provider === "paypal") {
-    refundId = await refundPayPalCapture(payment.paymentIntentId, payment._id);
+    refundId = await refundPayPalCapture(payment.paymentIntentId, payment._id, {
+      ...(partial && { amountCents: amount }),
+      requestKey: attempt === 1 && !partial ? `refund-${payment._id}` : `refund-${payment._id}-${attempt}-${amount}`,
+    });
   } else {
     const refund = await getStripe().refunds.create(
-      { payment_intent: payment.paymentIntentId },
-      { idempotencyKey: `refund-${payment._id}` }
+      { payment_intent: payment.paymentIntentId, ...(partial && { amount }) },
+      { idempotencyKey: attempt === 1 && !partial ? `refund-${payment._id}` : `refund-${payment._id}-${attempt}-${amount}` }
     );
     refundId = refund.id;
   }
-  payment.status = "refunded";
-  payment.refundedAt = new Date();
+  const now = new Date();
+  payment.refundedCents = (payment.refundedCents ?? 0) + amount;
+  payment.refunds = [...(payment.refunds ?? []), { amountCents: amount, reason, refundId, at: now, by }];
+  payment.status = payment.refundedCents >= payment.amountCents ? "refunded" : "partially_refunded";
+  payment.refundedAt = now;
   payment.refundId = refundId;
   await payment.save();
   return refundId;
 };
 
+/** Booking payment status after a refund on its payment record */
+export const bookingRefundStatus = (payment) => (payment.status === "refunded" ? "refunded" : "partially_refunded");
+
 /**
- * Refund the paid payment of a booking (Stripe or PayPal).
+ * Refund the paid payment of a booking (Stripe or PayPal) – fully, or
+ * `amountCents` of it (e.g. paid − cancellation fee).
  * Returns true on success, false if nothing to refund or the provider failed.
  */
-export const refundBookingPayment = async (booking) => {
-  const payment = await Payment.findOne({ booking: booking._id, status: "paid" }).sort({ paidAt: -1 });
+export const refundBookingPayment = async (booking, { amountCents, reason, by } = {}) => {
+  const payment = await Payment.findOne({ booking: booking._id, purpose: { $ne: "adjustment" }, status: { $in: ["paid", "partially_refunded"] } }).sort({ paidAt: -1 });
   if (!payment?.paymentIntentId) return false;
   if (payment.provider === "paypal" ? !isPayPalConfigured() : !isPaymentConfigured()) return false;
 
   try {
-    await refundPaymentRecord(payment);
+    await refundPaymentRecord(payment, { amountCents, reason, by });
 
-    booking.set("payment.status", "refunded");
+    booking.set("payment.status", bookingRefundStatus(payment));
     booking.set("payment.refundedAt", payment.refundedAt);
     return true;
   } catch (error) {
     console.error(`Automatic refund failed for ${booking.reference}:`, error.message);
     return false;
   }
+};
+
+/**
+ * Pay link for a price adjustment (difference after an edit / duration review
+ * of an already paid booking): Stripe Checkout or PayPal order over exactly
+ * `deltaCents`, recorded as a Payment with purpose "adjustment".
+ * Returns { url, paymentId, provider }. Does NOT save the booking.
+ */
+export const createAdjustmentCheckout = async (booking, adjustment, { method } = {}) => {
+  const chosen = pickMethod(method ?? booking.payment?.method);
+  if (!chosen) throw httpError(503, "Online payment is not configured yet. Please contact us to pay by invoice.");
+  const amountCents = adjustment.deltaCents;
+  if (!Number.isInteger(amountCents) || amountCents < 50) {
+    throw httpError(409, "There is no payable amount for this adjustment. Please contact us.");
+  }
+
+  // Reuse a still-open pay link
+  const open = await Payment.findOne({
+    purpose: "adjustment",
+    adjustment: adjustment._id,
+    status: "created",
+    expiresAt: { $gt: new Date(Date.now() + 2 * 60 * 1000) },
+  }).sort({ createdAt: -1 });
+  if (open?.checkoutUrl) return { url: open.checkoutUrl, paymentId: open._id, provider: open.provider, reused: true };
+
+  const siteUrl = getSiteUrl();
+  const locale = booking.locale || "de";
+  const service = findService(booking.serviceId);
+  const name = `${(locale === "de" ? service?.name : service?.nameEn) ?? "Cleaning"} – ${booking.reference} – ${locale === "de" ? "Nachzahlung" : locale === "pl" ? "Dopłata" : "Additional payment"}`;
+  const description = String(adjustment.reason || "").slice(0, 120);
+  const successUrl = `${siteUrl}/konto/buchungen/${booking._id}?adjustment=paid`;
+  const cancelUrl = `${siteUrl}/konto/buchungen/${booking._id}?adjustment=open`;
+  const metadata = { bookingId: String(booking._id), reference: booking.reference, adjustmentId: String(adjustment._id), purpose: "adjustment" };
+
+  let sessionId;
+  let url;
+  let expiresAt;
+  if (chosen === "paypal") {
+    const order = await createPayPalOrder({
+      referenceId: String(booking._id),
+      invoiceId: `${booking.reference}-ADJ-${Date.now().toString(36)}`,
+      description: `${name} – ${description}`.slice(0, 127),
+      amountCents,
+      locale,
+      returnUrl: `${siteUrl}/zahlung/paypal?booking=${booking._id}&adjustment=${adjustment._id}`,
+      cancelUrl,
+      requestKey: `adjustment-${adjustment._id}-${Math.floor(Date.now() / 60000)}`,
+    });
+    sessionId = order.orderId;
+    url = order.url;
+    expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+  } else {
+    const session = await createStripeSession({
+      amountCents,
+      name,
+      description: description || name,
+      email: booking.customerDetails.email,
+      locale,
+      metadata,
+      successUrl,
+      cancelUrl,
+      idempotencyKey: `adjustment-${adjustment._id}-${Math.floor(Date.now() / 60000)}`,
+    });
+    sessionId = session.sessionId;
+    url = session.url;
+    expiresAt = session.expiresAt;
+  }
+
+  const payment = await Payment.findOneAndUpdate(
+    { checkoutSessionId: sessionId },
+    {
+      $setOnInsert: {
+        purpose: "adjustment",
+        adjustment: adjustment._id,
+        booking: booking._id,
+        customer: booking.customer,
+        provider: chosen,
+        checkoutSessionId: sessionId,
+        amountCents,
+        currency: "EUR",
+        status: "created",
+        checkoutUrl: url,
+        expiresAt,
+      },
+    },
+    { upsert: true, returnDocument: "after" }
+  );
+  return { url, paymentId: payment._id, provider: chosen, reused: false };
 };

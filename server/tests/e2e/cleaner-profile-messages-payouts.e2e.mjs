@@ -17,6 +17,8 @@ const { todayInBerlin, DAY_MS } = await import(ROOT + "/src/utils/helpers.js");
 
 await connectDB();
 await User.db.dropDatabase();
+// Rebuild every index before testing (unique indexes back business rules)
+for (const M of Object.values(User.db.models)) await M.syncIndexes(); // syncAllIndexes
 await AvailabilitySlot.syncIndexes();
 await (await import(ROOT + "/src/models/reservation-lock.model.js")).default.syncIndexes();
 const server = app.listen(0);
@@ -163,9 +165,9 @@ await call("POST", `/worker/jobs/${jHoliday}/on-the-way`, null, annaT);
 await call("POST", `/worker/jobs/${jHoliday}/start`, null, annaT);
 r = await call("POST", `/worker/jobs/${jHoliday}/complete`, { note: "ok" }, annaT);
 let b = await Booking.findById(jHoliday);
-check("completion records pay (2 h × €18)", b.workerPayout?.amountCents === 3600 && b.workerPayout.status === "pending", b.workerPayout);
+check("completion records pay (75 % of €50)", b.workerPayout?.amountCents === 3750 && b.workerPayout.status === "pending", b.workerPayout);
 r = await call("GET", "/worker/earnings", null, annaT);
-check("earnings: pending 36 €, status pending", r.body.summary?.pendingCents === 3600 && r.body.jobs?.[0]?.status === "pending", r.body.summary);
+check("earnings: pending 36 €, status pending", r.body.summary?.pendingCents === 3750 && r.body.jobs?.[0]?.status === "pending", r.body.summary);
 
 r = await call("GET", `/customer/bookings/${jHoliday}`, null, custT);
 check("customer can review", r.body.canReview === true, r.body.canReview);
@@ -179,16 +181,16 @@ r = await call("GET", `/cleaners/${anna._id}`);
 check("public profile shows rating 5, 1 job, reliability 100", r.body.cleaner?.ratingAvg === 5 && r.body.cleaner.jobsCompleted === 1 && r.body.cleaner.reliabilityPct === 100 && r.body.cleaner.reviews[0].author === "Kunde K.", r.body.cleaner);
 
 r = await call("GET", "/admin/payouts/open", null, adminT);
-check("admin sees pending payout (not yet due)", r.body.totals?.pendingCents === 3600 && r.body.totals.dueCents === 0, r.body.totals);
+check("admin sees pending payout (not yet due)", r.body.totals?.pendingCents === 3750 && r.body.totals.dueCents === 0, r.body.totals);
 r = await call("POST", "/admin/payouts", { workerId: String(anna._id) }, adminT);
 check("nothing due yet → 409", r.status === 409, r.body);
 await Booking.updateOne({ _id: jHoliday }, { "workerPayout.dueAt": new Date(Date.now() - 1000) });
 r = await call("GET", "/worker/earnings", null, annaT);
-check("after 30 days status is due", r.body.jobs?.[0]?.status === "due" && r.body.summary.dueCents === 3600, r.body.jobs?.[0]);
+check("after 30 days status is due", r.body.jobs?.[0]?.status === "due" && r.body.summary.dueCents === 3750, r.body.jobs?.[0]);
 r = await call("POST", "/admin/payouts", { workerId: String(anna._id), note: "SEPA" }, adminT);
-check("admin records payout", r.status === 201 && r.body.payout.amountCents === 3600 && r.body.payout.reference.startsWith("AUS-"), r.body);
+check("admin records payout", r.status === 201 && r.body.payout.amountCents === 3750 && r.body.payout.reference.startsWith("AUS-"), r.body);
 r = await call("GET", "/worker/earnings", null, annaT);
-check("cleaner sees paid + payout history", r.body.jobs?.[0]?.status === "paid" && r.body.payouts?.length === 1 && r.body.summary.paidCents === 3600, r.body);
+check("cleaner sees paid + payout history", r.body.jobs?.[0]?.status === "paid" && r.body.payouts?.length === 1 && r.body.summary.paidCents === 3750, r.body);
 
 r = await call("PATCH", `/admin/workers/${ben._id}/pay-rate`, { payRateCents: 2000 }, adminT);
 check("admin sets custom pay rate", r.body.payRateCents === 2000 && r.body.custom, r.body);

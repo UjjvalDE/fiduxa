@@ -48,6 +48,9 @@ export function useApi<T>(path: string | null): ApiState<T> {
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(Boolean(path));
   const [nonce, setNonce] = useState(0);
+  // Path the current `data` belongs to – a failed request for a DIFFERENT path
+  // (next page, new filter) must not leave the previous page on screen.
+  const loadedPathRef = useRef<string | null>(null);
   const { locale } = useLocale();
   // Translate at render time so the message follows language switches
   const error = rawError ? translateApiError(rawError, locale) : null;
@@ -64,10 +67,17 @@ export function useApi<T>(path: string | null): ApiState<T> {
     api
       .get<T>(path)
       .then((res) => {
-        if (!cancelled) setData(res);
+        if (cancelled) return;
+        loadedPathRef.current = path;
+        setData(res);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
+        // Stale data from another page/filter would look like "nothing happened"
+        if (loadedPathRef.current !== path) {
+          loadedPathRef.current = null;
+          setData(null);
+        }
         setRawError(err ?? new Error('unknown'));
         setErrorStatus(err instanceof ApiError ? err.status : null);
       })

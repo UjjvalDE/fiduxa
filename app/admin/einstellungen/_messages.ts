@@ -1,5 +1,6 @@
 // Admin → Preise & Einstellungen (GET/PUT /admin/settings)
 import { defineMessages } from '@/lib/i18n/config';
+import type { CommissionTierKey } from '@/lib/types';
 
 const de = {
   title: 'Preise & Einstellungen',
@@ -34,6 +35,9 @@ const de = {
     areaPerHourHint: 'Für die Empfehlung der Dauer (Zustand „normal“).',
     discounts: 'Rabatte nach Häufigkeit (%)',
     discountsHint: '0–50 %. 0 = kein Rabatt.',
+    conditions: 'Zeitfaktor nach Zustand der Wohnung',
+    conditionsHint: 'Multipliziert die empfohlene Dauer. „Normal“ ist fest ×1 – ein gepflegtes Zuhause unter 1 macht die Reinigung günstiger, stärkere Verschmutzung über 1 teurer.',
+    errCondOrder: '„Stärker“ darf nicht über „Sehr stark“ liegen.',
     weekly: 'Wöchentlich',
     biweekly: 'Alle 2 Wochen',
     monthly: 'Alle 4 Wochen',
@@ -115,6 +119,34 @@ const de = {
     payoutDelay: 'Auszahlung nach (Tagen)',
     payoutDelayHint: 'Wartezeit nach Abschluss, bis die Vergütung fällig wird (0–90).',
   },
+  commission: {
+    title: 'Provision nach Bewertung',
+    description:
+      'Stufen des Provisionsmodells: Voraussetzungen und Provisionssätze. Höhere Stufen müssen gleich hohe oder strengere Voraussetzungen und eine niedrigere Provision haben. Erlaubt sind 10–25 %.',
+    payModelLegend: 'Vergütungsmodell',
+    modelCommission: 'Provisionsmodell (empfohlen)',
+    modelCommissionHint:
+      'Reinigungskräfte erhalten den Kundenpreis abzüglich einer Provision, die mit besseren Bewertungen sinkt.',
+    modelHourly: 'Stundenlohn (Altmodell)',
+    modelHourlyHint: 'Fester Stundensatz unabhängig von Bewertungen – die Stufen unten sind dann ohne Wirkung.',
+    tableCaption: 'Provisionsstufen',
+    colTier: 'Stufe',
+    colMinJobs: 'Einsätze min.',
+    colMinReviews: 'Bewertungen min.',
+    colMinRating: 'Ø-Bewertung min.',
+    colPct: 'Provision %',
+    tierNames: {
+      new: 'Neu',
+      bronze: 'Bronze',
+      silver: 'Silber',
+      gold: 'Gold',
+      platinum: 'Platin',
+      diamond: 'Diamant',
+    } as Record<CommissionTierKey, string>,
+    cellLabel: (column: string, tier: string) => `${column} – ${tier}`,
+    errThresholds: 'Höhere Stufen müssen gleich hohe oder strengere Voraussetzungen haben.',
+    errPctOrder: 'Jede höhere Stufe braucht eine niedrigere Provision als die Stufe darunter.',
+  },
 };
 
 export type SettingsMessages = typeof de;
@@ -152,6 +184,9 @@ const en: SettingsMessages = {
     areaPerHourHint: 'Used for the recommended duration (condition “normal”).',
     discounts: 'Frequency discounts (%)',
     discountsHint: '0–50 %. 0 = no discount.',
+    conditions: 'Time factor by home condition',
+    conditionsHint: 'Multiplies the recommended duration. “Normal” is fixed at ×1 – a well-kept home below 1 makes the cleaning cheaper, heavier soiling above 1 more expensive.',
+    errCondOrder: '“Dirtier” must not exceed “Very dirty”.',
     weekly: 'Weekly',
     biweekly: 'Every 2 weeks',
     monthly: 'Every 4 weeks',
@@ -232,6 +267,33 @@ const en: SettingsMessages = {
     payoutDelay: 'Payout after (days)',
     payoutDelayHint: 'Waiting period after completion until the pay is due (0–90).',
   },
+  commission: {
+    title: 'Rating-based commission',
+    description:
+      'Tiers of the commission model: requirements and commission rates. Higher tiers must have equal or stricter requirements and a lower commission. Allowed range: 10–25%.',
+    payModelLegend: 'Pay model',
+    modelCommission: 'Commission model (recommended)',
+    modelCommissionHint: 'Cleaners receive the customer price minus a commission that decreases with better ratings.',
+    modelHourly: 'Hourly wage (legacy model)',
+    modelHourlyHint: 'Fixed hourly rate regardless of ratings – the tiers below then have no effect.',
+    tableCaption: 'Commission tiers',
+    colTier: 'Tier',
+    colMinJobs: 'Jobs min.',
+    colMinReviews: 'Reviews min.',
+    colMinRating: 'Avg. rating min.',
+    colPct: 'Commission %',
+    tierNames: {
+      new: 'New',
+      bronze: 'Bronze',
+      silver: 'Silver',
+      gold: 'Gold',
+      platinum: 'Platinum',
+      diamond: 'Diamond',
+    },
+    cellLabel: (column, tier) => `${column} – ${tier}`,
+    errThresholds: 'Higher tiers must have equal or stricter requirements.',
+    errPctOrder: 'Every higher tier needs a lower commission than the tier below.',
+  },
 };
 
 const pl: SettingsMessages = {
@@ -267,6 +329,9 @@ const pl: SettingsMessages = {
     areaPerHourHint: 'Do wyliczenia zalecanego czasu (stan „normalny”).',
     discounts: 'Rabaty za częstotliwość (%)',
     discountsHint: '0–50 %. 0 = brak rabatu.',
+    conditions: 'Współczynnik czasu według stanu mieszkania',
+    conditionsHint: 'Mnoży zalecany czas. „Normalne” jest stałe ×1 – zadbany dom poniżej 1 obniża cenę, silniejsze zabrudzenia powyżej 1 ją podnoszą.',
+    errCondOrder: '„Bardziej brudne” nie może przekraczać „Bardzo brudne”.',
     weekly: 'Co tydzień',
     biweekly: 'Co 2 tygodnie',
     monthly: 'Co 4 tygodnie',
@@ -346,6 +411,33 @@ const pl: SettingsMessages = {
     hourlyRateHint: '0–100 € za godzinę',
     payoutDelay: 'Wypłata po (dniach)',
     payoutDelayHint: 'Okres oczekiwania po zakończeniu, zanim wynagrodzenie stanie się wymagalne (0–90).',
+  },
+  commission: {
+    title: 'Prowizja zależna od ocen',
+    description:
+      'Poziomy modelu prowizyjnego: warunki i stawki prowizji. Wyższe poziomy muszą mieć takie same lub surowsze warunki oraz taką samą lub niższą prowizję.',
+    payModelLegend: 'Model wynagrodzenia',
+    modelCommission: 'Model prowizyjny (zalecany)',
+    modelCommissionHint: 'Osoby sprzątające otrzymują cenę klienta pomniejszoną o prowizję, która maleje przy lepszych ocenach.',
+    modelHourly: 'Stawka godzinowa (stary model)',
+    modelHourlyHint: 'Stała stawka godzinowa niezależnie od ocen – poniższe poziomy nie mają wtedy zastosowania.',
+    tableCaption: 'Poziomy prowizji',
+    colTier: 'Poziom',
+    colMinJobs: 'Zlecenia min.',
+    colMinReviews: 'Opinie min.',
+    colMinRating: 'Śr. ocena min.',
+    colPct: 'Prowizja %',
+    tierNames: {
+      new: 'Nowy',
+      bronze: 'Brąz',
+      silver: 'Srebro',
+      gold: 'Złoto',
+      platinum: 'Platyna',
+      diamond: 'Diament',
+    },
+    cellLabel: (column, tier) => `${column} – ${tier}`,
+    errThresholds: 'Wyższe poziomy muszą mieć takie same lub surowsze warunki.',
+    errPctOrder: 'Każdy wyższy poziom musi mieć niższą prowizję niż poziom poniżej.',
   },
 };
 

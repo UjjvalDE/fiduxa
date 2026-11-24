@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { testDataPlugin } from "./plugins/test-data.plugin.js";
 import { ALL_BOOKING_STATUSES } from "../config/pricing.js";
 
 const statusHistorySchema = new mongoose.Schema(
@@ -17,14 +18,12 @@ const bookingSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
     },
 
     customer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true,
     },
 
     serviceId: {
@@ -39,6 +38,8 @@ const bookingSchema = new mongoose.Schema(
       max: 1000,
     },
 
+    bathrooms: { type: Number, min: 1, max: 6, default: 1 },
+
     condition: {
       type: String,
       enum: ["basic", "normal", "moderate", "heavy"],
@@ -51,6 +52,10 @@ const bookingSchema = new mongoose.Schema(
       enum: ["one-time", "weekly", "biweekly", "monthly"],
       default: "one-time",
     },
+
+    // Recurring plan this booking belongs to (see booking-series.model.js) and its position in it
+    series: { type: mongoose.Schema.Types.ObjectId, ref: "BookingSeries", default: null },
+    seriesIndex: { type: Number, default: undefined },
 
     extras: {
       type: [String],
@@ -87,7 +92,7 @@ const bookingSchema = new mongoose.Schema(
     // true once the reserved slot place was given back (cancel/expiry)
     slotReleased: { type: Boolean, default: false },
     // Reservation expiry while waiting for payment (null = held indefinitely)
-    holdExpiresAt: { type: Date, default: null, index: true },
+    holdExpiresAt: { type: Date, default: null },
 
     // Language for customer emails and the Stripe checkout page
     locale: { type: String, enum: ["de", "en", "pl"], default: "de" },
@@ -192,17 +197,71 @@ const bookingSchema = new mongoose.Schema(
       onTheWayAt: Date,
       startedAt: Date,
       completedAt: Date,
+      // No-show watch: set once when the cleaner had not checked in 15 min after the start
+      noShowAlertAt: Date,
       workerNote: { type: String, maxlength: 2000, default: "" },
       issueReported: { type: String, maxlength: 2000, default: "" },
       // Checklist items the cleaner ticked when completing (task keys)
       checklistDone: { type: [String], default: [] },
+      // Actual cleaning duration as reported by the cleaner (minutes)
+      actualDurationMinutes: { type: Number, min: 0, max: 1440 },
+    },
+
+    // Post-cleaning follow-up (feedback email, customer-reported facts)
+    feedback: {
+      emailedAt: Date, // "How was your cleaning?" sent once per booking
+      customer: {
+        actualDurationMinutes: { type: Number, min: 0, max: 1440 },
+        recommend: Boolean,
+        // Recurring customers: who should clean next time?
+        keepCleaner: { type: String, enum: ["same", "different", "auto"] },
+        // Cash bookings: the amount the customer says they handed over
+        actualCashCents: { type: Number, min: 0, max: 1000000 },
+        submittedAt: Date,
+      },
+      // Customer and cleaner reported clearly different durations – the
+      // office reviews it; NO automatic extra charge ever happens.
+      durationMismatch: { type: Boolean, default: false },
+      // Customer-confirmed cash amount differs from what the cleaner reported
+      cashMismatch: { type: Boolean, default: false },
+    },
+
+    // Price changes after an edit / duration review of an (online-paid) booking.
+    // Positive deltas are paid through a pay link (Payment purpose "adjustment"),
+    // negative ones are refunded; "proposed" ones wait for the customer's decision.
+    priceAdjustments: {
+      type: [
+        new mongoose.Schema(
+          {
+            deltaCents: { type: Number, required: true },
+            reason: { type: String, maxlength: 500, default: "" },
+            // edit = admin/customer edit · duration = cleaning took longer/shorter
+            kind: { type: String, enum: ["edit", "duration"], default: "edit" },
+            minutes: Number, // duration adjustments: extra (+) / fewer (−) minutes
+            status: { type: String, enum: ["proposed", "open", "paid", "refunded", "waived", "declined"], required: true },
+            at: { type: Date, default: Date.now },
+            by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+            decidedAt: Date, // customer approved/declined
+            resolvedAt: Date,
+            resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+            // How a positive delta was settled: online | cash | invoice
+            paidVia: { type: String, enum: ["online", "cash", "invoice"] },
+            payment: { type: mongoose.Schema.Types.ObjectId, ref: "Payment" },
+            refundId: String,
+            checkoutUrl: { type: String, default: "" },
+          },
+          { timestamps: false }
+        ),
+      ],
+      default: [],
     },
 
     // Payment summary (details per attempt live in the Payment collection)
     payment: {
       status: {
         type: String,
-        enum: ["unpaid", "pending", "paid", "failed", "refund_pending", "refunded"],
+        // partially_refunded = part of the paid amount went back (fee kept / price lowered)
+        enum: ["unpaid", "pending", "paid", "failed", "refund_pending", "refunded", "partially_refunded"],
         default: "unpaid",
       },
       amountCents: { type: Number, min: 0 },
@@ -225,6 +284,9 @@ const bookingSchema = new mongoose.Schema(
       declinedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
       releasedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
       unassignedAlertSentAt: Date, // admin warned that nobody took the job
+      // Recurring plans: the customer's preferred cleaner sees the job exclusively until priorityUntil
+      priorityWorker: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      priorityUntil: { type: Date, default: null },
     },
 
     // Cleaner pay for this job (created when the job is completed).
@@ -233,14 +295,38 @@ const bookingSchema = new mongoose.Schema(
       amountCents: Number, // cleaner pay for the job
       rateCents: Number,
       minutes: Number,
+      // What the customer paid for the job (after discounts, incl. VAT) and
+      // what stays with the platform (gross − cleaner pay − cash deductions aside)
+      grossCents: Number,
+      commissionCents: Number,
+      // How the pay was calculated when the job completed (immutable snapshot):
+      // "commission" → amount = gross × (100 − commissionPct) / 100 at tierKey;
+      // "hourly" → amount = minutes/60 × rateCents. Later tier changes never
+      // rewrite this record.
+      // "cancellation" → the cleaner's share of a late-cancellation fee
+      basis: { type: String, enum: ["commission", "hourly", "cancellation"] },
+      commissionPct: Number,
+      tierKey: String,
       // Cash the cleaner kept from the customer – deducted from the payout
       cashHeldCents: { type: Number, default: 0 },
       earnedAt: Date,
       dueAt: Date,
-      status: { type: String, enum: ["pending", "on_hold", "paid"] },
+      // processing = part of a payout that is being sent via a provider
+      status: { type: String, enum: ["pending", "on_hold", "processing", "paid"] },
       paidAt: Date,
       payout: { type: mongoose.Schema.Types.ObjectId, ref: "Payout" },
     },
+
+    // Who edited what and when (customer/admin booking edits)
+    changeLog: [
+      {
+        _id: false,
+        at: Date,
+        by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        role: { type: String, enum: ["consumer", "admin"] },
+        changes: [{ _id: false, field: String, from: String, to: String }],
+      },
+    ],
 
     // Legal consents (evidence with timestamp)
     consents: {
@@ -252,6 +338,16 @@ const bookingSchema = new mongoose.Schema(
       cancelledAt: Date,
       cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       reason: { type: String, maxlength: 1000 },
+      // Late-cancellation fee (policies.cancellation): what was kept/charged,
+      // what the cleaner receives, and what went back to the customer
+      feeCents: { type: Number, min: 0, default: 0 },
+      feePct: Number,
+      cleanerCents: { type: Number, min: 0, default: 0 },
+      refundCents: { type: Number, min: 0, default: 0 },
+      // true = the fee was taken from the online payment; false = still owed
+      // (recorded as customer.outstandingCents, settled by the office)
+      charged: { type: Boolean, default: false },
+      at: Date,
     },
 
     adminNotes: {
@@ -259,13 +355,41 @@ const bookingSchema = new mongoose.Schema(
       maxlength: 2000,
       default: "",
     },
+
+    // Invoice issued when the payment became "paid" (invoice.service.js).
+    // Sequential number FX-YYYY-000001, PDF stored here (select: false).
+    // Kept for 10 years (§ 147 AO) even if the customer deletes the account.
+    invoice: {
+      number: { type: String, default: undefined },
+      issuedAt: Date,
+      pdf: { type: Buffer, select: false },
+      locale: { type: String, enum: ["de", "en", "pl"] },
+      totalCents: Number,
+      netCents: Number,
+      vatCents: Number,
+      vatRate: Number,
+      labourCents: Number,
+      extraFeesCents: Number,
+      recurringDiscountCents: Number,
+      promotionDiscountCents: Number,
+      giftCardCents: Number,
+      paidCents: Number,
+      paymentMethod: String,
+      // false for cash → not eligible for § 35a EStG (bank transfer/online only)
+      taxDeductible: Boolean,
+    },
   },
   {
     timestamps: true,
   }
 );
+bookingSchema.index({ "invoice.number": 1 }, { unique: true, sparse: true });
+bookingSchema.index({ customer: 1, "invoice.issuedAt": -1 }, { sparse: true });
 
+// Indexes (single-field ones that a compound index already covers were removed)
 bookingSchema.index({ customer: 1, createdAt: -1 });
+// Hold expiry job: status = payment_pending AND holdExpiresAt <= now
+bookingSchema.index({ status: 1, holdExpiresAt: 1 });
 // Open-job board and cleaner calendars
 bookingSchema.index({ status: 1, assignedWorker: 1, preferredDate: 1 });
 // "First booking" checks for the welcome offer
@@ -274,6 +398,8 @@ bookingSchema.index({ customer: 1, status: 1 });
 bookingSchema.index({ createdAt: -1, status: 1 });
 bookingSchema.index({ preferredDate: 1, slot: 1, status: 1 });
 bookingSchema.index({ assignedWorker: 1, "workerPayout.status": 1, "workerPayout.dueAt": 1 });
+// Recurring plans: never two occurrences with the same position in one series
+bookingSchema.index({ series: 1, seriesIndex: 1 }, { unique: true, partialFilterExpression: { series: { $type: "objectId" } } });
 
 // Record a status change in the booking's history
 bookingSchema.methods.setStatus = function setStatus(status, userId, note = "") {
@@ -285,6 +411,8 @@ bookingSchema.methods.setStatus = function setStatus(status, userId, note = "") 
     note,
   });
 };
+
+bookingSchema.plugin(testDataPlugin);
 
 const Booking = mongoose.model("Booking", bookingSchema);
 

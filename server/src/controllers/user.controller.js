@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import User from "../models/user.model.js";
 import generateToken from "../utils/generate-token.js";
+import { setSessionCookie } from "../utils/session-cookie.js";
+import { welcomeCodeFor } from "../services/personal-code.service.js";
 
 const updateProfileSchema = z.object({
   name: z.string().trim().min(2).max(100).optional(),
@@ -80,11 +82,78 @@ export const changeMyPassword = async (req, res, next) => {
     await user.save();
 
     // Old tokens are now invalid – return a fresh one
+    const token = generateToken(user);
+    setSessionCookie(res, token);
     return res.status(200).json({
       success: true,
       message: "Password changed successfully.",
-      token: generateToken(user),
+      token,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/v1/users/me/welcome-code – the customer's personal welcome code
+// (issued after email verification; older verified accounts get one on first call)
+export const getMyWelcomeCode = async (req, res, next) => {
+  try {
+    if (req.user.role !== "consumer") return res.json({ success: true, welcome: null });
+    if (!req.user.emailVerified) return res.json({ success: true, welcome: { status: "verify_email" } });
+    const result = await welcomeCodeFor(req.user);
+    if (!result) return res.json({ success: true, welcome: null });
+    const { promo, code } = result;
+    const expired = code.status === "expired" || (code.expiresAt && code.expiresAt <= new Date());
+    return res.json({
+      success: true,
+      welcome: {
+        code: code.code,
+        status: expired && code.status === "issued" ? "expired" : code.status,
+        expiresAt: code.expiresAt,
+        discountType: promo.discountType,
+        discountValue: promo.discountValue,
+        maxDiscountCents: promo.maxDiscountCents,
+        minOrderCents: promo.minOrderCents,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const householdSchema = z.object({
+  areaM2: z.coerce.number().min(15).max(1000).optional(),
+  condition: z.enum(["basic", "normal", "moderate", "heavy"]).optional(),
+  extras: z.array(z.string().max(60)).max(20).optional(),
+  notes: z.string().trim().max(1000).optional(),
+  pets: z.boolean().optional(),
+  accessNotes: z.string().trim().max(1000).optional(),
+  address: z.string().trim().max(200).optional(),
+  postcode: z.string().trim().max(10).optional(),
+});
+
+const householdView = (user) => {
+  const h = user.household?.toObject ? user.household.toObject() : user.household;
+  return h && Object.keys(h).length ? h : null;
+};
+
+// GET /api/v1/users/me/household – saved household profile (or null)
+export const getMyHousehold = async (req, res, next) => {
+  try {
+    res.json({ success: true, household: householdView(req.user) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// PUT /api/v1/users/me/household – replace the saved household profile
+export const updateMyHousehold = async (req, res, next) => {
+  try {
+    const data = householdSchema.parse(req.body);
+    const user = await User.findById(req.user._id);
+    user.household = data;
+    await user.save();
+    res.json({ success: true, household: householdView(user) });
   } catch (error) {
     next(error);
   }

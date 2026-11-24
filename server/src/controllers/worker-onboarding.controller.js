@@ -128,3 +128,37 @@ export const saveWorkerBankDetails = async (req, res, next) => {
     next(error);
   }
 };
+
+// PUT /api/v1/worker/payout-method  { type: "bank"|"paypal", paypalEmail? }
+export const saveWorkerPayoutMethod = async (req, res, next) => {
+  try {
+    const data = z
+      .object({
+        type: z.enum(["bank", "paypal"]),
+        paypalEmail: z.string().trim().email().max(254).optional(),
+      })
+      .refine((d) => d.type !== "paypal" || d.paypalEmail, {
+        message: "Please enter your PayPal email address.",
+        path: ["paypalEmail"],
+      })
+      .parse(req.body);
+
+    const worker = await User.findById(req.user._id);
+    if (!worker || worker.role !== "worker") {
+      return res.status(403).json({ success: false, message: "Worker account required." });
+    }
+    if (data.type === "bank" && !worker.bankAccountLast4) {
+      return res.status(409).json({ success: false, message: "Please save your bank details first." });
+    }
+
+    worker.payoutMethod = {
+      type: data.type,
+      paypalEmail: data.type === "paypal" ? data.paypalEmail.toLowerCase() : worker.payoutMethod?.paypalEmail ?? "",
+    };
+    await worker.save();
+
+    return res.json({ success: true, message: "Payout method saved.", payoutMethod: worker.payoutMethod });
+  } catch (error) {
+    next(error);
+  }
+};

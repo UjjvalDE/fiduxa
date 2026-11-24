@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EXTRAS, SERVICES, findService } from "../data/catalogue.js";
+import { EXTRAS, SERVICES, extraAvailableFor, findService } from "../data/catalogue.js";
 import { OPERATIONS, PRICING, PAYMENT_OPTIONS } from "../config/pricing.js";
 
 // GET /api/v1/services
@@ -34,7 +34,10 @@ export const getExtras = (req, res) => {
 
   // Extras are only offered for household services
   // Extras switched off by the admin are hidden
-  const extras = serviceId === "business-cleaning" ? [] : EXTRAS.filter((e) => e.active !== false);
+  const extras =
+    serviceId === "business-cleaning"
+      ? []
+      : EXTRAS.filter((e) => e.active !== false && (!serviceId || extraAvailableFor(e, serviceId)));
 
   return res.json({ success: true, extras });
 };
@@ -53,6 +56,7 @@ export const getPublicPricing = (req, res) => {
         (PRICING.minimumMinutes / 60) * PRICING.hourlyRateCents
       ),
       areaM2PerHour: PRICING.areaM2PerHour,
+      bathroomMinutes: PRICING.bathroomMinutes ?? 20,
       conditionFactor: PRICING.conditionFactor,
       frequencyDiscount: PRICING.frequencyDiscount,
       pricesIncludeVat: PRICING.pricesIncludeVat,

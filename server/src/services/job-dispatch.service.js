@@ -75,6 +75,17 @@ export const isOpenJob = (booking) =>
   !booking.assignedWorker &&
   jobTimeRange(booking).start.getTime() > Date.now();
 
+/**
+ * Recurring plans: a new occurrence is reserved for the customer's preferred
+ * cleaner until jobOffer.priorityUntil. True = this worker may NOT see/accept it yet.
+ */
+export const priorityBlocks = (booking, workerId, now = Date.now()) => {
+  const offer = booking.jobOffer;
+  if (!offer?.priorityWorker || !offer.priorityUntil) return false;
+  if (new Date(offer.priorityUntil).getTime() <= now) return false;
+  return String(offer.priorityWorker) !== String(workerId);
+};
+
 /** Approved, active cleaners who haven't declined and are free at that time */
 export const findEligibleWorkers = async (booking) => {
   const excluded = [
@@ -82,17 +93,20 @@ export const findEligibleWorkers = async (booking) => {
     ...(booking.jobOffer?.releasedBy ?? []),
   ].map(String);
 
+  const exclusive = booking.jobOffer?.priorityWorker && new Date(booking.jobOffer.priorityUntil ?? 0).getTime() > Date.now();
   const workers = await User.find({
     role: "worker",
     workerStatus: "approved",
     isActive: true,
     emailVerified: true,
-  }).select("name email preferredLanguage workerProfile.petsOk availability holidays");
+    ...(exclusive && { _id: booking.jobOffer.priorityWorker }),
+  }).select("name email preferredLanguage workerProfile.petsOk availability holidays reliability.pausedAt");
 
   const busy = await loadBusyRanges(workers.map((w) => w._id), [booking.preferredDate]);
   return workers.filter(
     (worker) =>
       !excluded.includes(String(worker._id)) &&
+      !worker.reliability?.pausedAt && // paused for reliability strikes (package E)
       !jobMismatch(worker, booking) &&
       !conflictIn(busy.get(String(worker._id)), booking)
   );

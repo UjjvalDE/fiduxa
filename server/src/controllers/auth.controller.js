@@ -4,7 +4,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
 import User from "../models/user.model.js";
-import generateToken from "../utils/generate-token.js";
+import { clearSessionCookie } from "../utils/session-cookie.js";
+import { issueSession } from "../services/session.service.js"; // [E] sliding sessions
+import { createChallenge, twoFactorEnabled } from "./two-factor.controller.js"; // [E] admin 2FA
+import { SECURITY } from "../config/pricing.js"; // [E]
 import {
   sendEmailVerificationEmail,
   sendPasswordResetEmail,
@@ -13,6 +16,8 @@ import {
 } from "../services/email.service.js";
 import Promotion from "../models/promotion.model.js";
 import { isLive } from "../services/promotion.service.js";
+import PersonalCode from "../models/personal-code.model.js";
+import { issuePersonalCode, liveWelcomePromotion } from "../services/personal-code.service.js";
 
 const VERIFY_HOURS = 24;
 
@@ -108,7 +113,7 @@ export const register = async (req, res) => {
       preferredLanguage: locale,
     });
 
-    const token = generateToken(user);
+    const token = issueSession(res, user);
     // Confirmation link (unlocks the welcome discount)
     await sendVerification(user);
 
@@ -177,7 +182,26 @@ export const login = async (req, res) => {
       });
     }
 
-    const token = generateToken(user);
+    // Package E: admin two-factor authentication
+    if (user.role === "admin") {
+      if (twoFactorEnabled(user)) {
+        return res.status(200).json({
+          success: true,
+          requires2fa: true,
+          challenge: createChallenge(user),
+          message: "Please enter your verification code.",
+        });
+      }
+      if (SECURITY.requireAdmin2fa) {
+        return res.status(403).json({
+          success: false,
+          code: "2FA_SETUP_REQUIRED",
+          message: "Two-factor authentication is required for admin accounts but is not set up for yours yet.",
+        });
+      }
+    }
+
+    const token = issueSession(res, user);
 
     return res.status(200).json({
       success: true,
@@ -311,14 +335,35 @@ export const verifyEmail = async (req, res, next) => {
     user.emailVerificationExpires = undefined;
     await user.save();
 
-    const pct = firstTime && user.role === "consumer" ? await welcomePercent() : null;
-    if (pct) {
-      await trySend("Welcome offer", () =>
-        sendWelcomeOfferEmail({ to: user.email, name: user.name, locale: user.preferredLanguage, percent: pct })
-      );
+    // Personal, single-use welcome code – shown only in this email and in the account
+    let pct = null;
+    if (firstTime && user.role === "consumer") {
+      const promo = await liveWelcomePromotion();
+      if (promo) {
+        const { code } = await issuePersonalCode(promo, user);
+        pct = promo.discountType === "percent" ? promo.discountValue : null;
+        const status = await trySend("Welcome offer", () =>
+          sendWelcomeOfferEmail({
+            to: user.email,
+            name: user.name,
+            locale: user.preferredLanguage,
+            percent: pct,
+            code: code.code,
+            expiresAt: code.expiresAt,
+          })
+        );
+        if (status === "sent") await PersonalCode.updateOne({ _id: code._id }, { $set: { emailedAt: new Date() } });
+      }
     }
 
-    return res.json({ success: true, message: "Email address confirmed.", welcomePercent: pct, user: toPublicUser(user) });
+    return res.json({
+      success: true,
+      message: "Email address confirmed.",
+      welcomePercent: pct,
+      // The code itself is only sent by email (and shown in the account), not here
+      welcomeCodeSent: Boolean(pct),
+      user: toPublicUser(user),
+    });
   } catch (error) {
     next(error);
   }
@@ -338,5 +383,38 @@ export const resendVerification = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+
+// POST /api/v1/auth/logout – ends the cookie session on this browser.
+// (JWTs are stateless; a global revocation happens via tokenVersion on
+// password change. Clearing the HttpOnly cookie is the per-device logout.)
+export const logout = (req, res) => {
+  clearSessionCookie(res);
+  return res.json({ success: true, message: "Logged out." });
+};
+
+
+// GET /api/v1/auth/session – silent session probe (always 200, no 401 noise
+// in the browser console for anonymous visitors). Returns the user when the
+// cookie or bearer token is valid, otherwise { authenticated: false }.
+export const getSession = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token =
+      authHeader && authHeader.startsWith("Bearer ")
+        ? authHeader.split(" ")[1]
+        : req.cookies?.["fiduxa_session"];
+    if (!token) return res.json({ success: true, authenticated: false });
+    const jwt = (await import("jsonwebtoken")).default;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await (await import("../models/user.model.js")).default.findById(decoded.userId);
+    if (!user || !user.isActive || (decoded.tv ?? 0) !== (user.tokenVersion ?? 0)) {
+      return res.json({ success: true, authenticated: false });
+    }
+    return res.json({ success: true, authenticated: true, user: toPublicUser(user) });
+  } catch {
+    return res.json({ success: true, authenticated: false });
   }
 };

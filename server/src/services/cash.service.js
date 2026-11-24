@@ -3,6 +3,8 @@
 // deducted from the cleaner's payout (cashHeldCents).
 import Payment from "../models/payment.model.js";
 import { sendAdminNotificationEmail, trySend } from "./email.service.js";
+import { issueInvoiceForBooking } from "./invoice.service.js";
+import { sendInvoiceEmail } from "./invoice-email.service.js";
 
 /** Record collected cash. byWorker = the assigned cleaner kept the money. Does NOT save the booking. */
 export const recordCashPayment = async (booking, { amountCents, actorId, byWorker }) => {
@@ -31,6 +33,14 @@ export const recordCashPayment = async (booking, { amountCents, actorId, byWorke
     },
     { upsert: true }
   );
+
+  // Paid → invoice (once) and "your invoice" mail with the PDF
+  try {
+    const { invoice, pdf, created } = await issueInvoiceForBooking(booking);
+    if (created) await trySend("Invoice", () => sendInvoiceEmail({ booking, invoice, pdf }));
+  } catch (error) {
+    console.error(`Invoice creation failed for ${booking.reference}:`, error.message);
+  }
 
   const expected = booking.payment?.amountCents ?? booking.estimate?.totalCents ?? 0;
   if (amountCents !== expected) {

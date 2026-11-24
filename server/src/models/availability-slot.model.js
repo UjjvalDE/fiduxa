@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { testDataPlugin } from "./plugins/test-data.plugin.js";
 
 // An availability window published by the admin (e.g. 08:00–18:00).
 // `capacity` = how many teams can work in parallel inside the window.
@@ -36,6 +37,8 @@ availabilitySlotSchema.virtual("remaining").get(function remaining() {
 
 availabilitySlotSchema.set("toJSON", { virtuals: true });
 availabilitySlotSchema.set("toObject", { virtuals: true });
+
+availabilitySlotSchema.plugin(testDataPlugin);
 
 const AvailabilitySlot = mongoose.model("AvailabilitySlot", availabilitySlotSchema);
 

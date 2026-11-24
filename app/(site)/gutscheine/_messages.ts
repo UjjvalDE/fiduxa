@@ -166,6 +166,17 @@ const de = {
     loading: 'Gutscheine werden geladen…',
     purchased: (date: string) => `Gekauft am ${date}`,
   },
+  print: {
+    title: 'Gutschein drucken',
+    action: 'Drucken / Als PDF speichern',
+    pdfHint: 'Wähle im Druckdialog „Als PDF speichern“, um eine PDF-Datei zu erhalten.',
+    back: 'Zurück zu „Meine Gutscheine“',
+    loading: 'Gutschein wird geladen…',
+    notFound: 'Dieser Gutschein wurde nicht gefunden.',
+    unpaid: 'Dieser Gutschein ist noch nicht bezahlt – der Code zum Drucken erscheint hier nach der Zahlung.',
+    howTo: 'So wird der Gutschein eingelöst: Reinigung auf fiduxa.de buchen und den Code an der Kasse unter „Gutschein einlösen“ eingeben.',
+    site: 'fiduxa.de',
+  },
 };
 
 export type GiftMessages = typeof de;
@@ -333,6 +344,17 @@ const en: GiftMessages = {
     loading: 'Loading gift cards…',
     purchased: (date) => `Bought on ${date}`,
   },
+  print: {
+    title: 'Print gift card',
+    action: 'Print / Save as PDF',
+    pdfHint: 'Choose "Save as PDF" in the print dialog to get a PDF file.',
+    back: 'Back to "My gift cards"',
+    loading: 'Loading gift card…',
+    notFound: 'This gift card was not found.',
+    unpaid: 'This gift card has not been paid yet – the printable code appears here after payment.',
+    howTo: 'How to redeem: book a cleaning at fiduxa.de and enter the code at checkout under "Redeem a gift card".',
+    site: 'fiduxa.de',
+  },
 };
 
 const pl: GiftMessages = {
@@ -497,6 +519,17 @@ const pl: GiftMessages = {
     payNow: 'Zapłać teraz',
     loading: 'Ładowanie kart podarunkowych…',
     purchased: (date) => `Kupiono ${date}`,
+  },
+  print: {
+    title: 'Wydrukuj kartę podarunkową',
+    action: 'Drukuj / Zapisz jako PDF',
+    pdfHint: 'W oknie drukowania wybierz „Zapisz jako PDF”, aby otrzymać plik PDF.',
+    back: 'Wróć do „Moje karty podarunkowe”',
+    loading: 'Ładowanie karty podarunkowej…',
+    notFound: 'Nie znaleziono tej karty podarunkowej.',
+    unpaid: 'Ta karta nie jest jeszcze opłacona – kod do druku pojawi się tu po płatności.',
+    howTo: 'Jak zrealizować: zarezerwuj sprzątanie na fiduxa.de i wpisz kod przy kasie w polu „Zrealizuj kartę podarunkową”.',
+    site: 'fiduxa.de',
   },
 };
 

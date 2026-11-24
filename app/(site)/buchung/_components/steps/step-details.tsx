@@ -63,6 +63,8 @@ export interface DetailsProps {
   // property
   areaM2: number | null;
   onAreaChange: (area: number | null) => void;
+  bathrooms: number;
+  onBathroomsChange: (n: number) => void;
   condition: Condition;
   onConditionChange: (c: Condition) => void;
   // pets
@@ -114,7 +116,7 @@ export function StepDetails(props: DetailsProps) {
 }
 
 /* a) Property ------------------------------------------------------------- */
-function PropertyCard({ errors, areaM2, onAreaChange, condition, onConditionChange }: DetailsProps) {
+function PropertyCard({ errors, areaM2, onAreaChange, bathrooms, onBathroomsChange, condition, onConditionChange }: DetailsProps) {
   const t = useMessages(messages).details;
   const tc = useMessages(common);
   const [text, setText] = useState(areaM2 == null ? '' : String(areaM2));
@@ -170,6 +172,36 @@ function PropertyCard({ errors, areaM2, onAreaChange, condition, onConditionChan
             <span>{AREA_MIN} m²</span>
             <span>300+ m²</span>
           </div>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3" data-testid="bathrooms">
+        <div>
+          <p className="m-0 text-sm font-bold text-pine-dark">{t.bathroomsLabel}</p>
+          <p className="m-0 text-xs text-muted-grey">{t.bathroomsHint}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            aria-label={`${t.bathroomsLabel} −`}
+            disabled={bathrooms <= 1}
+            onClick={() => onBathroomsChange(Math.max(1, bathrooms - 1))}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-white text-pine-dark disabled:opacity-40"
+          >
+            <Minus className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <span className="w-6 text-center text-base font-bold tabular-nums text-pine-dark" aria-live="polite">
+            {bathrooms}
+          </span>
+          <button
+            type="button"
+            aria-label={`${t.bathroomsLabel} +`}
+            disabled={bathrooms >= 6}
+            onClick={() => onBathroomsChange(Math.min(6, bathrooms + 1))}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-white text-pine-dark disabled:opacity-40"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
       </div>
 

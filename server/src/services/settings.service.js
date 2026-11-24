@@ -2,7 +2,8 @@
 // options, cleaner pay). They override the defaults in config/pricing.js by
 // mutating those shared objects in place, so every module sees the new values.
 import Settings from "../models/settings.model.js";
-import { GIFT_CARDS, OPERATIONS, PAYMENT_OPTIONS, PRICING, WORKER_PAY } from "../config/pricing.js";
+import { FINANCE, GIFT_CARDS, INVOICING, OPERATIONS, PAYMENT_OPTIONS, PRICING, WORKER_PAY } from "../config/pricing.js";
+import { RELIABILITY, RELIABILITY_DEFAULTS, SECURITY, SECURITY_DEFAULTS, VERIFICATION, VERIFICATION_DEFAULTS } from "../config/pricing.js"; // [E]
 import { EXTRAS } from "../data/catalogue.js";
 import { isPayPalConfigured, isPayPalLive } from "./paypal.service.js";
 
@@ -13,8 +14,9 @@ const DEFAULTS = {
   pricing: clone(PRICING),
   operations: { ...OPERATIONS },
   payments: { ...PAYMENT_OPTIONS },
-  workerPay: { ...WORKER_PAY },
+  workerPay: clone(WORKER_PAY),
   giftCards: clone(GIFT_CARDS),
+  finance: clone(FINANCE),
   extras: EXTRAS.map((e) => ({ id: e.id, minutes: e.minutes, priceCents: e.priceCents, active: true })),
 };
 
@@ -27,13 +29,49 @@ export const applySettings = (doc) => {
   const pricing = defined(s.pricing);
   Object.assign(PRICING, clone(DEFAULTS.pricing), pricing, {
     frequencyDiscount: { ...DEFAULTS.pricing.frequencyDiscount, ...defined(s.pricing?.frequencyDiscount) },
+    conditionFactor: { ...DEFAULTS.pricing.conditionFactor, ...defined(s.pricing?.conditionFactor) },
   });
 
   Object.assign(OPERATIONS, DEFAULTS.operations, defined(s.booking));
   Object.assign(PAYMENT_OPTIONS, DEFAULTS.payments, defined(s.payments));
-  Object.assign(WORKER_PAY, DEFAULTS.workerPay, defined(s.workerPay));
+  const wp = defined(s.workerPay);
+  const tierOverrides = s.workerPay?.commissionTiers ?? {};
+  Object.assign(WORKER_PAY, clone(DEFAULTS.workerPay), wp, {
+    commissionTiers: Object.fromEntries(
+      Object.entries(DEFAULTS.workerPay.commissionTiers).map(([key, def]) => [key, { ...def, ...defined(tierOverrides[key]) }])
+    ),
+  });
   Object.assign(GIFT_CARDS, clone(DEFAULTS.giftCards), defined(s.giftCards));
+  const fin = s.finance ?? {};
+  Object.assign(FINANCE, clone(DEFAULTS.finance), defined({ incomeTaxRatePct: fin.incomeTaxRatePct, vatBasis: fin.vatBasis, monthlyFixedCostsCents: fin.monthlyFixedCostsCents }), {
+    fees: {
+      paypal: { ...DEFAULTS.finance.fees.paypal, ...defined(fin.fees?.paypal) },
+      stripe: { ...DEFAULTS.finance.fees.stripe, ...defined(fin.fees?.stripe) },
+    },
+  });
 
+  // [slot-A-settings-apply]
+  Object.assign(OPERATIONS.recurring, OPERATIONS.recurring.defaults, defined(s.recurring));
+  // [slot-B-settings-apply]
+  // Invoice issuer block (defaults captured once; stored section overrides)
+  if (!applySettings.invoicingDefaults) applySettings.invoicingDefaults = clone(INVOICING);
+  Object.assign(INVOICING, clone(applySettings.invoicingDefaults), defined(s.invoicing));
+  // [slot-C-settings-apply]
+  // Money policies (cancellation / cash / payouts) – linked through OPERATIONS.policies (config/pricing.js)
+  {
+    const policies = OPERATIONS.policies;
+    for (const section of Object.keys(policies.defaults)) {
+      Object.assign(policies[section], clone(policies.defaults[section]), defined(s.policies?.[section]));
+    }
+  }
+  // [slot-D-settings-apply]
+  Object.assign(RELIABILITY, RELIABILITY_DEFAULTS, defined(s.reliability));
+  Object.assign(SECURITY, SECURITY_DEFAULTS, defined(s.security));
+  VERIFICATION.requiredDocuments = Array.isArray(s.verification?.requiredDocuments)
+    ? [...s.verification.requiredDocuments]
+    : [...VERIFICATION_DEFAULTS.requiredDocuments];
+  // [slot-E-settings-apply]
+  // [slot-F-settings-apply]
   const overrides = new Map((s.extras ?? []).map((e) => [e.id, e]));
   for (const extra of EXTRAS) {
     const base = DEFAULTS.extras.find((d) => d.id === extra.id);
@@ -64,6 +102,12 @@ export const settingsView = () => ({
       biweekly: PRICING.frequencyDiscount.biweekly,
       monthly: PRICING.frequencyDiscount.monthly,
     },
+    conditionFactor: {
+      basic: PRICING.conditionFactor.basic,
+      normal: PRICING.conditionFactor.normal,
+      moderate: PRICING.conditionFactor.moderate,
+      heavy: PRICING.conditionFactor.heavy,
+    },
   },
   extras: EXTRAS.map((e) => ({
     id: e.id,
@@ -91,14 +135,29 @@ export const settingsView = () => ({
   workerPay: {
     hourlyRateCents: WORKER_PAY.hourlyRateCents,
     payoutDelayDays: WORKER_PAY.payoutDelayDays,
+    payModel: WORKER_PAY.payModel,
+    commissionTiers: clone(WORKER_PAY.commissionTiers),
   },
   giftCards: { ...GIFT_CARDS },
+  finance: clone(FINANCE),
+  // [slot-A-settings-view]
+  recurring: { ...OPERATIONS.recurring },
+  // [slot-B-settings-view]
+  invoicing: clone(INVOICING),
+  // [slot-C-settings-view]
+  policies: clone(OPERATIONS.policies),
+  // [slot-D-settings-view]
+  reliability: { ...RELIABILITY },
+  security: { ...SECURITY },
+  verification: { requiredDocuments: [...VERIFICATION.requiredDocuments] },
+  // [slot-E-settings-view]
+  // [slot-F-settings-view]
 });
 
 /** Save the admin's settings (sections replace the stored ones) and apply them */
 export const saveSettings = async (data, adminId) => {
   const set = { updatedBy: adminId };
-  for (const section of ["pricing", "booking", "payments", "workerPay", "extras", "giftCards"]) {
+  for (const section of ["pricing", "booking", "payments", "workerPay", "extras", "giftCards", "finance", "recurring", "invoicing", "reliability", "security", "verification", "policies" /* [slot-sections] */]) {
     if (data[section] !== undefined) set[section] = data[section];
   }
   const doc = await Settings.findOneAndUpdate(

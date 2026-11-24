@@ -4,7 +4,11 @@
 import type { Condition, Estimate, Extra, Frequency, PublicPricing } from '@/lib/types';
 
 export interface PreviewInput {
+  /** service.timeFactor (deep cleaning / end-of-tenancy need more time per m²) */
+  serviceTimeFactor?: number;
   areaM2: number;
+  /** Bathrooms (1–6); every one beyond the first adds pricing.bathroomMinutes */
+  bathrooms?: number;
   condition: Condition;
   frequency: Frequency;
   extras: string[];
@@ -30,7 +34,7 @@ export const normaliseDuration = (minutes: number, pricing: Pick<PublicPricing, 
 export function previewEstimate(pricing: PublicPricing, catalogue: Extra[], input: PreviewInput): Preview {
   const step = pricing.durationStepMinutes || 30;
   const factor = pricing.conditionFactor[input.condition] ?? pricing.conditionFactor.normal ?? 1;
-  const baseMinutes = (input.areaM2 / (pricing.areaM2PerHour || 30)) * 60 * factor;
+  const baseMinutes = (input.areaM2 / (pricing.areaM2PerHour || 30)) * 60 * factor * (input.serviceTimeFactor ?? 1);
 
   const byId = new Map(catalogue.map((e) => [e.id, e]));
   const seen = new Set<string>();
@@ -38,7 +42,8 @@ export function previewEstimate(pricing: PublicPricing, catalogue: Extra[], inpu
     .map((id) => byId.get(id))
     .filter((e): e is Extra => Boolean(e) && !seen.has(e!.id) && Boolean(seen.add(e!.id)))
     .map(({ id, label, minutes, priceCents }) => ({ id, label, minutes, priceCents }));
-  const extraMinutes = extras.reduce((sum, e) => sum + e.minutes, 0);
+  const bathroomMinutes = Math.max(0, Math.min(6, Math.round(input.bathrooms ?? 1)) - 1) * (pricing.bathroomMinutes ?? 20);
+  const extraMinutes = extras.reduce((sum, e) => sum + e.minutes, 0) + bathroomMinutes;
   const extraFeesCents = extras.reduce((sum, e) => sum + e.priceCents, 0);
 
   const recommendedMinutes = clamp(Math.ceil((baseMinutes + extraMinutes) / step) * step, pricing.minimumMinutes, pricing.maximumMinutes);

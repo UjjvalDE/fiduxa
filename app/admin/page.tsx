@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils';
 
 import dashboardMessages, { type DashboardMessages } from './_dashboard-messages';
 import { MarketingTeaser } from './_components/marketing-teaser';
+import { DashboardOverviewSection } from './_components/dashboard-overview';
 import { EmptyState, ErrorState, ListSkeleton, PageHeader, SectionCard } from './_components/states';
 import { berlinToday, useApi } from './_components/use-api';
 
@@ -206,6 +207,8 @@ export default function AdminDashboardPage() {
   return (
     <>
       <PageHeader title={t.title} description={t.description} />
+
+      <DashboardOverviewSection />
 
       {stats.error && !stats.data ? (
         <ErrorState message={stats.error} onRetry={stats.reload} className="mb-8" />

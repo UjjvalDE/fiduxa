@@ -15,6 +15,7 @@ import {
   Repeat,
   RefreshCw,
   Ruler,
+  Wallet,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -87,6 +88,17 @@ function OpenJobFacts({ job }: { job: OpenJob }) {
         <Repeat className={iconClass} aria-hidden="true" />
         <span>{c.frequencies[job.frequency] ?? job.frequency}</span>
       </li>
+      {job.pay && (
+        <li className="flex items-center gap-3">
+          <Wallet className="h-5 w-5 shrink-0 text-pine" aria-hidden="true" />
+          <span className="font-bold text-pine-dark">
+            {t.open.payLabel}: {f.euro(job.pay.amountCents)}
+            {job.pay.basis === 'commission' && job.pay.commissionPct != null && (
+              <span className="ml-1.5 text-sm font-medium text-muted-grey">({t.open.payAfterCommission(job.pay.commissionPct)})</span>
+            )}
+          </span>
+        </li>
+      )}
       {job.cash && (
         <li className="flex items-center gap-3">
           <Banknote className="h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />

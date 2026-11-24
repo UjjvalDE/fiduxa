@@ -14,6 +14,9 @@ import {
 import { formatGermanDate, slotLabel } from "../utils/helpers.js";
 import { offerJob } from "./job-dispatch.service.js";
 import { finalizeBookingDiscounts, releaseBookingDiscounts } from "./booking-discounts.service.js";
+import { ensureSeriesForBooking } from "./recurring-series.service.js";
+import { invoiceAttachment, issueInvoiceForBooking } from "./invoice.service.js";
+import { applyCancellationFee, notifyCancellationFee } from "./money-policies.service.js";
 
 /** Confirm a booking (after payment or in invoice mode) and email the customer. */
 export const confirmBooking = async (booking, { actorId, note, paid }) => {
@@ -23,7 +26,24 @@ export const confirmBooking = async (booking, { actorId, note, paid }) => {
   await finalizeBookingDiscounts(booking);
   await booking.save();
 
-  await trySend("Booking confirmation", () => sendBookingConfirmedEmail({ booking, paid }));
+  // Weekly / biweekly / monthly: the booking starts a recurring plan (once per booking)
+  try {
+    await ensureSeriesForBooking(booking);
+  } catch (error) {
+    console.error(`Recurring plan creation failed for ${booking.reference}:`, error.message);
+  }
+
+  // Paid → the invoice is issued now and attached to the confirmation mail
+  let attachments;
+  if (paid) {
+    try {
+      const { invoice, pdf } = await issueInvoiceForBooking(booking);
+      if (pdf) attachments = [invoiceAttachment(invoice.number, pdf)];
+    } catch (error) {
+      console.error(`Invoice creation failed for ${booking.reference}:`, error.message);
+    }
+  }
+  await trySend("Booking confirmation", () => sendBookingConfirmedEmail({ booking, paid, attachments }));
   await trySend("Admin notification", () =>
     sendAdminNotificationEmail({
       subject: `Neue Buchung ${booking.reference}${paid ? " (bezahlt)" : " (Rechnung)"}`,
@@ -46,13 +66,22 @@ export const confirmBooking = async (booking, { actorId, note, paid }) => {
 /**
  * Cancel a booking: release the slot, close open checkouts and – if it was
  * paid – refund automatically (or mark refund_pending if that fails / is not wanted).
+ *
+ * `fee` (from cancellationPreview, policies.cancellation) makes it a
+ * fee-bearing cancellation: the online payment is refunded minus the fee
+ * (partial refund), an unpaid fee is recorded on the customer, and the
+ * assigned cleaner gets their share as an earning.
  */
-export const cancelBooking = async (booking, { actorId, reason = "", note, autoRefund }) => {
+export const cancelBooking = async (booking, { actorId, reason = "", note, autoRefund, fee = null }) => {
   await releaseSlot(booking);
   await expireOpenCheckouts(booking._id);
 
   let refunded = false;
-  if (booking.payment?.status === "paid") {
+  let refundPending = false;
+  const withFee = Boolean(fee && fee.feeCents > 0);
+  if (withFee) {
+    ({ refunded, refundPending } = await applyCancellationFee(booking, fee, { actorId, reason }));
+  } else if (booking.payment?.status === "paid") {
     refunded = autoRefund ? await refundBookingPayment(booking) : false;
     if (!refunded) booking.set("payment.status", "refund_pending");
   }
@@ -62,12 +91,15 @@ export const cancelBooking = async (booking, { actorId, reason = "", note, autoR
 
   booking.setStatus("cancelled", actorId, note ?? reason);
   booking.holdExpiresAt = null;
-  booking.cancellation = { cancelledAt: new Date(), cancelledBy: actorId, reason };
+  booking.set("cancellation.cancelledAt", new Date());
+  booking.set("cancellation.cancelledBy", actorId);
+  booking.set("cancellation.reason", reason);
   await booking.save();
 
   await trySend("Booking status", () =>
-    sendBookingStatusEmail({ booking, status: "cancelled", refund: booking.payment?.status === "refunded" || booking.payment?.status === "refund_pending" })
+    sendBookingStatusEmail({ booking, status: "cancelled", refund: ["refunded", "partially_refunded", "refund_pending"].includes(booking.payment?.status) })
   );
+  if (withFee) await notifyCancellationFee(booking, fee);
 
-  return { refunded, refundPending: booking.payment?.status === "refund_pending" };
+  return { refunded, refundPending: refundPending || booking.payment?.status === "refund_pending", fee: withFee ? fee : null };
 };

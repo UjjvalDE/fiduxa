@@ -77,7 +77,129 @@ export const PAYMENT_OPTIONS = {
 export const WORKER_PAY = {
   hourlyRateCents: Number(process.env.WORKER_HOURLY_RATE_CENTS) || 1800, // €18.00 / hour
   payoutDelayDays: Number(process.env.WORKER_PAYOUT_DELAY_DAYS) || 30,
+  // How cleaner pay is calculated for newly completed jobs:
+  // "commission" – cleaner gets (100 % − tier commission) of the job total;
+  // "hourly"     – legacy model: hours × hourly rate, platform keeps the rest.
+  payModel: process.env.WORKER_PAY_MODEL === "hourly" ? "hourly" : "commission",
+  // Rating-based commission ladder. A cleaner must meet ALL requirements of a
+  // level; the highest level met applies. Admin-configurable in settings.
+  // Commission base = what the customer pays for the job (pricing.totalCents:
+  // after promotions/recurring discounts, incl. VAT, before gift-card
+  // redemption – gift cards are a payment method, not a discount).
+  commissionTiers: {
+    new: { commissionPct: 25 },
+    bronze: { minJobs: 10, minReviews: 8, minRating: 4.5, commissionPct: 22 },
+    silver: { minJobs: 25, minReviews: 20, minRating: 4.6, commissionPct: 19 },
+    gold: { minJobs: 50, minReviews: 35, minRating: 4.7, commissionPct: 16 },
+    platinum: { minJobs: 100, minReviews: 70, minRating: 4.8, commissionPct: 13 },
+    diamond: { minJobs: 200, minReviews: 120, minRating: 4.9, commissionPct: 10 },
+  },
 };
+
+// Finance dashboard assumptions (admin-configurable). These are ESTIMATES for
+// management reporting – not tax advice. Defaults: German GmbH in Berlin
+// (Körperschaftsteuer 15 % + Soli 0.825 % + Gewerbesteuer Hebesatz 410 % ≈ 30 %).
+export const FINANCE = {
+  incomeTaxRatePct: 30,
+  // "full": Fiduxa sells the cleaning → VAT on the whole customer price.
+  // "commission": Fiduxa only brokers (agent model) → VAT on the commission.
+  // Which applies is a legal/tax question – confirm with your tax adviser.
+  vatBasis: "full",
+  monthlyFixedCostsCents: 0,
+  fees: {
+    paypal: { pct: 2.49, fixedCents: 35 },
+    stripe: { pct: 1.5, fixedCents: 25 },
+  },
+};
+
+// Hard limits for every commission rate (tiers AND manual overrides).
+// Each level up must be cheaper than the one below (default: −3 points).
+export const COMMISSION_LIMITS = { minPct: 10, maxPct: 25 };
+
+// [slot-A-config]
+// Recurring plans (Putzplan): how far ahead occurrences are created, how long
+// the preferred cleaner sees a new occurrence exclusively, pay-link hold (online)
+export const RECURRING = { generateDaysAhead: 14, priorityHours: 24, onlineHoldDays: 7 };
+export const RECURRING_DEFAULTS = Object.freeze({ ...RECURRING });
+// Reachable as OPERATIONS.recurring from settings.service.js (non-enumerable:
+// never copied by the spreads / Object.assign that apply the admin settings)
+Object.defineProperty(OPERATIONS, "recurring", { value: RECURRING, enumerable: false });
+Object.defineProperty(RECURRING, "defaults", { value: RECURRING_DEFAULTS, enumerable: false });
+// [slot-B-config]
+// Invoice issuer data (admin-configurable in Einstellungen → Rechnungen).
+// Placeholders until the owner fills them in; the VAT/legal model is settled
+// with the tax adviser, so VAT display and the note are configurable too.
+export const INVOICING = {
+  companyName: process.env.INVOICE_COMPANY_NAME || "Fiduxa (bitte in den Einstellungen ergänzen)",
+  addressLines: (process.env.INVOICE_ADDRESS_LINES || "Adresse bitte in den Einstellungen ergänzen|Berlin").split("|").map((l) => l.trim()).filter(Boolean),
+  // USt-IdNr. or Steuernummer
+  taxId: process.env.INVOICE_TAX_ID || "",
+  email: process.env.INVOICE_EMAIL || process.env.SMTP_FROM || "",
+  // Shown under the totals, e.g. "Gemäß § 19 UStG wird keine Umsatzsteuer ausgewiesen."
+  vatNote: process.env.INVOICE_VAT_NOTE || "",
+  // false = Kleinunternehmer: no VAT line on the invoice
+  showVat: process.env.INVOICE_SHOW_VAT !== "false",
+};
+// [slot-C-config]
+// Money policies (owner-approved defaults, admin-configurable in Einstellungen):
+// cancellation fees, cash limits and payout eligibility. All cents are integers.
+export const POLICIES = {
+  cancellation: {
+    freeHours: 24, // free of charge until this many hours before the start
+    lateFeePct: 50, // fee (% of the price) inside freeHours
+    veryLateHours: 4, // inside this window (or no access) the full fee applies
+    veryLateFeePct: 100,
+    cleanerSharePct: 80, // share of any fee the assigned cleaner receives
+  },
+  cash: {
+    maxTotalCents: 15000, // cash only up to this booking total
+    minTier: "bronze", // assigned cleaner must have at least this tier
+    suspendBelowCents: -10000, // cleaner net balance (pay − cash held) below → no new cash jobs
+  },
+  payouts: {
+    eligibilityDays: 7, // weekly settlement: earnings become due after 7 days
+    fastPayoutDays: 3, // Silver+: partial payout possible after 3 days …
+    fastPayoutPct: 50, // … for this share of the pending amount
+    fastPayoutMinTier: "silver",
+  },
+};
+// Defaults captured once (settings.service.js merges admin overrides over them).
+// settings.service.js reaches the policies through OPERATIONS (shared-slot rule:
+// no new imports there); both links are non-enumerable so spreads/JSON never copy them.
+Object.defineProperty(POLICIES, "defaults", { value: JSON.parse(JSON.stringify(POLICIES)), enumerable: false });
+Object.defineProperty(OPERATIONS, "policies", { value: POLICIES, enumerable: false });
+// [slot-D-config]
+// --- Package E: trust & security -------------------------------------------
+// Cleaner reliability rules (strikes). Admin-configurable in settings.
+export const RELIABILITY = {
+  lateReleaseHours: 24, // handing a job back closer than this = 1 strike
+  strikeLimit: 3, // strikes inside the window → automatic pause
+  strikeWindowDays: 90,
+  strikesPerLateRelease: 1,
+  strikesPerNoShow: 2,
+};
+export const RELIABILITY_DEFAULTS = Object.freeze({ ...RELIABILITY });
+
+// Session lifetimes + admin two-factor policy
+export const SECURITY = {
+  customerSessionDays: 7, // customers / cleaners: sliding, renewed when < 1 day remains
+  adminSessionHours: 24, // admins: absolute, never extended
+  requireAdmin2fa: false,
+};
+export const SECURITY_DEFAULTS = Object.freeze({ ...SECURITY });
+
+// Documents a cleaner must have verified before the admin can approve them
+export const VERIFICATION = {
+  requiredDocuments: ["id", "permit"],
+};
+export const VERIFICATION_DEFAULTS = Object.freeze({ requiredDocuments: [...VERIFICATION.requiredDocuments] });
+export const DOCUMENT_KINDS = ["id", "permit", "gewerbe", "other"];
+// [slot-E-config]
+// Extra time per bathroom beyond the first (owner-approved default)
+PRICING.bathroomMinutes = PRICING.bathroomMinutes ?? 20;
+// [slot-F-config]
+// Tier order from entry level to best (fixed keys; thresholds configurable)
+export const COMMISSION_TIER_ORDER = ["new", "bronze", "silver", "gold", "platinum", "diamond"];
 
 // What cleaners can show on their public profile
 export const WORKER_SPECIALTIES = [

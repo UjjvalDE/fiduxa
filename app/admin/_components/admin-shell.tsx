@@ -14,13 +14,18 @@ import {
   LayoutDashboard,
   LogOut,
   Mail,
+  MailCheck,
   Menu,
+  Percent,
+  PiggyBank,
+  Repeat,
   ScrollText,
   ShieldCheck,
-  Tag,
   SlidersHorizontal,
   Sparkles,
   Star,
+  Tag,
+  UserPlus,
   Users,
 } from 'lucide-react';
 
@@ -41,16 +46,27 @@ const NAV: { href: string; key: keyof AdminMessages['nav']; icon: typeof LayoutD
   { href: '/admin/buchungen', key: 'bookings', icon: CalendarCheck },
   { href: '/admin/zahlungen', key: 'payments', icon: CreditCard },
   { href: '/admin/auszahlungen', key: 'payouts', icon: Banknote },
+  { href: '/admin/provision', key: 'commission', icon: Percent },
+  { href: '/admin/finanzen', key: 'finance', icon: PiggyBank },
   { href: '/admin/aktionen', key: 'promotions', icon: Tag },
   { href: '/admin/gutscheine', key: 'giftCards', icon: Gift },
   { href: '/admin/auswertungen', key: 'analytics', icon: BarChart3 },
   { href: '/admin/kunden', key: 'customers', icon: Users },
   { href: '/admin/reinigungskraefte', key: 'workers', icon: Sparkles },
+  { href: '/admin/bewerbungen', key: 'applications', icon: UserPlus },
   { href: '/admin/bewertungen', key: 'reviews', icon: Star },
   { href: '/admin/anfragen', key: 'business', icon: Building2 },
   { href: '/admin/nachrichten', key: 'messages', icon: Mail },
   { href: '/admin/administratoren', key: 'admins', icon: ShieldCheck },
   { href: '/admin/protokoll', key: 'audit', icon: ScrollText },
+  { href: '/admin/emails', key: 'emails', icon: MailCheck },
+  // [slot-A-nav]
+  { href: '/admin/putzplaene', key: 'series', icon: Repeat },
+  // [slot-B-nav]
+  // [slot-C-nav]
+  // [slot-D-nav]
+  // [slot-E-nav]
+  // [slot-F-nav]
 ];
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {

@@ -1,11 +1,12 @@
 'use client';
 
 // Interactive islands of the (server-rendered) homepage: postcode quick start,
-// live price panel (GET /pricing), FAQ accordion and the "copy code" button.
-import { useState } from 'react';
+// live price panel (GET /pricing), FAQ accordion, review carousel and the
+// "copy code" button.
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Banknote, Check, ChevronDown, Copy, Loader2, MapPin, Sparkles } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Banknote, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Loader2, MapPin, Sparkles, Star } from 'lucide-react';
 
 import { api, ApiError } from '@/lib/api';
 import { translateApiError, translateApiMessage } from '@/lib/i18n/api-errors';
@@ -265,5 +266,115 @@ export function CopyCode({ code, label, copiedLabel, className }: { code: string
       <Copy size={15} aria-hidden="true" />
       <span aria-live="polite">{copied ? copiedLabel : label}</span>
     </button>
+  );
+}
+
+export interface ReviewCard {
+  id: string;
+  rating: number;
+  author: string;
+  service: string;
+  /** localized display date */
+  date: string;
+  /** ISO timestamp for <time dateTime> */
+  dateTime: string;
+  comment: string;
+}
+
+/** Row of 5 stars; the number is announced once via aria-label */
+export function StarRow({ rating, label, size = 16 }: { rating: number; label: string; size?: number }) {
+  return (
+    <span className="star-row" role="img" aria-label={label}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star key={n} size={size} strokeWidth={1.75} fill={n <= Math.round(rating) ? 'currentColor' : 'none'} aria-hidden="true" />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Horizontal review carousel: native CSS scroll-snap (touch, trackpad,
+ * arrow keys on the focused list) plus prev/next buttons that scroll by one
+ * card and are disabled at either end. Smooth scrolling only without
+ * prefers-reduced-motion.
+ */
+export function ReviewCarousel({ reviews }: { reviews: ReviewCard[] }) {
+  const t = useMessages(homeMessages).reviews;
+  const trackRef = useRef<HTMLUListElement>(null);
+  const [atStart, setAtStart] = useState(true);
+  const [atEnd, setAtEnd] = useState(false);
+
+  const update = useCallback(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    setAtStart(el.scrollLeft <= 4);
+    setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      el.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [update]);
+
+  const scrollByCard = (direction: 1 | -1) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const card = el.querySelector<HTMLElement>('li');
+    const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+    const step = card ? card.offsetWidth + gap : el.clientWidth;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollBy({ left: direction * step, behavior: reduce ? 'auto' : 'smooth' });
+  };
+
+  return (
+    <div className="review-carousel">
+      <ul
+        ref={trackRef}
+        id="review-track"
+        className="review-track"
+        tabIndex={0}
+        aria-label={t.carouselLabel}
+        aria-describedby="review-carousel-hint"
+      >
+        {reviews.map((review) => (
+          <li key={review.id} className="review-card">
+            <article>
+              <div className="review-card-top">
+                <StarRow rating={review.rating} label={t.stars(review.rating)} />
+                <time dateTime={review.dateTime}>{review.date}</time>
+              </div>
+              <p className="review-comment" title={review.comment}>
+                {review.comment}
+              </p>
+              <footer className="review-meta">
+                <strong>{review.author}</strong>
+                <span>{review.service}</span>
+                <span className="review-verified">
+                  <BadgeCheck size={14} aria-hidden="true" /> {t.verified}
+                </span>
+              </footer>
+            </article>
+          </li>
+        ))}
+      </ul>
+      <p id="review-carousel-hint" className="sr-only">
+        {t.carouselHint}
+      </p>
+      <div className="review-controls">
+        <button type="button" className="review-nav" onClick={() => scrollByCard(-1)} disabled={atStart} aria-label={t.prev} aria-controls="review-track">
+          <ChevronLeft size={19} aria-hidden="true" />
+        </button>
+        <button type="button" className="review-nav" onClick={() => scrollByCard(1)} disabled={atEnd} aria-label={t.next} aria-controls="review-track">
+          <ChevronRight size={19} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
   );
 }

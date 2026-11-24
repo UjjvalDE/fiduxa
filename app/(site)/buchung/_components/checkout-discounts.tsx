@@ -274,6 +274,7 @@ export function WelcomeHint({
   quote,
   user,
   authStatus,
+  onApplyCode,
   loginHref,
   registerHref,
   compact,
@@ -281,6 +282,8 @@ export function WelcomeHint({
   quote: QuoteState;
   user: User | null;
   authStatus: 'loading' | 'authenticated' | 'anonymous';
+  /** Fill the promo field with the customer's own welcome code */
+  onApplyCode?: (code: string) => void;
   /** Omit to hide the login/register links (e.g. when the forms are on the page) */
   loginHref?: string;
   registerHref?: string;
@@ -292,12 +295,46 @@ export function WelcomeHint({
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState<'sent' | 'failed' | null>(null);
   const [rechecking, setRechecking] = useState(false);
+  // "Ohne Rabatt fortfahren": hides the own-code prompt for this booking (no code applied)
+  const [dismissed, setDismissed] = useState(false);
 
   const welcome = quote.quote?.welcome ?? null;
   if (!welcome || authStatus === 'loading') return null;
   const pct = formatDiscount(welcome.discountType, welcome.discountValue, locale);
 
-  if (welcome.eligible && quote.quote?.promotion?.kind === 'welcome') {
+  if (welcome.eligible && welcome.code && quote.quote?.promotion?.kind !== 'welcome') {
+    if (dismissed) return null;
+    const until = welcome.codeExpiresAt
+      ? new Date(welcome.codeExpiresAt).toLocaleDateString(locale === 'en' ? 'en-GB' : locale === 'pl' ? 'pl-PL' : 'de-DE', { timeZone: 'Europe/Berlin' })
+      : null;
+    return (
+      <div className={cn('grid gap-2 rounded-[12px] border border-sage bg-mint p-4 text-pine-dark', compact && 'p-3')}>
+        <p className={cn('m-0 flex items-start gap-2 font-bold', compact ? 'text-sm' : 'text-[15px]')}>
+          <Tag className="mt-0.5 h-4 w-4 shrink-0 text-pine" aria-hidden="true" /> {t.ownCodeTitle(pct)}
+        </p>
+        <p className="m-0 text-sm">{t.ownCodeQuestion}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="rounded-md bg-white px-2.5 py-1.5 font-mono text-sm font-bold tracking-wider">{welcome.code}</code>
+          {onApplyCode && (
+            <button type="button" onClick={() => onApplyCode(welcome.code as string)} className="button button-small min-h-[44px]">
+              {t.applyOwnCode}
+            </button>
+          )}
+          <button type="button" onClick={() => setDismissed(true)} className="button button-small button-quiet min-h-[44px]">
+            {t.continueWithout}
+          </button>
+        </div>
+        {!compact && (
+          <p className="m-0 text-xs">
+            {t.ownCodeText}
+            {until ? ` ${t.ownCodeUntil(until)}` : ''}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (quote.quote?.promotion?.kind === 'welcome') {
     return (
       <p className={cn('m-0 flex items-start gap-2 rounded-[12px] bg-mint p-3 text-sm font-semibold text-pine-dark', compact && 'text-xs')}>
         <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-pine" aria-hidden="true" /> {t.applied(pct)}

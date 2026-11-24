@@ -1,6 +1,7 @@
 // Homepage, rendered on the server. Interactive parts are small client
 // islands (home-islands.tsx); live promotions come from GET /promotions/active
-// (promo-sections.tsx). Images are self-hosted in /public/images (no
+// (promo-sections.tsx); trust data from GET /home/trust (trust-sections.tsx).
+// Images are self-hosted in /public/images (no
 // third-party requests from visitors' browsers).
 import Link from 'next/link';
 import { ArrowRight, BadgeCheck, Check, Clock3, Leaf, Mail, MapPin, Phone, ShieldCheck, Star } from 'lucide-react';
@@ -8,7 +9,7 @@ import { ArrowRight, BadgeCheck, Check, Clock3, Leaf, Mail, MapPin, Phone, Shiel
 import { SiteHeader } from '@/componets/site/site-header';
 import { SiteFooter } from '@/componets/site/site-footer';
 import { getLocale, getMessages } from '@/lib/i18n/server';
-import type { GiftCardConfig, PromotionBanner } from '@/lib/types';
+import type { GiftCardConfig, HomeTrust, PromotionBanner } from '@/lib/types';
 import { CONTACT, getExtrasContent, getServiceContent } from '../(site)/_shared/catalogue';
 import { SERVICE_ICONS } from '../(site)/_shared/service-icons';
 import { HomeFaq, PricePanel, QuickStart } from './home-islands';
@@ -16,6 +17,7 @@ import homeMessages from './messages';
 import promoMessages from './promo-messages';
 import { CampaignHero, GiftCardPromo, OffersSection, PromoBannerStrip } from './promo-sections';
 import { groupPromotions } from './promotions';
+import { JoinTeamSection, ReviewsSection, ServiceAreaStrip, WorryFreeSection } from './trust-sections';
 
 /** Self-hosted, compressed (≈1200 px wide) photos with intrinsic sizes */
 const IMAGES = {
@@ -31,7 +33,15 @@ const after = (text: string) => (text && !/^[.,!?;:]/.test(text) ? ` ${text}` : 
 
 const TRUST_ICONS = [ShieldCheck, Clock3, Leaf];
 
-export function HomePage({ promotions, giftConfig }: { promotions: PromotionBanner[]; giftConfig: GiftCardConfig | null }) {
+export function HomePage({
+  promotions,
+  giftConfig,
+  trust,
+}: {
+  promotions: PromotionBanner[];
+  giftConfig: GiftCardConfig | null;
+  trust: HomeTrust | null;
+}) {
   const locale = getLocale();
   const t = getMessages(homeMessages);
   const tp = getMessages(promoMessages);
@@ -88,7 +98,7 @@ export function HomePage({ promotions, giftConfig }: { promotions: PromotionBann
               <div className="hero-visual">
                 <div className="hero-photo-wrap">
                   {/* eslint-disable-next-line @next/next/no-img-element -- next.config uses images.unoptimized; self-hosted file with width/height */}
-                  <img src={IMAGES.hero.src} width={IMAGES.hero.width} height={IMAGES.hero.height} alt={t.hero.imageAlt} decoding="async" {...{ fetchpriority: 'high' }} />
+                  <img src={IMAGES.hero.src} width={IMAGES.hero.width} height={IMAGES.hero.height} alt={t.hero.imageAlt} decoding="async" fetchPriority="high" />
                 </div>
                 <div className="hero-float-card">
                   <span className="float-icon">
@@ -188,6 +198,8 @@ export function HomePage({ promotions, giftConfig }: { promotions: PromotionBann
             </div>
           </div>
         </section>
+
+        <WorryFreeSection trust={trust} />
 
         <section id="preise" className="section price-section">
           <div className="shell grid items-center gap-12 lg:grid-cols-[.9fr_1.1fr] lg:gap-20">
@@ -289,6 +301,12 @@ export function HomePage({ promotions, giftConfig }: { promotions: PromotionBann
             </div>
           </div>
         </section>
+
+        <ReviewsSection trust={trust} />
+
+        <ServiceAreaStrip />
+
+        <JoinTeamSection trust={trust} />
 
         <section id="faq" className="section faq-section">
           <div className="shell grid gap-12 lg:grid-cols-[.7fr_1.3fr] lg:gap-24">

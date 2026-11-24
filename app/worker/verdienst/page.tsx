@@ -1,7 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import {
   Banknote,
+  ChevronRight,
   BadgeEuro,
   CalendarClock,
   CheckCircle2,
@@ -17,7 +19,7 @@ import {
 import { RequireRole } from '@/lib/auth';
 import { useFormat, useMessages } from '@/lib/i18n/client';
 import common from '@/lib/i18n/messages/common';
-import type { WorkerEarningsResponse } from '@/lib/types';
+import type { WorkerEarningsResponse, WorkerPayoutRecord, WorkerPerformanceResponse } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ErrorState } from '@/app/admin/_components/states';
 import { useApi } from '@/app/admin/_components/use-api';
@@ -26,6 +28,7 @@ import cashMessages from '../_cash-messages';
 import portalMessages from '../_portal-messages';
 import { CashBadge, useJobTime } from '../_components/cash';
 import { BankForm } from '../_components/onboarding-forms';
+import { PayoutMethodForm } from '../_components/payout-method-form';
 import {
   NotAvailable,
   PageSkeleton,
@@ -37,6 +40,32 @@ import {
 } from '../_components/portal-ui';
 import { useOverviewUpdaters } from '../_components/setup';
 import { canEditProfile, useWorkerOverview } from '../_components/worker-context';
+import leistungMessages from '../leistung/_messages';
+import { TierBadge } from '../leistung/_components/tier-badge';
+
+/** Compact link to the performance page with the current commission tier */
+function TierLink() {
+  const t = useMessages(leistungMessages).earningsLink;
+  const f = useFormat();
+  const { data } = useApi<WorkerPerformanceResponse>('/worker/performance');
+  if (!data) return null;
+  return (
+    <Link
+      href="/worker/leistung"
+      className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-white p-4 shadow-sm transition hover:border-sage focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-grey">{t.tier}</span>
+        <TierBadge tier={data.tier.key} />
+        <span className="text-sm font-semibold text-pine-dark">{t.commission(f.number(data.tier.effectivePct))}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1 text-sm font-semibold text-pine">
+        <span className="hidden sm:inline">{t.cta}</span>
+        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+      </span>
+    </Link>
+  );
+}
 
 function Timeline({ days }: { days: number }) {
   const t = useMessages(portalMessages).earnings.timeline;
@@ -61,6 +90,13 @@ function Timeline({ days }: { days: number }) {
   );
 }
 
+/** Badge tone of a payout record (records from before the status field exist only as paid) */
+const HISTORY_CLASSES: Record<WorkerPayoutRecord['status'], string> = {
+  paid: 'border-sage bg-mint text-pine-dark',
+  processing: 'border-amber-200 bg-amber-50 text-amber-900',
+  failed: 'border-red-200 bg-red-50 text-red-700',
+};
+
 function Earnings() {
   const { earnings: t } = useMessages(portalMessages);
   const cm = useMessages(cashMessages);
@@ -75,7 +111,7 @@ function Earnings() {
   if (error && !data) return <ErrorState message={error} onRetry={reload} />;
   if (!data) return <PageSkeleton label={t.loading} />;
 
-  const { summary, bank, jobs, payouts } = data;
+  const { summary, bank, jobs, payouts, payoutMethod } = data;
   const editable = overview.data ? canEditProfile(overview.data) : false;
   const cashHeld = summary.cashHeldCents ?? 0;
   const hasCash = cashHeld > 0 || jobs.some((j) => (j.cashHeldCents ?? 0) > 0);
@@ -87,6 +123,8 @@ function Earnings() {
   return (
     <div className="space-y-5">
       <PageTitle title={t.title} subtitle={t.subtitle} />
+
+      <TierLink />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatTile icon={Wallet} tone="accent" label={t.thisMonth} value={f.euro(summary.thisMonthCents)} />
@@ -115,6 +153,9 @@ function Earnings() {
         />
         {summary.onHoldCents !== 0 && (
           <StatTile icon={PauseCircle} tone="warn" label={t.onHold} value={netValue(summary.onHoldCents)} hint={netHint} />
+        )}
+        {(summary.processingCents ?? 0) > 0 && (
+          <StatTile icon={Landmark} label={t.processing} value={netValue(summary.processingCents ?? 0)} hint={netHint} />
         )}
         <StatTile icon={CheckCircle2} label={t.paid} value={netValue(summary.paidCents)} hint={netHint} />
         <StatTile
@@ -196,41 +237,77 @@ function Earnings() {
           <p className="text-sm text-muted-grey">{t.noPayouts}</p>
         ) : (
           <ul className="divide-y divide-border">
-            {payouts.map((p) => (
-              <li key={p._id} className="flex items-start justify-between gap-3 py-3">
-                <div className="min-w-0">
-                  <p className="font-mono text-sm font-semibold text-charcoal">{p.reference}</p>
-                  <p className="text-sm text-muted-grey">
-                    {date(p.paidAt)} · {t.jobsCount(p.jobCount)}
-                    {p.bankAccountLast4 && ` · ${t.ibanEnding(p.bankAccountLast4)}`}
-                  </p>
-                  {p.note && <p className="text-xs text-muted-grey">{p.note}</p>}
-                </div>
-                <span className="shrink-0 text-base font-bold text-pine-dark">{f.euro(p.amountCents)}</span>
-              </li>
-            ))}
+            {payouts.map((p) => {
+              const status: WorkerPayoutRecord['status'] = p.status ?? 'paid';
+              const provider = p.provider ? t.history.provider[p.provider] : null;
+              return (
+                <li key={p._id} className="flex items-start justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-sm font-semibold text-charcoal">{p.reference}</span>
+                      <span className={cn('inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold', HISTORY_CLASSES[status])}>
+                        {status === 'paid'
+                          ? provider
+                            ? `${t.history.paid} · ${provider}`
+                            : t.history.paid
+                          : status === 'processing'
+                            ? t.history.processing
+                            : t.history.failed}
+                      </span>
+                    </p>
+                    <p className="text-sm text-muted-grey">
+                      {date(p.paidAt)} · {t.jobsCount(p.jobCount)}
+                      {p.bankAccountLast4 && ` · ${t.ibanEnding(p.bankAccountLast4)}`}
+                    </p>
+                    {status === 'failed' && (
+                      <p className="text-xs font-medium text-red-700">
+                        {p.failureReason ? `${t.history.failedReason(p.failureReason)} – ` : ''}
+                        {t.history.failedNote}
+                      </p>
+                    )}
+                    {p.note && <p className="text-xs text-muted-grey">{p.note}</p>}
+                  </div>
+                  <span className="shrink-0 text-base font-bold text-pine-dark">{f.euro(p.amountCents)}</span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </PortalCard>
 
-      <PortalCard title={t.bankTitle} description={t.bankHint}>
-        {!bank.iban && (
-          <p className={cn('mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900')}>
-            <Landmark className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            {t.noBank}
-          </p>
-        )}
-        <BankForm
-          accountHolder={bank.accountHolder}
-          maskedIban={bank.iban}
-          saved={Boolean(bank.iban)}
-          editable={editable}
-          onSaved={(saved) => {
-            update.bankSaved(saved);
-            setData((prev) => (prev ? { ...prev, bank: { accountHolder: saved.accountHolder, iban: saved.iban } } : prev));
-          }}
-        />
-      </PortalCard>
+      <div className="grid items-start gap-5 lg:grid-cols-2">
+        <PortalCard title={t.bankTitle} description={t.bankHint}>
+          {!bank.iban && (
+            <p className={cn('mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900')}>
+              <Landmark className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              {t.noBank}
+            </p>
+          )}
+          <BankForm
+            accountHolder={bank.accountHolder}
+            maskedIban={bank.iban}
+            saved={Boolean(bank.iban)}
+            editable={editable}
+            onSaved={(saved) => {
+              update.bankSaved(saved);
+              setData((prev) => (prev ? { ...prev, bank: { accountHolder: saved.accountHolder, iban: saved.iban } } : prev));
+            }}
+          />
+        </PortalCard>
+
+        <PortalCard title={t.method.title} description={t.method.hint}>
+          <PayoutMethodForm
+            method={payoutMethod}
+            hasBank={Boolean(bank.iban)}
+            editable={editable}
+            payoutDelayDays={summary.payoutDelayDays}
+            onSaved={(saved) => {
+              update.payoutMethodSaved(saved);
+              setData((prev) => (prev ? { ...prev, payoutMethod: saved } : prev));
+            }}
+          />
+        </PortalCard>
+      </div>
     </div>
   );
 }

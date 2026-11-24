@@ -266,7 +266,13 @@ export function DateCard({
               </p>
             )}
             {dateSelected && grouped.length > 0 && (
-              <div className={cn('grid gap-4', slotsLoading && 'opacity-60')} aria-busy={slotsLoading}>
+              <div
+                className={cn(
+                  'grid gap-4 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-safe:ease-out',
+                  slotsLoading && 'opacity-60'
+                )}
+                aria-busy={slotsLoading}
+              >
                 {grouped.map(([group, list]) => (
                   <div key={group} role="group" aria-labelledby={`times-${group}`}>
                     <p id={`times-${group}`} className="mb-2 mt-0 text-xs font-bold uppercase tracking-wider text-muted-grey">

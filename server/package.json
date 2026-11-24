@@ -7,10 +7,16 @@
   "scripts": {
     "start": "node main.js",
     "dev": "nodemon main.js",
+    "worker": "node worker.js",
     "test": "node --test tests/unit/*.test.mjs",
     "test:e2e": "node tests/run-e2e.mjs",
     "test:load": "node tests/load/load-test.mjs",
-    "test:all": "npm test && npm run test:e2e"
+    "test:all": "npm test && npm run test:e2e",
+    "seed:dummy": "node src/scripts/seed-dummy.js generate",
+    "seed:dummy:verify": "node src/scripts/seed-dummy.js verify",
+    "seed:dummy:clean": "node src/scripts/seed-dummy.js clean",
+    "seed:cleaners": "node src/scripts/seed-dummy.js generate",
+    "seed:cleaners:verify": "node src/scripts/seed-dummy.js verify --cleaners"
   },
   "keywords": [],
   "author": "",
@@ -27,6 +33,11 @@
     "mongoose": "^9.12.1",
     "morgan": "^1.12.1",
     "nodemailer": "^10.6.0",
+    "otplib": "^13.6.0",
+    "pdfkit": "^0.21.0",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "qrcode": "^1.5.4",
     "stripe": "^17.7.0",
     "zod": "^4.6.7"
   },

@@ -9,6 +9,8 @@ import { recordAudit } from "../services/audit.service.js";
 import { escapeRegex, getPagination, paginationMeta, todayInBerlin } from "../utils/helpers.js";
 import { avatarUrl, getWorkerStats } from "../services/worker-profile.service.js";
 import { workerRateCents } from "../services/payout.service.js";
+import { documentsView, missingRequiredDocuments, requiredDocumentsVerified } from "./worker-document.controller.js"; // [E]
+import { reliabilityView } from "../services/reliability.service.js"; // [E]
 
 const WORKER_STATUSES = [
   "invited",
@@ -28,7 +30,7 @@ const createInvitationToken = () => {
 };
 
 const WORKER_REVIEW_FIELDS =
-  "name email phone emailVerified workerStatus workerProfile bankAccountHolder bankAccountLast4 workerReview createdAt avatarUpdatedAt availability holidays workerPayRateCents";
+  "name email phone emailVerified workerStatus workerProfile bankAccountHolder bankAccountLast4 payoutMethod workerReview createdAt avatarUpdatedAt availability holidays workerPayRateCents documents reliability";
 
 const createWorkerSchema = z.object({
   name: z.string().trim().min(2).max(100),
@@ -56,57 +58,64 @@ const toBankSummary = (worker) => ({
 });
 
 // 1. Admin invites a worker
-export const createWorker = async (req, res, next) => {
+/**
+ * Create an invited worker account and send the invitation email.
+ * Shared by the admin invite and the job-application "invite" action.
+ * Throws an Error with statusCode 409/500 on conflicts or misconfiguration.
+ */
+export const createWorkerInvitation = async ({ name, email, phone = "", locale = "de" }) => {
+  if (!process.env.WORKER_INVITATION_URL) {
+    throw Object.assign(new Error("Worker invitation URL is not configured."), { statusCode: 500 });
+  }
+  if (await User.findOne({ email })) {
+    throw Object.assign(new Error("An account with this email already exists."), { statusCode: 409 });
+  }
+
+  const { token, tokenHash, expires } = createInvitationToken();
+  // Unusable random password until the worker accepts the invitation
+  const temporaryPassword = randomBytes(48).toString("hex");
+  const passwordHash = await bcrypt.hash(temporaryPassword, 12);
+
+  let worker;
   try {
-    const data = createWorkerSchema.parse(req.body);
-
-    if (!process.env.WORKER_INVITATION_URL) {
-      return res.status(500).json({
-        success: false,
-        message: "Worker invitation URL is not configured.",
-      });
-    }
-
-    const existing = await User.findOne({ email: data.email });
-
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: "An account with this email already exists.",
-      });
-    }
-
-    const { token, tokenHash, expires } = createInvitationToken();
-
-    // Unusable random password until the worker accepts the invitation
-    const temporaryPassword = randomBytes(48).toString("hex");
-    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
-
-    const worker = await User.create({
-      name: data.name,
-      email: data.email,
-      phone: data.phone,
+    worker = await User.create({
+      name,
+      email,
+      phone,
       password: passwordHash,
       role: "worker",
-      preferredLanguage: data.locale,
+      preferredLanguage: locale,
       workerStatus: "invited",
       emailVerified: false,
       invitationTokenHash: tokenHash,
       invitationExpires: expires,
     });
+  } catch (error) {
+    if (error.code === 11000) throw Object.assign(new Error("An account with this email already exists."), { statusCode: 409 });
+    throw error;
+  }
 
-    const invitationUrl = `${process.env.WORKER_INVITATION_URL}?token=${token}`;
+  const invitationUrl = `${process.env.WORKER_INVITATION_URL}?token=${token}`;
+  try {
+    await sendWorkerInvitationEmail({ to: worker.email, name: worker.name, invitationUrl, locale: worker.preferredLanguage });
+  } catch (emailError) {
+    await User.deleteOne({ _id: worker._id });
+    throw emailError;
+  }
+  return worker;
+};
 
+export const createWorker = async (req, res, next) => {
+  try {
+    const data = createWorkerSchema.parse(req.body);
+    let worker;
     try {
-      await sendWorkerInvitationEmail({
-        to: worker.email,
-        name: worker.name,
-        invitationUrl,
-        locale: worker.preferredLanguage,
-      });
-    } catch (emailError) {
-      await User.deleteOne({ _id: worker._id });
-      throw emailError;
+      worker = await createWorkerInvitation(data);
+    } catch (error) {
+      if (error.statusCode === 409 || error.statusCode === 500) {
+        return res.status(error.statusCode).json({ success: false, message: error.message });
+      }
+      throw error;
     }
 
     await recordAudit({
@@ -216,6 +225,12 @@ export const getWorkerForReview = async (req, res, next) => {
           .map((h) => ({ id: h._id, from: h.from.toISOString().slice(0, 10), to: h.to.toISOString().slice(0, 10), note: h.note })),
         payRateCents: workerRateCents(worker),
         customPayRate: worker.workerPayRateCents != null,
+        documents: documentsView(worker), // package E
+        reliability: reliabilityView(worker), // package E
+        payoutMethod: {
+          type: worker.payoutMethod?.type ?? "bank",
+          paypalEmail: worker.payoutMethod?.paypalEmail ?? "",
+        },
       },
       stats: await getWorkerStats(worker._id),
     });
@@ -270,6 +285,15 @@ export const reviewWorker = async (req, res, next) => {
           success: false,
           message:
             "Worker must verify email and complete their profile and bank details before approval.",
+        });
+      }
+
+      // Package E: required documents (ID, work permit) must be verified first
+      if (!requiredDocumentsVerified(worker)) {
+        return res.status(409).json({
+          success: false,
+          message: "Required documents are not verified yet. Please check the ID and work permit before approving.",
+          missingDocuments: missingRequiredDocuments(worker),
         });
       }
     }

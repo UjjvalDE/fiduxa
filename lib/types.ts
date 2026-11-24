@@ -37,6 +37,8 @@ export interface Service {
   name: string;
   nameEn: string;
   bookingMode: 'request' | 'business-request';
+  /** Duration multiplier per m² (deep cleaning 1.4, end-of-tenancy 1.6) */
+  timeFactor?: number;
   frequencies: Frequency[];
   included: string[];
   excluded: string[];
@@ -60,6 +62,7 @@ export interface PublicPricing {
   durationStepMinutes: number;
   minimumChargeCents: number;
   areaM2PerHour: number;
+  bathroomMinutes?: number;
   conditionFactor: Record<Condition, number>;
   frequencyDiscount: Record<Frequency, number>;
   pricesIncludeVat: boolean;
@@ -154,6 +157,8 @@ export interface PlatformSettings {
     /** 0.19 = 19 % (0 for Kleinunternehmer) */
     vatRate?: number;
     frequencyDiscount: { weekly: number; biweekly: number; monthly: number };
+    /** Time multiplier per home condition; "normal" is the fixed ×1 reference */
+    conditionFactor: { basic: number; normal: number; moderate: number; heavy: number };
   };
   extras: {
     id: string;
@@ -177,7 +182,13 @@ export interface PlatformSettings {
     paypalConfigured: boolean;
     stripeConfigured: boolean;
   };
-  workerPay: { hourlyRateCents: number; payoutDelayDays: number };
+  workerPay: {
+    hourlyRateCents: number;
+    payoutDelayDays: number;
+    payModel: 'commission' | 'hourly';
+    commissionTiers: CommissionTiersConfig;
+  };
+  finance?: FinanceAssumptions;
   giftCards?: {
     enabled: boolean;
     presetAmountsCents: number[];
@@ -295,6 +306,7 @@ export interface Booking {
   customer: string | PersonRef;
   serviceId: ServiceId;
   areaM2: number;
+  bathrooms?: number;
   condition: Condition;
   frequency: Frequency;
   extras: string[];
@@ -351,9 +363,15 @@ export interface Booking {
     amountCents: number;
     rateCents: number;
     minutes: number;
+    grossCents?: number;
+    commissionCents?: number;
+    /** immutable snapshot of how the pay was calculated at completion */
+    basis?: 'commission' | 'hourly';
+    commissionPct?: number;
+    tierKey?: CommissionTierKey;
     earnedAt: string;
     dueAt: string;
-    status: 'pending' | 'on_hold' | 'paid';
+    status: 'pending' | 'on_hold' | 'processing' | 'paid';
     paidAt?: string;
     /** Cash the cleaner kept from the customer (deducted from the pay) */
     cashHeldCents?: number;
@@ -379,6 +397,16 @@ export interface OpenJob {
   pets?: boolean;
   /** Customer pays the cleaner in cash */
   cash?: boolean;
+  /** What YOU earn for this job (current tier % or hourly rate) */
+  pay?: JobPayPreview | null;
+}
+
+export interface JobPayPreview {
+  amountCents: number;
+  basis: 'commission' | 'hourly';
+  commissionPct?: number;
+  /** true once the amount is the immutable completion record */
+  final?: boolean;
 }
 
 /** Booking as seen by a worker (no prices, no customer email) */
@@ -390,6 +418,8 @@ export type WorkerJob = Pick<
   customerDetails: { name: string; phone: string; address: string; postcode: string; accessNotes?: string };
   /** Only for cash bookings */
   cash?: JobCash | null;
+  /** Cleaner pay: final record after completion, preview before */
+  pay?: JobPayPreview | null;
 };
 
 export interface Pagination {
@@ -464,6 +494,8 @@ export interface EarningsSummary {
   pendingCents: number;
   dueCents: number;
   onHoldCents: number;
+  /** currently being sent via the payout provider */
+  processingCents?: number;
   paidCents: number;
   totalCents: number;
   nextDueAt: string | null;
@@ -485,6 +517,7 @@ export interface WorkerOverview {
     holidays: Holiday[];
     payRateCents: number;
     bankDetails: BankSummary;
+    payoutMethod: PayoutMethod;
     reviewNote: string;
     memberSince: string;
   };
@@ -497,7 +530,14 @@ export interface WorkerOverview {
 }
 
 /** pending = waiting period · due = ready for transfer · on_hold · paid */
-export type PayoutStatus = 'pending' | 'due' | 'on_hold' | 'paid';
+/** pending = waiting · due = eligible · on_hold · processing = payout under way · paid */
+export type PayoutStatus = 'pending' | 'due' | 'on_hold' | 'processing' | 'paid';
+
+/** How a cleaner wants to be paid out */
+export interface PayoutMethod {
+  type: 'bank' | 'paypal';
+  paypalEmail: string;
+}
 
 export interface EarningJob {
   cashHeldCents?: number;
@@ -521,6 +561,10 @@ export interface EarningJob {
 export interface WorkerPayoutRecord {
   _id: string;
   reference: string;
+  /** processing = sent to the provider · paid · failed (earnings released) */
+  status: 'processing' | 'paid' | 'failed';
+  provider?: 'bank' | 'paypal';
+  failureReason?: string;
   amountCents: number;
   jobCount: number;
   paidAt: string;
@@ -531,6 +575,7 @@ export interface WorkerPayoutRecord {
 export interface WorkerEarningsResponse {
   summary: EarningsSummary & { rateCents: number; defaultRateCents: number };
   bank: { accountHolder: string; iban: string | null };
+  payoutMethod: PayoutMethod;
   jobs: EarningJob[];
   payouts: WorkerPayoutRecord[];
 }
@@ -632,15 +677,29 @@ export interface AdminReview {
 }
 
 export interface OpenPayoutGroup {
-  worker: { _id: string; name: string; email: string; bankAccountLast4: string; bankAccountHolder: string };
+  worker: {
+    _id: string;
+    name: string;
+    email: string;
+    bankAccountLast4: string;
+    bankAccountHolder: string;
+    /** preferred payout route; paypal target is masked (a•••@domain) */
+    payout: { type: 'bank' | 'paypal'; target: string };
+  };
   dueCents: number;
   pendingCents: number;
   onHoldCents: number;
+  processingCents: number;
+  /** what customers paid for these jobs / what stays with the platform */
+  grossCents: number;
+  commissionCents: number;
   jobs: {
     _id: string;
     reference: string;
     date: string;
     amountCents: number;
+    grossCents?: number | null;
+    commissionCents?: number | null;
     minutes: number;
     earnedAt: string;
     dueAt: string;
@@ -655,16 +714,32 @@ export interface OpenPayoutGroup {
 export interface OpenPayoutsResponse {
   payoutDelayDays: number;
   defaultRateCents: number;
-  totals: { dueCents: number; pendingCents: number; onHoldCents: number };
+  totals: {
+    dueCents: number;
+    pendingCents: number;
+    onHoldCents: number;
+    processingCents: number;
+    grossCents: number;
+    commissionCents: number;
+  };
+  now?: string;
   groups: OpenPayoutGroup[];
 }
 
 export interface AdminPayoutRecord {
   _id: string;
   reference: string;
+  /** records from before the status field exist only as paid */
+  status?: 'processing' | 'paid' | 'failed';
+  provider?: 'bank' | 'paypal';
+  paypalEmail?: string;
+  providerBatchId?: string | null;
+  providerItemId?: string | null;
+  failureReason?: string;
+  initiatedAt?: string | null;
   amountCents: number;
   jobCount: number;
-  paidAt: string;
+  paidAt: string | null;
   bankAccountLast4: string;
   note: string;
   worker: { _id: string; name: string; email: string } | null;
@@ -789,7 +864,11 @@ export type PromotionReason =
   | 'login_required'
   | 'verify_email'
   | 'first_booking_only'
-  | 'already_used';
+  | 'already_used'
+  /** someone else's personal code */
+  | 'not_yours'
+  /** verified, personal code not issued yet */
+  | 'code_pending';
 
 export type GiftCardReason = 'invalid' | 'not_found' | 'not_active' | 'disabled' | 'expired' | 'empty' | 'too_many' | 'not_needed';
 
@@ -832,6 +911,8 @@ export interface Quote {
     name?: string;
     /** valid, but a better automatic offer was applied instead */
     superseded?: boolean;
+    /** a personal (single-use, own-account) code */
+    personal?: boolean;
   } | null;
   welcome: {
     eligible: boolean;
@@ -839,6 +920,9 @@ export interface Quote {
     discountType: DiscountType;
     discountValue: number;
     discountCents: number;
+    /** The customer's own personal welcome code (only returned to its owner) */
+    code?: string | null;
+    codeExpiresAt?: string | null;
   } | null;
   giftCards: {
     id?: string;
@@ -1029,3 +1113,311 @@ export interface AnalyticsResponse {
   firstTimeCustomers: { newCustomers: number; welcomeApplied: number; welcomeReserved: number; welcomeReleased: number };
   giftCards: { soldCount: number; soldCents: number; allTimeIssuedCents: number; allTimeOpenCents: number; redemptionPct: number | null };
 }
+
+/** GET /users/me/welcome-code */
+export interface WelcomeCodeInfo {
+  code?: string;
+  status: 'issued' | 'reserved' | 'used' | 'expired' | 'revoked' | 'verify_email';
+  expiresAt?: string | null;
+  discountType?: DiscountType;
+  discountValue?: number;
+  maxDiscountCents?: number | null;
+  minOrderCents?: number;
+}
+
+/* ---------- Rating-based commission system ---------- */
+
+export type CommissionTierKey = 'new' | 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond';
+
+export interface CommissionTierRequirements {
+  minJobs: number;
+  minReviews: number;
+  minRating: number;
+  commissionPct: number;
+}
+
+export interface CommissionTiersConfig {
+  new: { commissionPct: number };
+  bronze: CommissionTierRequirements;
+  silver: CommissionTierRequirements;
+  gold: CommissionTierRequirements;
+  platinum: CommissionTierRequirements;
+  diamond: CommissionTierRequirements;
+}
+
+export interface CommissionCounters {
+  jobsCompleted: number;
+  verifiedReviews: number;
+  /** 1 decimal, null until the first verified review */
+  ratingAvg: number | null;
+  reliabilityPct: number | null;
+}
+
+export interface CommissionTierState {
+  key: CommissionTierKey;
+  commissionPct: number;
+  /** override wins over the tier percentage */
+  effectivePct: number;
+  overridden: boolean;
+}
+
+export interface NextTierInfo {
+  key: CommissionTierKey;
+  commissionPct: number;
+  requirements: { minJobs: number; minReviews: number; minRating: number };
+  /** 0 = requirement met; rating is the required average (0 when met) */
+  missing: { jobs: number; reviews: number; rating: number };
+}
+
+export interface WorkerPerformanceResponse {
+  counters: CommissionCounters;
+  tier: CommissionTierState;
+  trustScore: number;
+  nextTier: NextTierInfo | null;
+  payModel: 'commission' | 'hourly';
+  tierOrder: CommissionTierKey[];
+  tiers: CommissionTiersConfig;
+  totals: { grossCents: number; earningsCents: number; commissionCents: number };
+}
+
+export interface WorkerReviewItem {
+  _id: string;
+  rating: number;
+  comment: string;
+  hidden: boolean;
+  dispute: { status: 'open' | 'approved' | 'rejected'; message: string; adminNote: string } | null;
+  booking: { reference: string; preferredDate: string } | null;
+  createdAt: string;
+}
+
+export interface AdminCommissionRow {
+  worker: { _id: string; name: string; email: string; isActive?: boolean };
+  tier: CommissionTierState;
+  override: { commissionPct: number; reason: string; at: string } | null;
+  counters: CommissionCounters;
+  trustScore: number;
+  totals: { grossCents: number; earningsCents: number; commissionCents: number };
+}
+
+export interface AdminCommissionOverview {
+  tiers: CommissionTiersConfig;
+  tierOrder: CommissionTierKey[];
+  payModel: 'commission' | 'hourly';
+  workers: AdminCommissionRow[];
+  totals: { workers: number; grossCents: number; earningsCents: number; commissionCents: number };
+}
+
+export interface AdminCommissionWorkerDetail {
+  worker: { _id: string; name: string };
+  tier: CommissionTierState;
+  override: { commissionPct: number; reason: string; at: string } | null;
+  counters: CommissionCounters;
+  trustScore: number;
+  nextTier: NextTierInfo | null;
+  transactions: {
+    _id: string;
+    reference: string;
+    date: string;
+    grossCents: number;
+    amountCents: number;
+    commissionCents: number;
+    commissionPct?: number;
+    tierKey?: CommissionTierKey;
+    basis?: 'commission' | 'hourly';
+    status: string;
+  }[];
+}
+
+export interface AdminCommissionReport {
+  rows: { _id: string; name: string; tierKey: CommissionTierKey | null; jobs: number; grossCents: number; earningsCents: number; commissionCents: number }[];
+  totals: { jobs: number; grossCents: number; earningsCents: number; commissionCents: number };
+}
+
+/* ---------- Finance dashboard ---------- */
+
+export interface FinanceAssumptions {
+  incomeTaxRatePct: number;
+  vatBasis: 'full' | 'commission';
+  monthlyFixedCostsCents: number;
+  fees: { paypal: { pct: number; fixedCents: number }; stripe: { pct: number; fixedCents: number } };
+}
+
+export interface FinanceSummary {
+  bookings: number;
+  grossCents: number;
+  vatCents: number;
+  netRevenueCents: number;
+  cleanerPayCents: number;
+  commissionCents: number;
+  paymentFeesCents: number;
+  fixedCostsCents: number;
+  profitBeforeTaxCents: number;
+  incomeTaxCents: number;
+  profitAfterTaxCents: number;
+  marginPct: number | null;
+}
+
+export type FinancePeriod = 'today' | 'month' | 'year' | 'all';
+
+export interface FinanceOverview {
+  today: string;
+  year: number;
+  period: FinancePeriod;
+  years: number[];
+  periods: Record<FinancePeriod, FinanceSummary>;
+  monthly: (FinanceSummary & { month: string })[];
+  breakdown: FinanceSummary;
+  byService: { key: string; grossCents: number; bookings: number; feeCents: number }[];
+  byMethod: { key: string; grossCents: number; bookings: number; feeCents: number }[];
+  pipeline: { cents: number; bookings: number };
+  refunds: { cents: number; count: number };
+  assumptions: FinanceAssumptions & { vatRate: number };
+}
+
+/* ---------- Homepage trust facts + cleaner applications ---------- */
+
+export interface HomeTrust {
+  rating: { average: number | null; count: number };
+  reviews: { _id: string; rating: number; comment: string; author: string; serviceId: string | null; createdAt: string }[];
+  /** share of the job price that goes to the cleaner (from the commission ladder) */
+  cleanerShare: { minPct: number; maxPct: number } | null;
+  cancellationCutoffHours: number;
+}
+
+export type WorkPermit = 'german' | 'eu' | 'settled' | 'residence_work' | 'blue_card' | 'asylum_permit' | 'none';
+export type ApplicationHours = '5-15' | '15-30' | '31+';
+export type ApplicationExperience = 'none' | 'lt2' | 'gt2' | 'gt5';
+export type ExperiencePlace = 'homes' | 'hotels' | 'clinics' | 'offices';
+export type ApplicationVehicle = 'car' | 'scooter' | 'bicycle' | 'none';
+export type ApplicationSource = 'social' | 'friends' | 'news' | 'event' | 'tv_radio' | 'job_portal' | 'other';
+export type ApplicationStatus = 'new' | 'contacted' | 'invited' | 'rejected';
+
+export interface WorkerApplicationInput {
+  name: string;
+  email: string;
+  phone: string;
+  postcode: string;
+  languages: string[];
+  permit: WorkPermit;
+  hoursPerWeek: ApplicationHours;
+  experience: ApplicationExperience;
+  experiencePlaces: ExperiencePlace[];
+  vehicle: ApplicationVehicle;
+  source: ApplicationSource;
+  message?: string;
+  locale: Locale;
+  privacyAccepted: true;
+  cv?: { name: string; dataUrl: string };
+  /** honeypot – must stay empty */
+  website?: string;
+}
+
+export interface AdminApplicationListItem {
+  _id: string;
+  name: string;
+  email: string;
+  phone: string;
+  postcode: string;
+  permit: WorkPermit;
+  hoursPerWeek: ApplicationHours;
+  experience: ApplicationExperience;
+  vehicle: ApplicationVehicle;
+  status: ApplicationStatus;
+  hasCv: boolean;
+  createdAt: string;
+}
+
+export interface AdminApplicationDetail extends Omit<WorkerApplicationInput, 'privacyAccepted' | 'cv' | 'website'> {
+  _id: string;
+  status: ApplicationStatus;
+  adminNote: string;
+  invitedWorker: string | null;
+  cv: { name: string; type: string; size: number } | null;
+  privacyAcceptedAt: string;
+  createdAt: string;
+}
+
+export type AdminEmailStatus = 'queued' | 'sent' | 'failed';
+
+/** Transactional e-mail outbox entry (Admin → E-Mails) */
+export interface AdminEmail {
+  _id: string;
+  to: string;
+  subject: string;
+  template: string;
+  bookingRef: string;
+  status: AdminEmailStatus;
+  attempts: number;
+  lastError: string;
+  nextAttemptAt: string | null;
+  sentAt?: string | null;
+  resentAt?: string | null;
+  createdAt: string;
+}
+
+export interface AdminEmailListResponse {
+  emails: AdminEmail[];
+  counts: Partial<Record<AdminEmailStatus, number>>;
+  pagination: Pagination;
+}
+/* [slot-A-types] */
+// Recurring cleaning plans ("Putzplan") – GET /customer/series, GET /admin/series
+export type SeriesStatus = 'active' | 'paused' | 'ended';
+export type SeriesPaymentMethod = 'cash' | 'invoice' | 'online';
+export type SeriesFrequency = Exclude<Frequency, 'one-time'>;
+export interface SeriesOccurrence {
+  _id: string;
+  reference: string;
+  preferredDate: string;
+  slot: string;
+  slotEnd?: string;
+  status: BookingStatus;
+  paymentStatus: BookingPaymentStatus;
+  paymentMethod?: string;
+  totalCents: number | null;
+  holdExpiresAt?: string | null;
+  cleaner: { _id: string; name: string } | null;
+  /** Still free to skip (before the cancellation cutoff) */
+  cancellable: boolean;
+}
+export interface BookingSeries {
+  _id: string;
+  status: SeriesStatus;
+  frequency: SeriesFrequency;
+  intervalDays: number;
+  serviceId: ServiceId;
+  areaM2: number;
+  condition: Condition;
+  extras: string[];
+  durationMinutes: number;
+  startTime: string;
+  weekday: number;
+  paymentMethod: SeriesPaymentMethod;
+  pets: boolean;
+  address: { postcode: string; address: string };
+  preferredWorker: { _id: string; name: string | null } | null;
+  nextDate: string;
+  pausedUntil: string | null;
+  counters: { generated: number; completed: number };
+  createdFrom: string;
+  lastGeneratedDate: string | null;
+  upcoming: SeriesOccurrence[];
+  endedAt: string | null;
+  endedReason: 'customer' | 'admin' | 'system' | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface AdminBookingSeries extends BookingSeries {
+  customer: PersonRef | string;
+  customerDetails: Booking['customerDetails'];
+  notes: string;
+  lastProblem: { date: string; reason: 'no_window' | 'no_capacity' | 'pricing' | 'error'; message: string; at: string } | null;
+}
+/** Booking fields of a plan occurrence (series = plan id, seriesIndex = position; 0 = first booking) */
+export type BookingWithSeries = Booking & { series?: string | null; seriesIndex?: number };
+export type SeriesAction = 'pause' | 'resume' | 'end';
+/* [slot-B-types] */
+/* [slot-C-types] */
+/* [slot-D-types] */
+/* [slot-E-types] */
+/* [slot-F-types] */

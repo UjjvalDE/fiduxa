@@ -19,12 +19,23 @@ const de = {
     bookings: 'Buchungen',
     payments: 'Zahlungen',
     payouts: 'Auszahlungen',
+    commission: 'Provision',
+    finance: 'Finanzen',
+    emails: 'E-Mails',
+    // [slot-A-nav-msg]
+    series: 'Putzpläne',
+    // [slot-B-nav-msg]
+    // [slot-C-nav-msg]
+    // [slot-D-nav-msg]
+    // [slot-E-nav-msg]
+    // [slot-F-nav-msg]
     promotions: 'Aktionen',
     giftCards: 'Gutscheine',
     analytics: 'Auswertungen',
     reviews: 'Bewertungen',
     customers: 'Kunden',
     workers: 'Reinigungskräfte',
+    applications: 'Bewerbungen',
     business: 'Gewerbeanfragen',
     messages: 'Nachrichten',
     admins: 'Administratoren',
@@ -71,12 +82,23 @@ const en: AdminMessages = {
     bookings: 'Bookings',
     payments: 'Payments',
     payouts: 'Payouts',
+    commission: 'Commission',
+    finance: 'Finance',
+    emails: 'E-mails',
+    // [slot-A-nav-msg]
+    series: 'Cleaning plans',
+    // [slot-B-nav-msg]
+    // [slot-C-nav-msg]
+    // [slot-D-nav-msg]
+    // [slot-E-nav-msg]
+    // [slot-F-nav-msg]
     promotions: 'Promotions',
     giftCards: 'Gift cards',
     analytics: 'Analytics',
     reviews: 'Reviews',
     customers: 'Customers',
     workers: 'Cleaners',
+    applications: 'Applications',
     business: 'Business requests',
     messages: 'Messages',
     admins: 'Administrators',
@@ -130,12 +152,23 @@ const pl: AdminMessages = {
     bookings: 'Rezerwacje',
     payments: 'Płatności',
     payouts: 'Wypłaty',
+    commission: 'Prowizja',
+    finance: 'Finanse',
+    emails: 'E-maile',
+    // [slot-A-nav-msg]
+    series: 'Plany sprzątania',
+    // [slot-B-nav-msg]
+    // [slot-C-nav-msg]
+    // [slot-D-nav-msg]
+    // [slot-E-nav-msg]
+    // [slot-F-nav-msg]
     promotions: 'Promocje',
     giftCards: 'Karty podarunkowe',
     analytics: 'Analizy',
     reviews: 'Opinie',
     customers: 'Klienci',
     workers: 'Osoby sprzątające',
+    applications: 'Aplikacje',
     business: 'Zapytania firmowe',
     messages: 'Wiadomości',
     admins: 'Administratorzy',

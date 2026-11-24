@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { testDataPlugin } from "./plugins/test-data.plugin.js";
 
 // Admin-managed promotions: automatic welcome offer, seasonal campaigns and
 // coupon codes. Content for homepage banners lives here too, so campaigns
@@ -13,7 +14,7 @@ const promotionSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true, maxlength: 120 },
     // welcome = automatic first-booking offer · campaign = seasonal/marketing · coupon = code only
-    kind: { type: String, enum: ["welcome", "campaign", "coupon"], required: true, index: true },
+    kind: { type: String, enum: ["welcome", "campaign", "coupon"], required: true },
     // Optional code (uppercase). Without code a campaign applies automatically.
     code: { type: String, trim: true, uppercase: true, default: null },
 
@@ -29,11 +30,14 @@ const promotionSchema = new mongoose.Schema(
 
     startsAt: { type: Date, default: null },
     endsAt: { type: Date, default: null },
-    active: { type: Boolean, default: true, index: true },
+    active: { type: Boolean, default: true },
 
     usageLimit: { type: Number, min: 1, default: null }, // total redemptions
     perCustomerLimit: { type: Number, min: 1, default: 1 },
     usedCount: { type: Number, default: 0 }, // reserved + applied redemptions
+    // Welcome offer: every verified customer gets a personal single-use code
+    // (PersonalCode) valid for this many days (capped at endsAt)
+    codeValidityDays: { type: Number, min: 1, max: 730, default: 90 },
 
     // Homepage / checkout presentation
     display: {
@@ -56,6 +60,8 @@ const promotionSchema = new mongoose.Schema(
 
 promotionSchema.index({ code: 1 }, { unique: true, partialFilterExpression: { code: { $type: "string" } } });
 promotionSchema.index({ active: 1, startsAt: 1, endsAt: 1 });
+
+promotionSchema.plugin(testDataPlugin);
 
 const Promotion = mongoose.model("Promotion", promotionSchema);
 

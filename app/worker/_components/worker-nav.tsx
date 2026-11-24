@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, ClipboardList, Clock, Home, UserRound, Wallet } from 'lucide-react';
+import { Award, CalendarDays, ClipboardList, Clock, Home, UserRound, Wallet } from 'lucide-react';
 
 import { useAuth } from '@/lib/auth';
 import { useMessages } from '@/lib/i18n/client';
@@ -26,6 +26,7 @@ function useNavItems(): Item[] | null {
   if (approved) {
     items.push({ href: '/worker/kalender', label: t.calendar, icon: CalendarDays });
     items.push({ href: '/worker/verdienst', label: t.earnings, icon: Wallet });
+    items.push({ href: '/worker/leistung', label: t.performance, icon: Award });
   }
   if (canEditProfile(data)) {
     items.push({ href: '/worker/profil', label: t.profile, icon: UserRound });

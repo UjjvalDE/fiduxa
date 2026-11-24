@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import Promotion from "../models/promotion.model.js";
 import PromotionRedemption from "../models/promotion-redemption.model.js";
+import PersonalCode from "../models/personal-code.model.js";
 import { recordAudit } from "../services/audit.service.js";
 import { isLive, normalizeCode } from "../services/promotion.service.js";
 import { escapeRegex, getPagination, paginationMeta } from "../utils/helpers.js";
@@ -34,6 +35,8 @@ const promotionSchema = z
     active: z.boolean().optional().default(true),
     usageLimit: z.number().int().min(1).nullable().optional(),
     perCustomerLimit: z.number().int().min(1).max(100).optional().default(1),
+    // Welcome offer: validity of each customer's personal code (days)
+    codeValidityDays: z.number().int().min(1).max(730).optional().default(90),
     display: z
       .object({
         placement: z.enum(["none", "hero", "banner", "card"]).default("none"),
@@ -125,7 +128,7 @@ export const getPromotion = async (req, res, next) => {
     const promo = await load(req, res);
     if (!promo) return;
     const pagination = getPagination(req.query, { defaultLimit: 25 });
-    const [redemptions, total, stats] = await Promise.all([
+    const [redemptions, total, stats, codeRows] = await Promise.all([
       PromotionRedemption.find({ promotion: promo._id })
         .populate("customer", "name email")
         .populate("booking", "reference status preferredDate")
@@ -135,11 +138,15 @@ export const getPromotion = async (req, res, next) => {
         .lean(),
       PromotionRedemption.countDocuments({ promotion: promo._id }),
       statsFor([promo._id]),
+      PersonalCode.aggregate([{ $match: { promotion: promo._id } }, { $group: { _id: "$status", count: { $sum: 1 } } }]),
     ]);
+    const personalCodes = Object.fromEntries(codeRows.map((r) => [r._id, r.count]));
     return res.json({
       success: true,
       promotion: withState(promo.toObject(), stats[String(promo._id)]),
       redemptions,
+      // Personal codes (welcome offer): issued / reserved / used / expired / revoked
+      personalCodes: { total: codeRows.reduce((s, r) => s + r.count, 0), ...personalCodes },
       pagination: paginationMeta(pagination, total),
     });
   } catch (error) {

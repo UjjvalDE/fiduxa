@@ -7,18 +7,20 @@ import { toast } from 'sonner';
 import { Button } from '@/componets/ui/button';
 import { Input } from '@/componets/ui/input';
 import { Label } from '@/componets/ui/lable';
+import { RadioGroup, RadioGroupItem } from '@/componets/ui/radio-group';
 import { Switch } from '@/componets/ui/switch';
 import { ApiError, api } from '@/lib/api';
 import { useFormat, useLocale, useMessages } from '@/lib/i18n/client';
 import type { Formatter } from '@/lib/i18n/format';
 import catalogue, { type ExtraId } from '@/lib/i18n/messages/catalogue';
-import type { PlatformSettings } from '@/lib/types';
+import type { CommissionTierRequirements, PlatformSettings } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 import { centsToInput, parseEuroToCents } from '../_components/labels';
 import { DetailSkeleton, ErrorState, NativeSelect, PageHeader, SectionCard } from '../_components/states';
 import { apiMessage, useApi, useErrorText } from '../_components/use-api';
 import settingsMessages, { type SettingsMessages } from './_messages';
+import common from '@/lib/i18n/messages/common';
 
 type SectionKey = 'pricing' | 'extras' | 'booking' | 'payments' | 'workerPay' | 'giftCards';
 type Errors = Record<string, string>;
@@ -273,12 +275,16 @@ type PricingDraft = {
   weekly: string;
   biweekly: string;
   monthly: string;
+  condBasic: string;
+  condModerate: string;
+  condHeavy: string;
 };
 
 const FREQ = ['weekly', 'biweekly', 'monthly'] as const;
 
 function PricingSection({ settings, onSaved }: { settings: PlatformSettings; onSaved: (s: PlatformSettings) => void }) {
   const t = useMessages(settingsMessages);
+  const tc = useMessages(common);
   const f = useFormat();
   const comma = f.locale !== 'en';
   const saved = settings.pricing;
@@ -292,6 +298,9 @@ function PricingSection({ settings, onSaved }: { settings: PlatformSettings; onS
     weekly: numInput(saved.frequencyDiscount.weekly * 100, comma),
     biweekly: numInput(saved.frequencyDiscount.biweekly * 100, comma),
     monthly: numInput(saved.frequencyDiscount.monthly * 100, comma),
+    condBasic: numInput(saved.conditionFactor.basic, comma),
+    condModerate: numInput(saved.conditionFactor.moderate, comma),
+    condHeavy: numInput(saved.conditionFactor.heavy, comma),
   });
   const { draft, setDraft, errors, setErrors, formError, setFormError, discard } = useDraft(saved, toDraft);
   const { save, saving } = useSaveSection('pricing', onSaved, t.pricing.title);
@@ -304,6 +313,9 @@ function PricingSection({ settings, onSaved }: { settings: PlatformSettings; onS
     const areaM2PerHour = v.num('areaM2PerHour', draft.areaM2PerHour, 5, 200);
     const vatPct = v.num('vatRate', draft.vatRate, 0, 30, { unit: '%' });
     const discounts = FREQ.map((k) => v.num(`frequencyDiscount.${k}`, draft[k], 0, 50, { unit: '%' }));
+    const condBasic = v.num('conditionFactor.basic', draft.condBasic, 0.5, 1);
+    const condModerate = v.num('conditionFactor.moderate', draft.condModerate, 1, 2);
+    const condHeavy = v.num('conditionFactor.heavy', draft.condHeavy, 1, 3);
     const roundingMinutes = asStep(draft.roundingMinutes);
     const minimumMinutes = minH === undefined ? undefined : Math.round(minH * 60);
     const maximumMinutes = maxH === undefined ? undefined : Math.round(maxH * 60);
@@ -314,6 +326,9 @@ function PricingSection({ settings, onSaved }: { settings: PlatformSettings; onS
         formError = t.pricing.errSteps(roundingMinutes);
       }
     }
+    if (!formError && condModerate !== undefined && condHeavy !== undefined && condModerate > condHeavy) {
+      formError = t.pricing.errCondOrder;
+    }
     if (
       Object.keys(v.errors).length > 0 ||
       formError ||
@@ -322,6 +337,9 @@ function PricingSection({ settings, onSaved }: { settings: PlatformSettings; onS
       maximumMinutes === undefined ||
       areaM2PerHour === undefined ||
       vatPct === undefined ||
+      condBasic === undefined ||
+      condModerate === undefined ||
+      condHeavy === undefined ||
       discounts.some((d) => d === undefined)
     ) {
       return { errors: v.errors, formError, value: null };
@@ -336,6 +354,7 @@ function PricingSection({ settings, onSaved }: { settings: PlatformSettings; onS
       // 19 → 0.19, 7,5 → 0.075 (avoid floating point noise)
       vatRate: Math.round(vatPct * 100) / 10000,
       frequencyDiscount: { weekly, biweekly, monthly },
+      conditionFactor: { basic: condBasic, normal: 1, moderate: condModerate, heavy: condHeavy },
     };
     return { errors: v.errors, formError, value };
   }, [draft, t, f]);
@@ -352,6 +371,12 @@ function PricingSection({ settings, onSaved }: { settings: PlatformSettings; onS
       weekly: saved.frequencyDiscount.weekly,
       biweekly: saved.frequencyDiscount.biweekly,
       monthly: saved.frequencyDiscount.monthly,
+    },
+    conditionFactor: {
+      basic: saved.conditionFactor.basic,
+      normal: saved.conditionFactor.normal,
+      moderate: saved.conditionFactor.moderate,
+      heavy: saved.conditionFactor.heavy,
     },
   };
   const dirty = !build.value || JSON.stringify(build.value) !== JSON.stringify(savedValue);
@@ -428,6 +453,22 @@ function PricingSection({ settings, onSaved }: { settings: PlatformSettings; onS
               {(p) => <Input {...p} inputMode="decimal" value={draft[k]} onChange={set(k)} disabled={saving} />}
             </Field>
           ))}
+        </div>
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium leading-none">{t.pricing.conditions}</legend>
+        <p className="text-xs text-muted-grey">{t.pricing.conditionsHint}</p>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label={tc.conditions.basic.label} hint={tc.conditions.basic.hint} error={errors['conditionFactor.basic']}>
+            {(p) => <Input {...p} inputMode="decimal" value={draft.condBasic} onChange={set('condBasic')} disabled={saving} />}
+          </Field>
+          <Field label={tc.conditions.moderate.label} hint={tc.conditions.moderate.hint} error={errors['conditionFactor.moderate']}>
+            {(p) => <Input {...p} inputMode="decimal" value={draft.condModerate} onChange={set('condModerate')} disabled={saving} />}
+          </Field>
+          <Field label={tc.conditions.heavy.label} hint={tc.conditions.heavy.hint} error={errors['conditionFactor.heavy']}>
+            {(p) => <Input {...p} inputMode="decimal" value={draft.condHeavy} onChange={set('condHeavy')} disabled={saving} />}
+          </Field>
         </div>
       </fieldset>
 
@@ -990,11 +1031,13 @@ function WorkerPaySection({ settings, onSaved }: { settings: PlatformSettings; o
   const t = useMessages(settingsMessages);
   const f = useFormat();
   const saved = settings.workerPay;
+  // Only the fields edited here; payModel + tiers live in the commission section
+  const savedCore = { hourlyRateCents: saved.hourlyRateCents, payoutDelayDays: saved.payoutDelayDays };
   const toDraft = (): WorkerPayDraft => ({
     hourlyRate: centsToInput(saved.hourlyRateCents),
     payoutDelayDays: String(saved.payoutDelayDays),
   });
-  const { draft, setDraft, errors, setErrors, formError, setFormError, discard } = useDraft(saved, toDraft);
+  const { draft, setDraft, errors, setErrors, formError, setFormError, discard } = useDraft(savedCore, toDraft);
   const { save, saving } = useSaveSection('workerPay', onSaved, t.workerPay.title);
 
   const build = useMemo(() => {
@@ -1002,10 +1045,10 @@ function WorkerPaySection({ settings, onSaved }: { settings: PlatformSettings; o
     const hourlyRateCents = v.cents('hourlyRateCents', draft.hourlyRate, 0, 10000);
     const payoutDelayDays = v.num('payoutDelayDays', draft.payoutDelayDays, 0, 90, { integer: true });
     if (hourlyRateCents === undefined || payoutDelayDays === undefined) return { errors: v.errors, value: null };
-    return { errors: v.errors, value: { hourlyRateCents, payoutDelayDays } as SaveValue['workerPay'] };
+    return { errors: v.errors, value: { hourlyRateCents, payoutDelayDays } };
   }, [draft, t, f]);
 
-  const dirty = !build.value || JSON.stringify(build.value) !== JSON.stringify(saved);
+  const dirty = !build.value || JSON.stringify(build.value) !== JSON.stringify(savedCore);
   const set = (key: keyof WorkerPayDraft) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setDraft((d) => ({ ...d, [key]: e.target.value }));
 
@@ -1018,7 +1061,8 @@ function WorkerPaySection({ settings, onSaved }: { settings: PlatformSettings; o
     setErrors({});
     setFormError(null);
     try {
-      await save(build.value);
+      // The server expects the complete workerPay object – keep the commission parts unchanged
+      await save({ ...build.value, payModel: saved.payModel, commissionTiers: saved.commissionTiers });
     } catch (err) {
       if (err instanceof SectionError) {
         setErrors(err.fieldErrors);
@@ -1051,6 +1095,280 @@ function WorkerPaySection({ settings, onSaved }: { settings: PlatformSettings; o
 }
 
 // ---------------------------------------------------------------------------
+// Provision nach Bewertung
+// ---------------------------------------------------------------------------
+
+const PAID_TIERS = ['bronze', 'silver', 'gold', 'platinum', 'diamond'] as const;
+type PaidTierKey = (typeof PAID_TIERS)[number];
+type TierRowDraft = { minJobs: string; minReviews: string; minRating: string; pct: string };
+type CommissionDraft = { payModel: 'commission' | 'hourly'; newPct: string; tiers: Record<PaidTierKey, TierRowDraft> };
+
+const pickTier = (x: CommissionTierRequirements): CommissionTierRequirements => ({
+  minJobs: x.minJobs,
+  minReviews: x.minReviews,
+  minRating: x.minRating,
+  commissionPct: x.commissionPct,
+});
+
+function CommissionSection({ settings, onSaved }: { settings: PlatformSettings; onSaved: (s: PlatformSettings) => void }) {
+  const t = useMessages(settingsMessages);
+  const f = useFormat();
+  const comma = f.locale !== 'en';
+  const payModelId = useId();
+  const saved = settings.workerPay;
+  // Only the parts edited here; hourly rate + payout delay stay in their own section
+  const savedValue = {
+    payModel: saved.payModel,
+    commissionTiers: {
+      new: { commissionPct: saved.commissionTiers.new.commissionPct },
+      bronze: pickTier(saved.commissionTiers.bronze),
+      silver: pickTier(saved.commissionTiers.silver),
+      gold: pickTier(saved.commissionTiers.gold),
+      platinum: pickTier(saved.commissionTiers.platinum),
+      diamond: pickTier(saved.commissionTiers.diamond),
+    },
+  };
+  const toDraft = (): CommissionDraft => ({
+    payModel: saved.payModel,
+    newPct: numInput(saved.commissionTiers.new.commissionPct, comma),
+    tiers: Object.fromEntries(
+      PAID_TIERS.map((key) => {
+        const tier = saved.commissionTiers[key];
+        return [
+          key,
+          {
+            minJobs: String(tier.minJobs),
+            minReviews: String(tier.minReviews),
+            minRating: numInput(tier.minRating, comma),
+            pct: numInput(tier.commissionPct, comma),
+          },
+        ];
+      })
+    ) as CommissionDraft['tiers'],
+  });
+  const { draft, setDraft, errors, setErrors, formError, setFormError, discard } = useDraft(savedValue, toDraft);
+  const { save, saving } = useSaveSection('workerPay', onSaved, t.commission.title);
+
+  const build = useMemo(() => {
+    const v = createValidator(t, f);
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+    const newPct = v.num('commissionTiers.new.commissionPct', draft.newPct, 10, 25, { unit: '%' });
+    const rows = PAID_TIERS.map((key) => ({
+      key,
+      minJobs: v.num(`commissionTiers.${key}.minJobs`, draft.tiers[key].minJobs, 0, 100000, { integer: true }),
+      minReviews: v.num(`commissionTiers.${key}.minReviews`, draft.tiers[key].minReviews, 0, 100000, { integer: true }),
+      minRating: v.num(`commissionTiers.${key}.minRating`, draft.tiers[key].minRating, 0, 5),
+      commissionPct: v.num(`commissionTiers.${key}.commissionPct`, draft.tiers[key].pct, 10, 25, { unit: '%' }),
+    }));
+    const complete =
+      newPct !== undefined &&
+      rows.every(
+        (r) =>
+          r.minJobs !== undefined && r.minReviews !== undefined && r.minRating !== undefined && r.commissionPct !== undefined
+      );
+    let formError: string | null = null;
+    if (complete) {
+      // Mirrors the server: thresholds equal or stricter upwards …
+      for (let i = 1; i < rows.length; i += 1) {
+        const prev = rows[i - 1];
+        const cur = rows[i];
+        if (
+          (cur.minJobs as number) < (prev.minJobs as number) ||
+          (cur.minReviews as number) < (prev.minReviews as number) ||
+          (cur.minRating as number) < (prev.minRating as number)
+        ) {
+          formError = t.commission.errThresholds;
+          break;
+        }
+      }
+      // … and a strictly decreasing commission from "new" up to "diamond"
+      if (!formError) {
+        const pcts = [newPct as number, ...rows.map((r) => r.commissionPct as number)];
+        for (let i = 1; i < pcts.length; i += 1) {
+          if (pcts[i] >= pcts[i - 1]) {
+            formError = t.commission.errPctOrder;
+            break;
+          }
+        }
+      }
+    }
+    if (Object.keys(v.errors).length > 0 || formError || !complete) return { errors: v.errors, formError, value: null };
+    const tiers = Object.fromEntries(
+      rows.map((r) => [
+        r.key,
+        {
+          minJobs: r.minJobs as number,
+          minReviews: r.minReviews as number,
+          minRating: round1(r.minRating as number),
+          commissionPct: round1(r.commissionPct as number),
+        },
+      ])
+    ) as Record<PaidTierKey, CommissionTierRequirements>;
+    const value = {
+      payModel: draft.payModel,
+      commissionTiers: {
+        new: { commissionPct: round1(newPct as number) },
+        bronze: tiers.bronze,
+        silver: tiers.silver,
+        gold: tiers.gold,
+        platinum: tiers.platinum,
+        diamond: tiers.diamond,
+      },
+    };
+    return { errors: v.errors, formError, value };
+  }, [draft, t, f]);
+
+  const dirty = !build.value || JSON.stringify(build.value) !== JSON.stringify(savedValue);
+  const setTier = (key: PaidTierKey, patch: Partial<TierRowDraft>) =>
+    setDraft((d) => ({ ...d, tiers: { ...d.tiers, [key]: { ...d.tiers[key], ...patch } } }));
+
+  const submit = async () => {
+    if (!build.value) {
+      setErrors(build.errors);
+      setFormError(build.formError ?? t.fixErrors);
+      return;
+    }
+    setErrors({});
+    setFormError(null);
+    try {
+      // The server expects the complete workerPay object – keep the hourly parts unchanged
+      await save({ hourlyRateCents: saved.hourlyRateCents, payoutDelayDays: saved.payoutDelayDays, ...build.value });
+    } catch (err) {
+      if (err instanceof SectionError) {
+        setErrors(err.fieldErrors);
+        setFormError(err.message);
+      }
+    }
+  };
+
+  const tierCell = (path: string, value: string, onChange: (v: string) => void, label: string, mode: 'numeric' | 'decimal') => (
+    <td className="px-3 py-2">
+      <Input
+        className="h-9 w-24"
+        inputMode={mode}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+        aria-invalid={errors[path] ? true : undefined}
+        disabled={saving}
+      />
+      {errors[path] && <p className="mt-1 text-xs font-medium text-red-700">{errors[path]}</p>}
+    </td>
+  );
+
+  return (
+    <SectionForm
+      id="provision-stufen"
+      title={t.commission.title}
+      description={t.commission.description}
+      dirty={dirty}
+      saving={saving}
+      formError={formError}
+      onSubmit={submit}
+      onDiscard={discard}
+    >
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium leading-none">{t.commission.payModelLegend}</legend>
+        <RadioGroup
+          value={draft.payModel}
+          onValueChange={(value) => setDraft((d) => ({ ...d, payModel: value === 'hourly' ? 'hourly' : 'commission' }))}
+          className="gap-3"
+        >
+          <div className="flex items-start gap-3">
+            <RadioGroupItem value="commission" id={`${payModelId}-commission`} className="mt-0.5" disabled={saving} />
+            <div className="space-y-0.5">
+              <Label htmlFor={`${payModelId}-commission`} className="cursor-pointer leading-snug">
+                {t.commission.modelCommission}
+              </Label>
+              <p className="text-xs text-muted-grey">{t.commission.modelCommissionHint}</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <RadioGroupItem value="hourly" id={`${payModelId}-hourly`} className="mt-0.5" disabled={saving} />
+            <div className="space-y-0.5">
+              <Label htmlFor={`${payModelId}-hourly`} className="cursor-pointer leading-snug">
+                {t.commission.modelHourly}
+              </Label>
+              <p className="text-xs text-muted-grey">{t.commission.modelHourlyHint}</p>
+            </div>
+          </div>
+        </RadioGroup>
+      </fieldset>
+
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="w-full min-w-[640px] text-sm">
+          <caption className="sr-only">{t.commission.tableCaption}</caption>
+          <thead className="border-b border-border bg-cream text-left text-xs uppercase tracking-wide text-muted-grey">
+            <tr>
+              <th scope="col" className="px-3 py-2 font-semibold">{t.commission.colTier}</th>
+              <th scope="col" className="px-3 py-2 font-semibold">{t.commission.colMinJobs}</th>
+              <th scope="col" className="px-3 py-2 font-semibold">{t.commission.colMinReviews}</th>
+              <th scope="col" className="px-3 py-2 font-semibold">{t.commission.colMinRating}</th>
+              <th scope="col" className="px-3 py-2 font-semibold">{t.commission.colPct}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-border align-top">
+              <th scope="row" className="px-3 py-2.5 text-left font-medium text-charcoal">
+                {t.commission.tierNames.new}
+              </th>
+              <td className="px-3 py-2.5 text-muted-grey">–</td>
+              <td className="px-3 py-2.5 text-muted-grey">–</td>
+              <td className="px-3 py-2.5 text-muted-grey">–</td>
+              {tierCell(
+                'commissionTiers.new.commissionPct',
+                draft.newPct,
+                (value) => setDraft((d) => ({ ...d, newPct: value })),
+                t.commission.cellLabel(t.commission.colPct, t.commission.tierNames.new),
+                'decimal'
+              )}
+            </tr>
+            {PAID_TIERS.map((key) => {
+              const name = t.commission.tierNames[key];
+              return (
+                <tr key={key} className="border-b border-border align-top last:border-0">
+                  <th scope="row" className="px-3 py-2.5 text-left font-medium text-charcoal">
+                    {name}
+                  </th>
+                  {tierCell(
+                    `commissionTiers.${key}.minJobs`,
+                    draft.tiers[key].minJobs,
+                    (value) => setTier(key, { minJobs: value }),
+                    t.commission.cellLabel(t.commission.colMinJobs, name),
+                    'numeric'
+                  )}
+                  {tierCell(
+                    `commissionTiers.${key}.minReviews`,
+                    draft.tiers[key].minReviews,
+                    (value) => setTier(key, { minReviews: value }),
+                    t.commission.cellLabel(t.commission.colMinReviews, name),
+                    'numeric'
+                  )}
+                  {tierCell(
+                    `commissionTiers.${key}.minRating`,
+                    draft.tiers[key].minRating,
+                    (value) => setTier(key, { minRating: value }),
+                    t.commission.cellLabel(t.commission.colMinRating, name),
+                    'decimal'
+                  )}
+                  {tierCell(
+                    `commissionTiers.${key}.commissionPct`,
+                    draft.tiers[key].pct,
+                    (value) => setTier(key, { pct: value }),
+                    t.commission.cellLabel(t.commission.colPct, name),
+                    'decimal'
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </SectionForm>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -1066,6 +1384,7 @@ export default function AdminSettingsPage() {
     ['zahlungsarten', t.payments.title],
     ['gutscheine', t.giftCards.title],
     ['verguetung', t.workerPay.title],
+    ['provision-stufen', t.commission.title],
   ];
 
   return (
@@ -1094,6 +1413,7 @@ export default function AdminSettingsPage() {
           <PaymentsSection settings={data.settings} onSaved={onSaved} />
           <GiftCardsSection settings={data.settings} onSaved={onSaved} />
           <WorkerPaySection settings={data.settings} onSaved={onSaved} />
+          <CommissionSection settings={data.settings} onSaved={onSaved} />
         </div>
       )}
     </>

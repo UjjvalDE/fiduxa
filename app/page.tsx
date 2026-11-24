@@ -4,6 +4,7 @@ import { getMessages } from '@/lib/i18n/server';
 import { HomePage } from './_home/home-page';
 import homeMessages from './_home/messages';
 import { fetchActivePromotions, fetchGiftConfig } from './_home/promotions';
+import { fetchHomeTrust } from './_home/trust';
 
 export function generateMetadata(): Metadata {
   const t = getMessages(homeMessages);
@@ -15,6 +16,6 @@ export function generateMetadata(): Metadata {
 }
 
 export default async function Home() {
-  const [promotions, giftConfig] = await Promise.all([fetchActivePromotions(), fetchGiftConfig()]);
-  return <HomePage promotions={promotions} giftConfig={giftConfig} />;
+  const [promotions, giftConfig, trust] = await Promise.all([fetchActivePromotions(), fetchGiftConfig(), fetchHomeTrust()]);
+  return <HomePage promotions={promotions} giftConfig={giftConfig} trust={trust} />;
 }

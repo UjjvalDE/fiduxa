@@ -10,7 +10,6 @@ const giftCardSchema = new mongoose.Schema(
       type: String,
       enum: ["pending_payment", "active", "redeemed", "expired", "disabled", "cancelled"],
       default: "pending_payment",
-      index: true,
     },
     initialCents: { type: Number, required: true, min: 0 },
     balanceCents: { type: Number, required: true, min: 0 },
@@ -36,9 +35,9 @@ const giftCardSchema = new mongoose.Schema(
       checkoutSessionId: { type: String, default: null },
       payable: { type: Boolean, default: true },
     },
-    pendingExpiresAt: { type: Date, default: null, index: true },
+    pendingExpiresAt: { type: Date, default: null },
 
-    expiresAt: { type: Date, default: null, index: true },
+    expiresAt: { type: Date, default: null },
     disabledReason: { type: String, default: "" },
     // Issued by an admin (goodwill, marketing) instead of purchased
     issuedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
@@ -47,6 +46,10 @@ const giftCardSchema = new mongoose.Schema(
 );
 
 giftCardSchema.index({ createdAt: -1 });
+// Admin list by status · housekeeping jobs (unpaid purchases, expiry)
+giftCardSchema.index({ status: 1, createdAt: -1 });
+giftCardSchema.index({ status: 1, pendingExpiresAt: 1 });
+giftCardSchema.index({ status: 1, expiresAt: 1 });
 giftCardSchema.index({ status: 1, deliverAt: 1, deliveryStatus: 1 });
 
 const GiftCard = mongoose.model("GiftCard", giftCardSchema);
