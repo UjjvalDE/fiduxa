@@ -11,6 +11,10 @@ import { reconcileCommissionTiers } from "../services/commission.service.js";
 import { purgeOldApplications } from "../controllers/worker-application.controller.js";
 import { processEmailOutbox } from "../services/email.service.js";
 import { detectNoShows } from "../services/no-show.service.js";
+import { processJobConfirmations } from "../services/job-completion.service.js";
+import { expireStaleExtraTimeRequests } from "../services/extra-time.service.js";
+import { processDocumentExpiries } from "../services/work-eligibility.service.js";
+import { purgeSettledPayoutDetails } from "../services/account-privacy.service.js";
 import { logger } from "../utils/logger.js";
 
 const MINUTE = 60_000;
@@ -46,6 +50,8 @@ export const JOBS = [
           return true;
         },
         unassignedAlerts: alertUnassignedJobs,
+        // Cleaner extra-time requests nobody answered within 2 h
+        extraTimeExpired: () => expireStaleExtraTimeRequests(),
       }),
   },
   {
@@ -63,9 +69,19 @@ export const JOBS = [
   },
   {
     // Cleaner has not checked in 15 min after the start → alert office + customer
+    // + job-confirmation watch: evening reminder to the cleaner, admin alert after the grace window
     name: "noShowWatch",
     everyMs: 5 * MINUTE,
-    run: () => detectNoShows(),
+    run: () => runAll({ noShows: detectNoShows, jobConfirmations: () => processJobConfirmations() }),
+  },
+  {
+    // Cleaner ID / work permit: reminders 30 + 7 days before expiry, admin alert on expiry
+    // (+ future jobs beyond the expiry listed for reassignment); bank details of
+    // deleted cleaners are purged once their last payout has settled
+    name: "documentExpiryWatch",
+    everyMs: 60 * MINUTE,
+    runOnStart: true,
+    run: () => runAll({ documentExpiries: processDocumentExpiries, settledPayoutDetailsPurged: purgeSettledPayoutDetails }),
   },
 ];
 

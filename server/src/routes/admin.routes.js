@@ -38,6 +38,8 @@ import {
   setCustomerActive,
   updateBookingNotes,
   updateBookingStatus,
+  listStuckJobs,
+  decideNotHappened,
 } from "../controllers/admin.controller.js";
 
 import {
@@ -98,14 +100,16 @@ import { downloadInvoiceAsAdmin } from "../controllers/invoice.controller.js";
 import { deleteCustomerAsAdmin } from "../controllers/account-privacy.controller.js";
 import { createCustomerByAdmin, createManualBooking, searchCustomers } from "../controllers/admin-manual.controller.js";
 // [slot-C-imports]
+import { adminCancelPreview, createDurationAdjustment, listCashDebt, resolveBookingAdjustment } from "../controllers/admin-money.controller.js";
 // [slot-D-imports]
-import { downloadWorkerDocument, reviewWorkerDocument } from "../controllers/worker-document.controller.js";
+import { downloadWorkerDocument, listDocumentQueue, reviewWorkerDocument } from "../controllers/worker-document.controller.js";
 import { getWorkerReliability, markNoShow, unpauseWorkerAction } from "../controllers/admin-trust.controller.js";
 // [slot-E-imports]
 // [slot-F-imports]
 
 const adminMessages = messageHandlers("admin");
 
+import { adminFeedbackCsv, adminFeedbackSummary } from "../controllers/job-feedback.controller.js";
 export const adminRouter = Router();
 
 // All routes below require admin authentication
@@ -127,9 +131,11 @@ adminRouter.patch("/workers/:id/pay-rate", setWorkerPayRate);
 
 // Booking management
 adminRouter.get("/bookings", getAllBookings);
+adminRouter.get("/bookings/stuck", listStuckJobs);
 adminRouter.get("/bookings/:id", getBookingDetails);
 adminRouter.patch("/bookings/:id/details", editBookingDetails);
 adminRouter.patch("/bookings/:id/status", updateBookingStatus);
+adminRouter.patch("/bookings/:id/not-happened", decideNotHappened);
 adminRouter.patch("/bookings/:id/assign", assignWorker);
 adminRouter.patch("/bookings/:id/notes", updateBookingNotes);
 adminRouter.patch("/bookings/:id/payout", setBookingPayoutHold);
@@ -175,6 +181,9 @@ adminRouter.post("/payouts/:id/refresh", refreshWorkerPayout);
 
 // Reviews
 adminRouter.get("/reviews", listReviews);
+// Structured post-service feedback (internal): averages + CSV
+adminRouter.get("/feedback", adminFeedbackSummary);
+adminRouter.get("/feedback/export.csv", adminFeedbackCsv);
 adminRouter.patch("/reviews/:id", setReviewHidden);
 adminRouter.patch("/reviews/:id/dispute", resolveReviewDispute);
 
@@ -235,8 +244,14 @@ adminRouter.get("/customer-search", searchCustomers);
 adminRouter.post("/customers", createCustomerByAdmin);
 adminRouter.delete("/customers/:id", deleteCustomerAsAdmin);
 // [slot-C-routes]
+// Money policies: duration-based price adjustments, open adjustments, cancellation fee preview, cash debt
+adminRouter.post("/bookings/:id/duration-adjustment", createDurationAdjustment);
+adminRouter.patch("/bookings/:id/adjustments/:adjId", resolveBookingAdjustment);
+adminRouter.get("/bookings/:id/cancel-preview", adminCancelPreview);
+adminRouter.get("/cash-debt", listCashDebt);
 // [slot-D-routes]
 // Trust & security (package E): documents, no-show, reliability pause
+adminRouter.get("/documents/queue", listDocumentQueue); // all pending docs + jobs beyond expiry
 adminRouter.get("/workers/:id/documents/:docId", downloadWorkerDocument);
 adminRouter.patch("/workers/:id/documents/:docId", reviewWorkerDocument);
 adminRouter.get("/workers/:id/reliability", getWorkerReliability);

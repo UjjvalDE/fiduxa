@@ -5,6 +5,8 @@ import ContactMessage from "../models/contact-message.model.js";
 import AvailabilitySlot from "../models/availability-slot.model.js";
 import { DAY_MS, todayInBerlin } from "../utils/helpers.js";
 import { countLateToday } from "../services/no-show.service.js";
+import { cashDebtCleaners } from "../services/money-policies.service.js";
+import { findStuckJobs } from "../services/job-completion.service.js";
 
 // GET /api/v1/admin/dashboard/stats
 export const getDashboardStats = async (req, res, next) => {
@@ -25,6 +27,8 @@ export const getDashboardStats = async (req, res, next) => {
       refundsPending,
       slotCapacity,
       lateToday,
+      cashDebt,
+      stuckJobs,
     ] = await Promise.all([
       Booking.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
 
@@ -77,6 +81,9 @@ export const getDashboardStats = async (req, res, next) => {
 
       // Cleaners flagged late by the no-show watch today
       countLateToday(),
+      cashDebtCleaners(),
+      // Past jobs the cleaner has not confirmed yet (or reported as not happened)
+      findStuckJobs({ limit: 20 }),
     ]);
 
     const byStatus = Object.fromEntries(statusCounts.map((row) => [row._id, row.count]));
@@ -98,6 +105,10 @@ export const getDashboardStats = async (req, res, next) => {
         unassignedUpcoming,
         totalCustomers,
         refundsPending,
+        // Cleaners holding more customer cash than allowed (policies.cash.suspendBelowCents)
+        cashDebtCleaners: cashDebt.length,
+        stuckJobs: stuckJobs.length,
+        stuckJobList: stuckJobs,
         // Values in MINUTES (team time): capacity = window length × teams
         nextSevenDays: {
           slots: capacity.slots,

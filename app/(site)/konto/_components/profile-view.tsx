@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Languages, LoaderCircle } from 'lucide-react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
@@ -15,6 +16,10 @@ import { PasswordInput, SubmitButton } from '../../buchung/_components/auth-form
 import { ErrorBox, FieldError, FormField, inputClass } from '../../buchung/_components/form-field';
 import { apiFieldErrors } from '../../buchung/_lib/messages';
 import messages from '../_messages';
+import serviceMessages from '../_service-messages';
+import { AddressCard, InvoicesCard } from './profile-extras';
+import accountMessages from '@/app/_account/messages';
+import { DeleteAccountSection } from '@/app/_account/delete-account';
 
 function Panel({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
@@ -238,6 +243,9 @@ function PasswordForm() {
 
 export function ProfileView() {
   const t = useMessages(messages).profile;
+  const ta = useMessages(accountMessages).del;
+  const tx = useMessages(serviceMessages).profileExtras;
+  const { user } = useAuth();
   return (
     <div>
       <h1 className="!mb-5 !mt-0 !text-2xl !leading-tight sm:!text-3xl">{t.title}</h1>
@@ -250,8 +258,40 @@ export function ProfileView() {
             <LanguageForm />
           </Panel>
         </div>
-        <Panel title={t.passwordTitle} description={t.passwordText}>
-          <PasswordForm />
+        <div className="grid gap-5">
+          <Panel title={tx.invoicesTitle} description={tx.invoicesText}>
+            <InvoicesCard />
+          </Panel>
+          <Panel title={tx.addressTitle} description={tx.addressText}>
+            <AddressCard />
+          </Panel>
+        </div>
+      </div>
+      {/* Security: compact, collapsed by default */}
+      <details className="group mt-5 rounded-2xl border border-border bg-white p-5 sm:p-7">
+        <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-3 text-lg font-bold tracking-tight text-pine-dark">
+          <span>
+            {tx.securityTitle}
+            <span className="block text-sm font-normal text-muted-grey">{tx.securityText}</span>
+          </span>
+          <ChevronDown className="h-5 w-5 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+        </summary>
+        <div className="mt-5">
+          {(user as (typeof user & { hasPassword?: boolean }) | null)?.hasPassword === false ? (
+            <p className="m-0 text-sm text-charcoal">
+              {tx.noPassword}{' '}
+              <Link href="/passwort-vergessen" className="font-bold text-pine underline underline-offset-2">
+                {tx.noPasswordLink}
+              </Link>
+            </p>
+          ) : (
+            <PasswordForm />
+          )}
+        </div>
+      </details>
+      <div className="mt-5">
+        <Panel title={`${ta.exportTitle} · ${ta.title}`}>
+          <DeleteAccountSection />
         </Panel>
       </div>
     </div>

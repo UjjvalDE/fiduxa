@@ -102,7 +102,7 @@ const de = {
       ],
       [
         'Kann ich einen Gutschein teilweise einlösen?',
-        'Ja. Ist der Gutscheinwert höher als deine Buchung, bleibt das Restguthaben auf dem Gutschein und du kannst es bei der nächsten Buchung nutzen. Reicht er nicht, zahlst du den Rest einfach online oder bar.',
+        'Ja. Ist der Gutscheinwert höher als deine Buchung, bleibt das Restguthaben auf dem Gutschein und du kannst es bei der nächsten Buchung nutzen. Reicht er nicht, zahlst du den Rest einfach online mit PayPal.',
       ],
       [
         'Wann bekommt die beschenkte Person den Gutschein?',
@@ -280,7 +280,7 @@ const en: GiftMessages = {
       ],
       [
         'Can I use a gift card in parts?',
-        'Yes. If the card is worth more than your booking, the remaining balance stays on the card for your next booking. If it does not cover everything, simply pay the rest online or in cash.',
+        'Yes. If the card is worth more than your booking, the remaining balance stays on the card for your next booking. If it does not cover everything, simply pay the rest online with PayPal.',
       ],
       [
         'When does the recipient get the gift card?',
@@ -456,7 +456,7 @@ const pl: GiftMessages = {
       ],
       [
         'Czy mogę wykorzystać kartę częściowo?',
-        'Tak. Jeśli wartość karty jest wyższa niż rezerwacja, pozostałe saldo zostaje na karcie na kolejną rezerwację. Jeśli nie wystarczy, resztę zapłacisz online lub gotówką.',
+        'Tak. Jeśli wartość karty jest wyższa niż rezerwacja, pozostałe saldo zostaje na karcie na kolejną rezerwację. Jeśli nie wystarczy, resztę zapłacisz online przez PayPal.',
       ],
       [
         'Kiedy obdarowana osoba otrzyma kartę?',

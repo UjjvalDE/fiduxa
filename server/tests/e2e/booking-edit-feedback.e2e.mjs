@@ -20,6 +20,11 @@ const { todayInBerlin, DAY_MS } = await import(ROOT + "/src/utils/helpers.js");
 await connectDB();
 await User.db.dropDatabase();
 for (const M of Object.values(User.db.models)) await M.syncIndexes();
+// Fixture: this suite lets brand-new cleaners take cash jobs; the owner-approved cash
+// policy (policies.cash.minTier = "bronze", see money-policies) is relaxed for this test DB only.
+// Fixture: it also exercises the card (Stripe) and cash flows that the owner switched off
+// for now (POLICIES.paymentMethods.enabled = ["paypal"]); they are re-enabled for this test DB only.
+await (await import(ROOT + "/src/models/settings.model.js")).default.updateOne({ key: "platform" }, { $set: { "policies.cash.minTier": "new", "policies.paymentMethods.enabled": ["paypal", "stripe", "cash"] } }, { upsert: true });
 await loadSettings();
 const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}/api/v1`;
@@ -50,8 +55,8 @@ await call("POST", "/admin/slots", { from: day(1), to: day(30), weekdays: [1, 2,
     body: JSON.stringify({ email: "klara@t.local", password: "Password12345" }),
   });
   const setCookie = res.headers.get("set-cookie") ?? "";
-  check("login sets HttpOnly session cookie (24 h, SameSite=Lax)",
-    /fiduxa_session=/.test(setCookie) && /HttpOnly/i.test(setCookie) && /SameSite=Lax/i.test(setCookie) && /Max-Age=86400/i.test(setCookie), setCookie.slice(0, 120));
+  check("login sets HttpOnly session cookie (customers 7 days, SameSite=Lax)",
+    /fiduxa_session=/.test(setCookie) && /HttpOnly/i.test(setCookie) && /SameSite=Lax/i.test(setCookie) && /Max-Age=604800/i.test(setCookie), setCookie.slice(0, 120));
   const cookie = setCookie.split(";")[0];
   res = await fetch(base + "/auth/me", { headers: { Cookie: cookie } });
   check("session restored from the cookie alone (no bearer token)", res.status === 200, res.status);

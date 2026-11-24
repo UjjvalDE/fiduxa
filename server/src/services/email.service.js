@@ -641,6 +641,59 @@ ${t.regards}`,
   });
 };
 
+/** Cleaner: evening reminder – today's / a past job was not confirmed yet (de/en/pl) */
+const CONFIRM_REMINDER = {
+  de: {
+    subject: (ref) => `Bitte Auftrag bestätigen – ${ref}`,
+    title: "Bitte bestätige deinen Auftrag",
+    body: "dein Auftrag ist noch nicht als erledigt bestätigt. Bitte bestätige im Portal, dass die Reinigung stattgefunden hat (mit Start- und Endzeit) – oder melde, dass sie nicht stattgefunden hat.",
+    button: "Job erledigt bestätigen",
+  },
+  en: {
+    subject: (ref) => `Please confirm your job – ${ref}`,
+    title: "Please confirm your job",
+    body: "your job has not been confirmed as done yet. Please confirm in the portal that the cleaning took place (with start and end time) – or report that it did not happen.",
+    button: "Confirm job done",
+  },
+  pl: {
+    subject: (ref) => `Potwierdź zlecenie – ${ref}`,
+    title: "Potwierdź swoje zlecenie",
+    body: "Twoje zlecenie nie zostało jeszcze potwierdzone jako wykonane. Potwierdź w portalu, że sprzątanie się odbyło (z godziną rozpoczęcia i zakończenia) – albo zgłoś, że się nie odbyło.",
+    button: "Potwierdź wykonanie",
+  },
+};
+
+export const sendJobConfirmReminderEmail = async ({ worker, booking }) => {
+  const l = lang(worker.preferredLanguage);
+  const t = T[l];
+  const c = CONFIRM_REMINDER[l];
+  const rows = [[t.reference, booking.reference], ...jobRows(booking, t, l)];
+  const url = portalUrl(`/jobs/${booking._id}`);
+  return send({
+    template: "jobConfirmReminder",
+    bookingRef: booking.reference,
+    to: worker.email,
+    subject: c.subject(booking.reference),
+    text: `${t.hello(worker.name)}
+
+${c.body}
+
+${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}
+
+${url}
+
+${t.regards}`,
+    html: layout(
+      c.title,
+      `<p>${escapeHtml(t.hello(worker.name))}</p>
+       <p>${escapeHtml(c.body)}</p>
+       ${detailRows(rows)}
+       ${button(url, c.button)}`,
+      t.regardsHtml
+    ),
+  });
+};
+
 // ---------------------------------------------------------------------------
 // Customer: cleaner assigned / on the way (first name only)
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import profileMessages from '@/lib/i18n/messages/profile';
 import type { CustomerReview } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { StarDisplay, StarInput } from '@/componets/site/star-rating';
+import { StructuredFeedbackFields, emptyStructured, structuredPayload, type StructuredFeedback } from './account-prompts';
 import { Textarea } from '@/componets/ui/tesxtarea';
 import { ErrorBox, FieldError, inputClass, textareaClass } from '../../buchung/_components/form-field';
 import feedbackMessages from './feedback-messages';
@@ -27,6 +28,7 @@ export function ReviewSection({
   canReview,
   plannedDurationMinutes,
   recurring,
+  cash,
   onSaved,
 }: {
   bookingId: string;
@@ -37,6 +39,8 @@ export function ReviewSection({
   plannedDurationMinutes?: number | null;
   /** Recurring booking → ask who should clean next time */
   recurring?: boolean;
+  /** Cash booking: amount the cleaner reported (null = not recorded yet) */
+  cash?: { reportedCents: number | null } | null;
   onSaved: (review: CustomerReview) => void;
 }) {
   const t = useMessages(feedbackMessages).review;
@@ -68,6 +72,7 @@ export function ReviewSection({
           cleanerName={cleanerName}
           plannedDurationMinutes={plannedDurationMinutes ?? null}
           recurring={Boolean(recurring)}
+          cash={cash ?? null}
           onSaved={(r) => {
             setJustSaved(true);
             onSaved(r);
@@ -118,12 +123,14 @@ function ReviewForm({
   cleanerName,
   plannedDurationMinutes,
   recurring,
+  cash,
   onSaved,
 }: {
   bookingId: string;
   cleanerName: string;
   plannedDurationMinutes: number | null;
   recurring: boolean;
+  cash: { reportedCents: number | null } | null;
   onSaved: (review: CustomerReview) => void;
 }) {
   const t = useMessages(feedbackMessages).review;
@@ -137,6 +144,9 @@ function ReviewForm({
   const [durH, setDurH] = useState(() => (plannedDurationMinutes != null ? String(Math.floor(plannedDurationMinutes / 60)) : ''));
   const [durM, setDurM] = useState(() => (plannedDurationMinutes != null ? String(plannedDurationMinutes % 60) : ''));
   const [recommend, setRecommend] = useState<boolean | null>(null);
+  const [structured, setStructured] = useState<StructuredFeedback>(emptyStructured);
+  // Cash bookings: confirm the amount handed over (prefilled with the cleaner's report)
+  const [cashAmount, setCashAmount] = useState(() => (cash?.reportedCents != null ? (cash.reportedCents / 100).toFixed(2).replace('.', ',') : ''));
   const [keepCleaner, setKeepCleaner] = useState<KeepCleaner | ''>('');
   const [ratingError, setRatingError] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +178,18 @@ function ReviewForm({
       }
       actualDurationMinutes = total;
     }
+    // Cash bookings: optional confirmation of the amount handed over
+    let actualCashCents: number | null = null;
+    if (cash && cashAmount.trim() !== '') {
+      const normalized = cashAmount.trim().replace(/\s/g, '').replace(',', '.');
+      const euros = /^\d+(\.\d{1,2})?$/.test(normalized) ? Number(normalized) : NaN;
+      if (!Number.isFinite(euros) || euros < 0 || euros > 10000) {
+        setError(t.cashInvalid);
+        document.getElementById('review-cash')?.focus();
+        return;
+      }
+      actualCashCents = Math.round(euros * 100);
+    }
     busyRef.current = true;
     setBusy(true);
     setError(null);
@@ -178,7 +200,9 @@ function ReviewForm({
       });
       if (actualDurationMinutes != null) body.actualDurationMinutes = actualDurationMinutes;
       if (recommend != null) body.recommend = recommend;
+      if (actualCashCents != null) body.actualCashCents = actualCashCents;
       if (recurring && keepCleaner) body.keepCleaner = keepCleaner;
+      Object.assign(body, structuredPayload(structured));
       const res = await api.post<{ review?: CustomerReview; message?: string }>(`/customer/bookings/${encodeURIComponent(bookingId)}/review`, body);
       const saved: CustomerReview = res.review ?? {
         rating,
@@ -279,6 +303,8 @@ function ReviewForm({
             {plannedDurationMinutes != null && <p className="m-0 text-xs text-muted-grey">{t.durationPlanned(f.hours(plannedDurationMinutes))}</p>}
           </div>
 
+          <StructuredFeedbackFields value={structured} onChange={setStructured} idPrefix="review" />
+
           <div className="grid gap-1.5">
             <span id="review-recommend-label" className="text-sm font-semibold text-charcoal">
               {t.recommendQuestion}
@@ -303,6 +329,29 @@ function ReviewForm({
               })}
             </div>
           </div>
+
+          {cash && (
+            <div className="grid gap-1.5">
+              <label htmlFor="review-cash" className="text-sm font-semibold text-charcoal">
+                {t.cashQuestion}
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="review-cash"
+                  type="text"
+                  inputMode="decimal"
+                  value={cashAmount}
+                  onChange={(e) => setCashAmount(e.target.value)}
+                  className={cn(inputClass, 'w-32 border px-3 text-right tabular-nums')}
+                  aria-describedby="review-cash-hint"
+                />
+                <span className="text-sm text-muted-grey">€</span>
+              </div>
+              <p id="review-cash-hint" className="m-0 text-xs text-muted-grey">
+                {cash.reportedCents != null ? t.cashHint(f.euro(cash.reportedCents)) : t.cashHintNone}
+              </p>
+            </div>
+          )}
 
           {recurring && (
             <fieldset className="m-0 min-w-0 border-0 p-0">

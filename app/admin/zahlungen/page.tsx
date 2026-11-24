@@ -2,25 +2,26 @@
 
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { CircleAlert, Undo2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { CircleAlert } from 'lucide-react';
 
 import { Tabs, TabsList, TabsTrigger } from '@/componets/ui/tabs';
-import { ApiError, api, qs } from '@/lib/api';
+import { qs } from '@/lib/api';
 import { StatusBadge } from '@/componets/site/status-badge';
 import { useFormat, useMessages } from '@/lib/i18n/client';
-import type { AdminPayment, Pagination, PaymentMethod } from '@/lib/types';
+import type { AdminPayment, AdminPaymentWithRefunds, Pagination, PaymentMethod } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 import cashMessages from '../_cash-messages';
-import { ConfirmAction } from '../_components/confirm-action';
+import moneyMessages from '../_money-messages';
+import { RefundDialog, refundableCents } from '../_components/refund-dialog';
 import { EmptyState, ErrorState, ListSkeleton, PageHeader, PaginationBar } from '../_components/states';
 import { useApi, useQueryParams } from '../_components/use-api';
 import messages from './_messages';
 
 const KEYS = ['status', 'page', 'bookingId'] as const;
 
-const STATUS_CLASSES: Record<AdminPayment['status'], string> = {
+const STATUS_CLASSES: Record<AdminPaymentWithRefunds['status'], string> = {
+  partially_refunded: 'bg-amber-50 text-amber-800 border-amber-200',
   created: 'bg-gray-100 text-gray-700 border-gray-200',
   processing: 'bg-sky-50 text-sky-800 border-sky-200',
   paid: 'bg-mint text-pine border-sage',
@@ -36,10 +37,8 @@ interface PaymentsResponse {
   /** Online methods that are configured on the server */
   methods?: PaymentMethod[];
   pagination: Pagination;
-  payments: AdminPayment[];
+  payments: AdminPaymentWithRefunds[];
 }
-
-type PaymentMessages = (typeof messages)['de'];
 
 type OnlineProvider = Exclude<AdminPayment['provider'], 'cash'>;
 
@@ -58,19 +57,10 @@ const PROVIDER_CLASSES: Record<AdminPayment['provider'], string> = {
 const providerName = (provider: AdminPayment['provider'] | PaymentMethod | undefined, cashLabel = 'Bar') =>
   provider === 'cash' ? cashLabel : PROVIDER_NAMES[provider ?? 'stripe'] ?? provider ?? 'Stripe';
 
-const refundError = (error: unknown, t: PaymentMessages, provider: string) => {
-  if (error instanceof ApiError) {
-    if (error.status === 503) return t.errNotConfigured(provider);
-    if (error.status === 409) return t.errOnlyPaid;
-    // The provider's own reason (English) is appended for support purposes
-    if (error.status === 502) return `${t.errStripe(provider)} ${error.message.replace(/^Refund failed:\s*/, '')}`;
-  }
-  return t.errGeneric;
-};
-
 function PaymentsList() {
   const t = useMessages(messages);
   const cash = useMessages(cashMessages);
+  const tm = useMessages(moneyMessages).refund;
   const f = useFormat();
   const { values: params, setParams } = useQueryParams(KEYS);
   const status = params.status ?? '';
@@ -79,16 +69,6 @@ function PaymentsList() {
   const { data, error, loading, reload } = useApi<PaymentsResponse>(
     `/admin/payments${qs({ status, page, limit: 20, bookingId: params.bookingId })}`
   );
-
-  const refund = async (payment: AdminPayment) => {
-    try {
-      await api.post(`/admin/payments/${payment._id}/refund`);
-      toast.success(t.refunded(f.euro(payment.amountCents)));
-      reload();
-    } catch (err) {
-      throw new Error(refundError(err, t, providerName(payment.provider)));
-    }
-  };
 
   return (
     <>
@@ -226,20 +206,13 @@ function PaymentsList() {
                       {payment.status === 'paid' && payment.provider === 'cash' && (
                         <span className="whitespace-nowrap text-xs text-muted-grey">{cash.noRefund}</span>
                       )}
-                      {payment.status === 'paid' && payment.provider !== 'cash' && (
-                        <ConfirmAction
-                          trigger={
-                            <>
-                              <Undo2 className="mr-1.5 h-4 w-4" aria-hidden="true" /> {t.refund}
-                            </>
-                          }
-                          triggerSize="sm"
-                          title={t.refundTitle(f.euro(payment.amountCents))}
-                          description={t.refundText(providerName(payment.provider))}
-                          confirmLabel={t.refundConfirm}
-                          destructive
-                          onConfirm={() => refund(payment)}
-                        />
+                      {(payment.status === 'paid' || payment.status === 'partially_refunded') && payment.provider !== 'cash' && (
+                        <div className="flex flex-col items-end gap-1">
+                          {(payment.refundedCents ?? 0) > 0 && (
+                            <span className="text-xs text-muted-grey">{tm.remaining(f.euro(refundableCents(payment)))}</span>
+                          )}
+                          <RefundDialog payment={payment} providerName={providerName(payment.provider)} label={t.refund} onDone={reload} />
+                        </div>
                       )}
                     </td>
                   </tr>

@@ -122,11 +122,11 @@ const de = {
       ],
       [
         'Wie bezahle ich?',
-        'Direkt bei der Buchung – sicher online über unseren Zahlungsanbieter Stripe, zum Beispiel per Karte. Nach erfolgreicher Zahlung ist dein Termin automatisch bestätigt.',
+        'Direkt bei der Buchung – sicher online mit PayPal. Nach erfolgreicher Zahlung ist dein Termin automatisch bestätigt.',
       ],
       [
-        'Kann ich kostenlos stornieren?',
-        `Ja. Bis ${cutoffHours} Stunden vor dem Termin kannst du online in deinem Konto stornieren. Bereits bezahlte Beträge werden automatisch erstattet.`,
+        'Kann ich stornieren?',
+        `Ja, online in deinem Konto. Bis ${cutoffHours} Stunden vor dem Termin ist die Stornierung kostenlos und bereits bezahlte Beträge werden automatisch erstattet. Bei späteren Stornierungen kann eine Gebühr anfallen – die genaue Höhe siehst du, bevor du bestätigst.`,
       ],
       [
         'Was ist bei der Reinigung nicht enthalten?',
@@ -159,24 +159,20 @@ const de = {
   worry: {
     eyebrow: 'Rundum entlastet',
     titleBefore: 'Dein Zuhause wird sauber –',
-    titleEm: 'den Papierkram übernehmen wir.',
-    lead: 'Bei Fiduxa buchst du eine Dienstleistung, keine Arbeitskraft. Das nimmt dir mehr ab, als du vielleicht denkst.',
+    titleEm: 'ganz ohne Aufwand.',
+    lead: 'Buchen, verwalten, bezahlen – alles an einem Ort. So bleibt dir mehr Zeit für das, was dir wichtig ist.',
     employer: {
-      kicker: 'Kein Arbeitgeber-Aufwand',
-      title: 'Du buchst eine Reinigung – und wirst dabei nicht zum Arbeitgeber.',
-      text: 'Weil du die Leistung bei Fiduxa buchst, entfallen für dich alle Pflichten einer Haushaltshilfe-Anstellung. Die Bezahlung der Reinigungskraft übernimmt Fiduxa.',
-      points: ['Keine Minijob-Anmeldung', 'Keine Lohnabrechnung', 'Keine Sozialversicherungs-Formulare'],
+      kicker: 'Einfach online',
+      title: 'Reinigung buchen in wenigen Minuten.',
+      text: 'Wähle Termin und Umfang, sieh den Preis sofort und bezahle bequem online. Alles Weitere organisieren wir.',
+      points: ['Preis vor der Buchung sichtbar', 'Sichere Online-Zahlung', 'Rechnung zu jeder Reinigung'],
       flexible: (hours: number) =>
-        `Festpreis vor der Buchung – und bis ${hours} Stunden vor dem Termin online kostenlos ändern oder stornieren.`,
+        `Termine verwaltest du in deinem Konto – Änderungen sind bis ${hours} Stunden vor dem Termin online möglich.`,
     },
     tax: {
-      kicker: 'Steuervorteil nach § 35a EStG',
-      value: '20 %',
-      title: 'der Arbeitskosten von der Einkommensteuer abziehen',
-      text: 'Reinigung im Haushalt zählt als haushaltsnahe Dienstleistung: Du kannst 20 % der Arbeitskosten von deiner Einkommensteuer abziehen – bis zu 4.000 € im Jahr.',
-      conditions:
-        'Voraussetzung sind eine Rechnung und eine unbare Zahlung (Karte, PayPal oder Überweisung). Barzahlungen werden steuerlich nicht anerkannt.',
-      disclaimer: 'Allgemeiner Hinweis – keine Steuerberatung.',
+      kicker: 'Alles in deinem Konto',
+      title: 'Rechnungen jederzeit abrufbar.',
+      text: 'Zu jeder Reinigung erhältst du eine Rechnung – sicher gespeichert und jederzeit in deinem Konto zum Download.',
     },
     pay: {
       kicker: 'Faire Bezahlung',
@@ -365,11 +361,11 @@ const en: HomeMessages = {
       ],
       [
         'How do I pay?',
-        'Right when you book – securely online via our payment provider Stripe, for example by card. Once the payment has gone through, your booking is confirmed automatically.',
+        'Right when you book – securely online with PayPal. Once the payment has gone through, your booking is confirmed automatically.',
       ],
       [
-        'Can I cancel free of charge?',
-        `Yes. You can cancel online in your account up to ${cutoffHours} hours before the appointment. Any amount already paid is refunded automatically.`,
+        'Can I cancel?',
+        `Yes, online in your account. Cancelling is free up to ${cutoffHours} hours before the appointment, and any amount already paid is refunded automatically. A fee may apply to later cancellations – you see the exact amount before you confirm.`,
       ],
       [
         'What is not included in the cleaning?',
@@ -402,22 +398,19 @@ const en: HomeMessages = {
   worry: {
     eyebrow: 'Fully taken care of',
     titleBefore: 'Your home gets clean –',
-    titleEm: 'we handle the paperwork.',
-    lead: 'With Fiduxa you book a service, not a worker. That takes more off your plate than you might think.',
+    titleEm: 'without the hassle.',
+    lead: 'Book, manage and pay – all in one place. So you have more time for what matters to you.',
     employer: {
-      kicker: 'No employer duties',
-      title: "You book a cleaning – and you don't become an employer.",
-      text: "Because you book the service from Fiduxa, none of the obligations of employing household help apply to you. Fiduxa takes care of paying the cleaner.",
-      points: ['No Minijob registration', 'No payroll', 'No social security paperwork'],
-      flexible: (hours) => `Fixed price before you book – and change or cancel online free of charge up to ${hours} hours before the appointment.`,
+      kicker: 'Simply online',
+      title: 'Book a cleaning in a few minutes.',
+      text: 'Choose date and scope, see the price instantly and pay conveniently online. We organise the rest.',
+      points: ['Price shown before you book', 'Secure online payment', 'Invoice for every cleaning'],
+      flexible: (hours) => `Manage your appointments in your account – changes are possible online up to ${hours} hours before the appointment.`,
     },
     tax: {
-      kicker: 'Tax benefit under § 35a EStG',
-      value: '20 %',
-      title: 'of labour costs off your income tax',
-      text: 'Cleaning in your home counts as a household-related service in Germany: you can deduct 20 % of the labour costs from your income tax – up to €4,000 per year.',
-      conditions: 'You need an invoice and a non-cash payment (card, PayPal or bank transfer). Cash payments are not recognised for tax purposes.',
-      disclaimer: 'General information – not tax advice.',
+      kicker: 'Everything in your account',
+      title: 'Invoices whenever you need them.',
+      text: 'You get an invoice for every cleaning – stored securely and ready to download from your account at any time.',
     },
     pay: {
       kicker: 'Fair pay',
@@ -603,11 +596,11 @@ const pl: HomeMessages = {
       ],
       [
         'Jak mogę zapłacić?',
-        'Od razu przy rezerwacji – bezpiecznie online przez naszego operatora płatności Stripe, na przykład kartą. Po udanej płatności Twój termin zostaje automatycznie potwierdzony.',
+        'Od razu przy rezerwacji – bezpiecznie online przez PayPal. Po udanej płatności Twój termin zostaje automatycznie potwierdzony.',
       ],
       [
-        'Czy mogę bezpłatnie anulować?',
-        `Tak. Do ${cutoffHours} godzin przed terminem możesz anulować online na swoim koncie. Już zapłacone kwoty są zwracane automatycznie.`,
+        'Czy mogę anulować?',
+        `Tak, online na swoim koncie. Do ${cutoffHours} godzin przed terminem anulowanie jest bezpłatne, a zapłacone kwoty są zwracane automatycznie. Przy późniejszym anulowaniu może zostać naliczona opłata – jej dokładną wysokość zobaczysz przed potwierdzeniem.`,
       ],
       [
         'Czego nie obejmuje sprzątanie?',
@@ -640,22 +633,19 @@ const pl: HomeMessages = {
   worry: {
     eyebrow: 'Pełne odciążenie',
     titleBefore: 'Twój dom będzie czysty –',
-    titleEm: 'formalności bierzemy na siebie.',
-    lead: 'W Fiduxa rezerwujesz usługę, a nie zatrudniasz pracownika. To zdejmuje z Ciebie więcej, niż myślisz.',
+    titleEm: 'bez zbędnego wysiłku.',
+    lead: 'Rezerwacja, zarządzanie i płatność – wszystko w jednym miejscu. Masz więcej czasu na to, co ważne.',
     employer: {
-      kicker: 'Bez obowiązków pracodawcy',
-      title: 'Rezerwujesz sprzątanie – i nie zostajesz pracodawcą.',
-      text: 'Ponieważ rezerwujesz usługę w Fiduxa, nie dotyczą Cię obowiązki związane z zatrudnieniem pomocy domowej. Wynagrodzenie osoby sprzątającej wypłaca Fiduxa.',
-      points: ['Bez zgłoszenia Minijob', 'Bez rozliczania wynagrodzeń', 'Bez formularzy ubezpieczeń społecznych'],
-      flexible: (hours) => `Stała cena przed rezerwacją – a do ${hours} godzin przed terminem bezpłatna zmiana lub anulowanie online.`,
+      kicker: 'Po prostu online',
+      title: 'Zarezerwuj sprzątanie w kilka minut.',
+      text: 'Wybierz termin i zakres, od razu zobacz cenę i zapłać wygodnie online. Resztą zajmiemy się my.',
+      points: ['Cena widoczna przed rezerwacją', 'Bezpieczna płatność online', 'Faktura za każde sprzątanie'],
+      flexible: (hours) => `Terminami zarządzasz w swoim koncie – zmiany online możliwe do ${hours} godzin przed terminem.`,
     },
     tax: {
-      kicker: 'Ulga podatkowa wg § 35a EStG',
-      value: '20 %',
-      title: 'kosztów pracy odliczysz od podatku dochodowego',
-      text: 'Sprzątanie w domu to w Niemczech usługa związana z gospodarstwem domowym: możesz odliczyć 20 % kosztów pracy od podatku dochodowego – do 4000 € rocznie.',
-      conditions: 'Warunkiem jest faktura i płatność bezgotówkowa (karta, PayPal lub przelew). Płatności gotówkowe nie są uznawane.',
-      disclaimer: 'Informacja ogólna – nie stanowi doradztwa podatkowego.',
+      kicker: 'Wszystko na Twoim koncie',
+      title: 'Faktury zawsze pod ręką.',
+      text: 'Za każde sprzątanie otrzymujesz fakturę – bezpiecznie zapisaną i zawsze do pobrania na Twoim koncie.',
     },
     pay: {
       kicker: 'Uczciwe wynagrodzenie',

@@ -14,16 +14,18 @@ import {
   createCheckoutForBooking,
   isOnlinePaymentAvailable,
   pickMethod,
+  assertMethodEnabled,
 } from "../services/payment.service.js";
 import { confirmBooking } from "../services/booking-lifecycle.service.js";
 import { findExtra, findService } from "../data/catalogue.js";
-import { OPERATIONS, PAYMENT_OPTIONS, PRICING, SUPPORTED_LOCALES } from "../config/pricing.js";
+import { ACTIVE_BOOKING_STATUSES, OPERATIONS, PRICING, SUPPORTED_LOCALES } from "../config/pricing.js";
 import { generateBookingReference } from "../utils/booking-reference.js";
-import { parseCalendarDate } from "../utils/helpers.js";
+import { parseCalendarDate, todayInBerlin } from "../utils/helpers.js";
 import { unreadCounts } from "../services/booking-message.service.js";
 import { buildQuote, pricingSnapshot, publicQuote } from "../services/quote.service.js";
 import { reserveBookingDiscounts, rollbackBookingDiscounts } from "../services/booking-discounts.service.js";
 import { withLocks } from "../utils/lock.js";
+import { POLICIES } from "../config/pricing.js";
 
 const HOUSEHOLD_SERVICE_IDS = ["home-cleaning", "deep-cleaning", "end-of-tenancy"];
 
@@ -183,9 +185,8 @@ export const createBookingRequest = async (req, res, next) => {
     const preferredDate = assertBookableDate(data.preferredDate);
 
     const wantsCash = data.paymentMethod === "cash";
-    if (wantsCash && !PAYMENT_OPTIONS.cashEnabled) {
-      return res.status(422).json({ success: false, message: "Cash payment is not available." });
-    }
+    // Payment-method policy (POLICIES.paymentMethods – currently PayPal only)
+    assertMethodEnabled(data.paymentMethod);
 
     const contact = { email: data.email, phone: data.phone, address: data.address, postcode: data.postcode };
     const quoteInput = {
@@ -223,6 +224,8 @@ export const createBookingRequest = async (req, res, next) => {
       if (badCard) return { invalidGiftCard: badCard, quote };
 
       const payable = quote.lines.payableCents;
+      // Cash only up to the policy limit (policies.cash.maxTotalCents)
+      if (wantsCash && quote.lines.totalCents > POLICIES.cash.maxTotalCents) return { cashLimit: true, quote };
       const fullyCovered = payable === 0;
       const paymentMethod = fullyCovered || wantsCash ? null : pickMethod(data.paymentMethod);
       const onlinePayment = !fullyCovered && !wantsCash && isOnlinePaymentAvailable() && Boolean(paymentMethod);
@@ -328,6 +331,15 @@ export const createBookingRequest = async (req, res, next) => {
         message: "This time slot is no longer available. Please choose another slot.",
       });
     }
+    if (outcome.cashLimit) {
+      return res.status(422).json({
+        success: false,
+        code: "CASH_LIMIT",
+        maxTotalCents: POLICIES.cash.maxTotalCents,
+        message: `Cash payment is only possible up to ${(POLICIES.cash.maxTotalCents / 100).toFixed(2)} €.`,
+        quote: publicQuote(outcome.quote),
+      });
+    }
 
     const { booking, method, onlinePayment } = outcome;
 
@@ -418,12 +430,19 @@ export const getMyBookings = async (req, res, next) => {
   try {
     const filter = { customer: req.user._id };
 
+    // Upcoming = active AND (today or later, or the cleaning is running right now).
+    // A past-dated booking the cleaner has not confirmed yet is "past" with the
+    // label "awaiting cleaner confirmation" (awaitingConfirmation: true).
+    const today = todayInBerlin();
     if (req.query.scope === "upcoming") {
-      filter.status = {
-        $in: ["payment_pending", "confirmed", "in_progress", "pending_quotation", "quotation_sent", "accepted"],
-      };
+      filter.status = { $in: ACTIVE_BOOKING_STATUSES };
+      // (in_progress counts as upcoming only on the job day – a running job never ends up in "past")
+      filter.$or = [{ preferredDate: { $gte: today } }, { preferredDate: null }];
     } else if (req.query.scope === "past") {
-      filter.status = { $in: ["completed", "cancelled", "expired", "rejected"] };
+      filter.$or = [
+        { status: { $in: ["completed", "cancelled", "expired", "rejected"] } },
+        { status: { $in: ACTIVE_BOOKING_STATUSES }, preferredDate: { $lt: today } },
+      ];
     }
 
     const bookings = await Booking.find(filter)
@@ -433,10 +452,17 @@ export const getMyBookings = async (req, res, next) => {
 
     const unread = await unreadCounts(bookings.map((b) => b._id), req.user._id);
 
+    const list = bookings.map((b) => {
+      const json = b.toJSON();
+      json.awaitingConfirmation =
+        ["confirmed", "in_progress"].includes(b.status) && Boolean(b.preferredDate) && b.preferredDate.getTime() < today.getTime();
+      return json;
+    });
+
     return res.status(200).json({
       success: true,
-      count: bookings.length,
-      bookings,
+      count: list.length,
+      bookings: list,
       unread,
     });
   } catch (error) {

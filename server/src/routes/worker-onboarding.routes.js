@@ -23,7 +23,7 @@ import {
   uploadAvatar,
 } from "../controllers/worker-profile.controller.js";
 
-import { deleteMyDocument, listMyDocuments, uploadMyDocument } from "../controllers/worker-document.controller.js"; // [E]
+import { deleteMyDocument, downloadMyDocument, listMyDocuments, saveMyWorkEligibility, uploadMyDocument } from "../controllers/worker-document.controller.js"; // [E]
 import { getMyReliability } from "../controllers/worker-reliability.controller.js"; // [E]
 
 export const workerOnboardingRouter = Router();
@@ -49,6 +49,9 @@ workerOnboardingRouter.delete("/holidays/:holidayId", workerOnly, deleteHoliday)
 workerOnboardingRouter.get("/documents", workerOnly, listMyDocuments);
 workerOnboardingRouter.post("/documents", workerOnly, uploadMyDocument);
 workerOnboardingRouter.delete("/documents/:id", workerOnly, deleteMyDocument);
+// Work eligibility: nationality (EU/EEA/CH → no permit) + own file download
+workerOnboardingRouter.put("/documents/eligibility", workerOnly, saveMyWorkEligibility);
+workerOnboardingRouter.get("/documents/:id/file", workerOnly, downloadMyDocument);
 workerOnboardingRouter.get("/reliability", workerOnly, getMyReliability);
 
 // Approved cleaners only

@@ -26,10 +26,25 @@ const userSchema = new mongoose.Schema(
       maxlength: 30,
     },
 
+    // Optional for social-login-only customers (they can set one via
+    // "Passwort vergessen"); required for everyone else.
     password: {
       type: String,
-      required: true,
+      required: function () {
+        return !(this.oauth?.googleSub || this.oauth?.appleSub);
+      },
       select: false,
+    },
+
+    // Social login linkage (customers only). `sub` is the provider's stable
+    // user id; emails can change, so lookups always go by sub first.
+    oauth: {
+      googleSub: { type: String, default: undefined },
+      appleSub: { type: String, default: undefined },
+      // Apple "Hide my email" relay address (…@privaterelay.appleid.com)
+      applePrivateEmail: { type: Boolean, default: undefined },
+      googleLinkedAt: { type: Date, default: undefined },
+      appleLinkedAt: { type: Date, default: undefined },
     },
 
     role: {
@@ -188,6 +203,16 @@ const userSchema = new mongoose.Schema(
       accessNotes: { type: String, maxlength: 1000 },
       address: { type: String, maxlength: 200 },
       postcode: { type: String, maxlength: 10 },
+      // Saved address card (konto → Adresse); bookings keep their own snapshot,
+      // so changes only apply to future bookings
+      city: { type: String, maxlength: 80 },
+      floor: { type: String, maxlength: 80 },
+      billing: {
+        name: { type: String, maxlength: 120 },
+        address: { type: String, maxlength: 200 },
+        postcode: { type: String, maxlength: 10 },
+        city: { type: String, maxlength: 80 },
+      },
     },
 
     workerPayRateCents: { type: Number, min: 0, default: null },
@@ -255,10 +280,32 @@ const userSchema = new mongoose.Schema(
           note: { type: String, trim: true, maxlength: 500, default: "" },
           checkedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
           checkedAt: { type: Date, default: null },
+          // Work eligibility: ID type (passport / national ID), expiry (set by the admin
+          // for "id" and "permit"), reminder bookkeeping (30 / 7 days, expired)
+          idType: { type: String, enum: ["", "passport", "national_id", "residence_permit", "other"], default: "" },
+          expiresAt: { type: Date, default: null },
+          reminders: {
+            d30At: { type: Date, default: null },
+            d7At: { type: Date, default: null },
+            expiredAt: { type: Date, default: null },
+          },
+          // File bytes purged on account deletion (metadata kept for the audit trail)
+          purgedAt: { type: Date, default: null },
         }),
       ],
       default: [],
     },
+
+    // Nationality declared in the verification checklist. EU/EEA/Swiss citizens
+    // need no work permit (euCitizen is derived server-side from the country).
+    workEligibility: {
+      nationality: { type: String, trim: true, uppercase: true, maxlength: 2, default: "" },
+      euCitizen: { type: Boolean, default: null },
+      declaredAt: { type: Date, default: null },
+    },
+
+    // Anonymised cleaner with unpaid earnings: payout details kept until settled
+    payoutRetainedUntilSettled: { type: Boolean, default: false },
 
     // Reliability strikes (late hand-backs, no-shows). strikeLimit strikes
     // within strikeWindowDays pause the cleaner until an admin lifts it.
@@ -312,6 +359,9 @@ const userSchema = new mongoose.Schema(
 // Cleaner matching / admin lists (role + status), new-customer analytics
 userSchema.index({ role: 1, workerStatus: 1, isActive: 1 });
 userSchema.index({ role: 1, createdAt: -1 });
+// One account per provider identity
+userSchema.index({ "oauth.googleSub": 1 }, { unique: true, partialFilterExpression: { "oauth.googleSub": { $type: "string" } } });
+userSchema.index({ "oauth.appleSub": 1 }, { unique: true, partialFilterExpression: { "oauth.appleSub": { $type: "string" } } });
 
 userSchema.plugin(testDataPlugin);
 

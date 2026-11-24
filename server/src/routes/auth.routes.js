@@ -3,6 +3,7 @@ import { Router } from "express";
 import { forgotPassword, getMe, getSession, login, logout, register, resendVerification, resetPassword, verifyEmail } from "../controllers/auth.controller.js";
 
 import { protect } from "../middleware/auth.middleware.js";
+import { appleFormPost, getProviders, oauthCallback, startOAuth } from "../controllers/oauth.controller.js";
 import { verifyTwoFactorLogin } from "../controllers/two-factor.controller.js"; // [E]
 
 export const authRouter = Router();
@@ -17,3 +18,9 @@ authRouter.get("/me", protect, getMe);
 authRouter.post("/verify-email", verifyEmail);
 authRouter.post("/resend-verification", protect, resendVerification);
 authRouter.post("/2fa/verify", verifyTwoFactorLogin); // [E] completes an admin login
+
+// Social login for customers (Google / Apple)
+authRouter.get("/providers", getProviders);
+authRouter.get("/oauth/:provider/start", startOAuth);
+authRouter.post("/oauth/apple/callback", appleFormPost); // Apple response_mode=form_post
+authRouter.get("/oauth/:provider/callback", oauthCallback);

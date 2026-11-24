@@ -27,6 +27,34 @@ const REMOVED = "entfernt";
 /** Statuses that still need the customer (upcoming or unpaid work) */
 const OPEN_CUSTOMER_STATUSES = ["payment_pending", "confirmed", "in_progress"];
 const OPEN_WORKER_STATUSES = ["confirmed", "in_progress"];
+/** Cleaner earnings not paid out yet – payout records + bank details are kept until settled */
+const UNPAID_PAYOUT_STATUSES = ["pending", "processing", "on_hold"];
+
+const openBookingsFor = (user) =>
+  user.role === "worker"
+    ? Booking.find({ assignedWorker: user._id, status: { $in: OPEN_WORKER_STATUSES }, preferredDate: { $gte: todayInBerlin() } })
+    : Booking.find({ customer: user._id, status: { $in: OPEN_CUSTOMER_STATUSES } });
+
+const unpaidEarnings = async (workerId) => {
+  const rows = await Booking.find({ assignedWorker: workerId, "workerPayout.status": { $in: UNPAID_PAYOUT_STATUSES } }).select("workerPayout").lean();
+  return { count: rows.length, cents: rows.reduce((sum, b) => sum + (b.workerPayout?.amountCents ?? 0) - (b.workerPayout?.cashHeldCents ?? 0), 0) };
+};
+
+/** What deleting would do – shown before the confirmation (GET /users/me/deletion-check) */
+export const deletionPreview = async (user) => {
+  const full = await User.findById(user._id).select("+password");
+  const open = user.role === "admin" ? [] : await openBookingsFor(user).select("reference preferredDate slot status").sort({ preferredDate: 1 }).limit(20).lean();
+  const unpaid = user.role === "worker" ? await unpaidEarnings(user._id) : { count: 0, cents: 0 };
+  return {
+    role: user.role,
+    canDelete: user.role !== "admin" && open.length === 0,
+    blockedBy: user.role === "admin" ? "ADMIN" : open.length ? (user.role === "worker" ? "OPEN_JOBS" : "OPEN_BOOKINGS") : null,
+    confirmWith: full?.password ? "password" : "email",
+    openBookings: open.map((b) => ({ id: b._id, reference: b.reference, preferredDate: b.preferredDate, slot: b.slot, status: b.status })),
+    unpaidEarnings: unpaid,
+    retentionYears: RETENTION_YEARS,
+  };
+};
 
 // ---------------------------------------------------------------------------
 // Export
@@ -60,6 +88,10 @@ export const exportUserData = async (user) => {
     preferredLanguage: user.preferredLanguage,
     emailVerified: Boolean(user.emailVerified),
     emailVerifiedAt: user.emailVerifiedAt ?? null,
+    linkedLogins: {
+      google: user.oauth?.googleSub ? { linkedAt: user.oauth.googleLinkedAt ?? null } : null,
+      apple: user.oauth?.appleSub ? { linkedAt: user.oauth.appleLinkedAt ?? null, privateRelayEmail: Boolean(user.oauth.applePrivateEmail) } : null,
+    },
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     household: user.household ?? null,
@@ -102,14 +134,20 @@ export const exportUserData = async (user) => {
 export const assertDeletable = async (user) => {
   if (user.role === "admin") throw httpError(403, "Admin accounts cannot be deleted here. Ask another administrator.");
   if (user.role === "consumer") {
-    const open = await Booking.exists({ customer: user._id, status: { $in: OPEN_CUSTOMER_STATUSES } });
-    if (open) {
-      throw Object.assign(httpError(409, "You still have an upcoming or unpaid booking. Please cancel it first or contact us."), { code: "OPEN_BOOKINGS" });
+    const open = await openBookingsFor(user).select("reference preferredDate status").limit(20).lean();
+    if (open.length) {
+      throw Object.assign(httpError(409, "You still have an upcoming or unpaid booking. Please cancel it first or contact us."), {
+        code: "OPEN_BOOKINGS",
+        bookings: open.map((b) => ({ id: b._id, reference: b.reference, preferredDate: b.preferredDate, status: b.status })),
+      });
     }
   } else if (user.role === "worker") {
-    const open = await Booking.exists({ assignedWorker: user._id, status: { $in: OPEN_WORKER_STATUSES }, preferredDate: { $gte: todayInBerlin() } });
-    if (open) {
-      throw Object.assign(httpError(409, "You are still assigned to upcoming jobs. Please release them first or contact the office."), { code: "OPEN_JOBS" });
+    const open = await openBookingsFor(user).select("reference preferredDate status").limit(20).lean();
+    if (open.length) {
+      throw Object.assign(httpError(409, "You are still assigned to upcoming jobs. Please release them first or contact the office."), {
+        code: "OPEN_JOBS",
+        bookings: open.map((b) => ({ id: b._id, reference: b.reference, preferredDate: b.preferredDate, status: b.status })),
+      });
     }
   }
 };
@@ -171,7 +209,21 @@ export const anonymiseUser = async (user, { actorId, reason = "", self = false }
   // 5. Gift cards bought by the user: sender data removed (the card itself stays valid for the recipient)
   await GiftCard.updateMany({ purchaser: id }, { $set: { senderName: DELETED_CUSTOMER, senderEmail: "", message: "" } });
 
-  // 6. The account itself
+  // 6. Cleaner: unpaid earnings? Payout details stay until the last payout settles.
+  const unpaid = isWorker ? await unpaidEarnings(id) : { count: 0, cents: 0 };
+  const retainPayout = unpaid.count > 0;
+
+  // 7. Verification documents (ID, permit …): file bytes erased, metadata kept for the audit trail
+  let documentsPurged = 0;
+  if (isWorker) {
+    const docs = await User.findById(id).select("documents");
+    documentsPurged = docs?.documents?.length ?? 0;
+    if (documentsPurged) {
+      await User.updateOne({ _id: id }, { $unset: { "documents.$[].data": "" }, $set: { "documents.$[].name": REMOVED, "documents.$[].purgedAt": now } });
+    }
+  }
+
+  // 8. The account itself
   const fresh = await User.findById(id).select("+password +avatarData");
   fresh.name = isWorker ? DELETED_WORKER : DELETED_CUSTOMER;
   fresh.email = anonEmail;
@@ -189,6 +241,8 @@ export const anonymiseUser = async (user, { actorId, reason = "", self = false }
   fresh.emailVerificationTokenHash = undefined;
   fresh.emailVerificationExpires = undefined;
   fresh.avatarData = undefined;
+  // Unlink social logins: signing in with Google/Apple again starts a new account
+  fresh.oauth = undefined;
   fresh.avatarType = "";
   fresh.avatarUpdatedAt = null;
   if (isWorker) {
@@ -196,12 +250,13 @@ export const anonymiseUser = async (user, { actorId, reason = "", self = false }
     fresh.workerProfile = { address: "", serviceAreas: [], experienceYears: 0, bio: "", languages: [], specialties: [], petsOk: false, bringsSupplies: false, publicVisible: false };
     fresh.availability = [];
     fresh.holidays = [];
-    fresh.bankDetailsEncrypted = undefined;
-    fresh.bankDetailsIv = undefined;
-    fresh.bankDetailsAuthTag = undefined;
-    fresh.bankAccountLast4 = "";
-    fresh.bankAccountHolder = "";
-    fresh.payoutMethod = { type: "bank", paypalEmail: "" };
+    fresh.workEligibility = { nationality: "", euCitizen: null, declaredAt: null };
+    if (retainPayout) {
+      // § 147 AO + open payouts: keep IBAN/PayPal until settled (purged by the documentExpiryWatch job)
+      fresh.payoutRetainedUntilSettled = true;
+    } else {
+      clearPayoutDetails(fresh);
+    }
   }
   await fresh.save();
 
@@ -211,8 +266,32 @@ export const anonymiseUser = async (user, { actorId, reason = "", self = false }
     entityType: "User",
     entityId: id,
     before,
-    after: { reason, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messages, codesRevoked: codes, retentionYears: RETENTION_YEARS },
+    after: { reason, unpaidEarningsCents: unpaid.cents, payoutDetailsRetained: retainPayout, documentsPurged, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messages, codesRevoked: codes, retentionYears: RETENTION_YEARS },
   });
 
-  return { bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messagesAnonymised: messages, codesRevoked: codes, retentionYears: RETENTION_YEARS };
+  return { unpaidEarningsCents: unpaid.cents, payoutDetailsRetained: retainPayout, documentsPurged, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messagesAnonymised: messages, codesRevoked: codes, retentionYears: RETENTION_YEARS };
+};
+
+const clearPayoutDetails = (worker) => {
+  worker.bankDetailsEncrypted = undefined;
+  worker.bankDetailsIv = undefined;
+  worker.bankDetailsAuthTag = undefined;
+  worker.bankAccountLast4 = "";
+  worker.bankAccountHolder = "";
+  worker.payoutMethod = { type: "bank", paypalEmail: "" };
+  worker.payoutRetainedUntilSettled = false;
+};
+
+/** Deleted cleaners whose last payout has settled: erase the retained bank details */
+export const purgeSettledPayoutDetails = async () => {
+  const workers = await User.find({ role: "worker", payoutRetainedUntilSettled: true }).limit(200);
+  let purged = 0;
+  for (const worker of workers) {
+    if ((await unpaidEarnings(worker._id)).count > 0) continue;
+    clearPayoutDetails(worker);
+    await worker.save();
+    await recordAudit({ actor: null, action: "account.payout_details.purged", entityType: "User", entityId: worker._id, after: { reason: "all payouts settled" } });
+    purged += 1;
+  }
+  return purged;
 };

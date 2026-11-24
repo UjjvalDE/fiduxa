@@ -5,6 +5,7 @@ import { getMessages } from '@/lib/i18n/server';
 import messages from './_messages';
 import { AccountNav } from './_components/account-nav';
 import { VerifyEmailBanner } from './_components/verify-email-banner';
+import { AccountPrompts } from './_components/account-prompts';
 
 export function generateMetadata(): Metadata {
   const t = getMessages(messages);
@@ -21,6 +22,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
         <RequireRole roles={['consumer']}>
           <AccountNav />
           <VerifyEmailBanner />
+          <AccountPrompts />
           <div className="mt-6 sm:mt-8">{children}</div>
         </RequireRole>
       </div>

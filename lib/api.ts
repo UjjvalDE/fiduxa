@@ -9,6 +9,9 @@
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/v1').replace(/\/$/, '');
 
+/** Absolute API URL for full-page navigations (e.g. social login redirects) */
+export const apiUrl = (path: string) => `${API_BASE}${path}`;
+
 export const TOKEN_STORAGE_KEY = 'fiduxa_token';
 
 export interface FieldError {
@@ -123,6 +126,8 @@ export const api = {
   put: <T>(path: string, body?: unknown, init?: RequestInit) => request<T>('PUT', path, body ?? {}, init),
   patch: <T>(path: string, body?: unknown, init?: RequestInit) => request<T>('PATCH', path, body ?? {}, init),
   delete: <T>(path: string, init?: RequestInit) => request<T>('DELETE', path, undefined, init),
+  /** DELETE with a JSON body (e.g. account deletion confirmation) */
+  deleteWithBody: <T>(path: string, body: unknown) => request<T>('DELETE', path, body),
 };
 
 /** Build a query string, skipping empty values */
@@ -138,3 +143,23 @@ export const qs = (params: Record<string, string | number | boolean | undefined 
 /** Human-readable message for any thrown value */
 export const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Etwas ist schiefgelaufen. Bitte versuche es erneut.';
+
+// [customer feedback / extra time / invoices]
+/** Download a protected file (e.g. invoice PDF) with the session and save it */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const token = getStoredToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    cache: 'no-store',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!res.ok) throw new ApiError(res.status, 'Download failed.');
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}

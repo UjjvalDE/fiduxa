@@ -63,7 +63,7 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-const toPublicUser = (user) => ({
+export const toPublicUser = (user) => ({
   id: user._id,
   name: user.name,
   email: user.email,
@@ -173,7 +173,8 @@ export const login = async (req, res) => {
       });
     }
 
-    const passwordMatches = await bcrypt.compare(password, user.password);
+    // Social-login-only accounts have no password (until they set one via reset)
+    const passwordMatches = Boolean(user.password) && (await bcrypt.compare(password, user.password));
 
     if (!passwordMatches) {
       return res.status(401).json({
@@ -220,11 +221,14 @@ export const login = async (req, res) => {
 };
 
 // GET /api/v1/auth/me
-export const getMe = (req, res) => {
-  res.status(200).json({
-    success: true,
-    user: toPublicUser(req.user),
-  });
+export const getMe = async (req, res, next) => {
+  try {
+    // OAuth-only accounts have no password (konto shows "Passwort vergessen" instead)
+    const hasPassword = Boolean(await User.exists({ _id: req.user._id, password: { $type: "string" } }));
+    res.status(200).json({ success: true, user: { ...toPublicUser(req.user), hasPassword } });
+  } catch (error) {
+    next(error);
+  }
 };
 
 // POST /api/v1/auth/forgot-password  { email }
@@ -315,6 +319,31 @@ export const resetPassword = async (req, res, next) => {
   }
 };
 
+/**
+ * Issue the personal welcome code to a customer whose email was just
+ * confirmed (link or verified social login) and email it. Returns the
+ * percentage or null.
+ */
+export const grantWelcomeOffer = async (user) => {
+  if (user.role !== "consumer") return null;
+  const promo = await liveWelcomePromotion();
+  if (!promo) return null;
+  const { code } = await issuePersonalCode(promo, user);
+  const pct = promo.discountType === "percent" ? promo.discountValue : null;
+  const status = await trySend("Welcome offer", () =>
+    sendWelcomeOfferEmail({
+      to: user.email,
+      name: user.name,
+      locale: user.preferredLanguage,
+      percent: pct,
+      code: code.code,
+      expiresAt: code.expiresAt,
+    })
+  );
+  if (status === "sent") await PersonalCode.updateOne({ _id: code._id }, { $set: { emailedAt: new Date() } });
+  return pct;
+};
+
 // POST /api/v1/auth/verify-email  { token }
 export const verifyEmail = async (req, res, next) => {
   try {
@@ -336,25 +365,7 @@ export const verifyEmail = async (req, res, next) => {
     await user.save();
 
     // Personal, single-use welcome code – shown only in this email and in the account
-    let pct = null;
-    if (firstTime && user.role === "consumer") {
-      const promo = await liveWelcomePromotion();
-      if (promo) {
-        const { code } = await issuePersonalCode(promo, user);
-        pct = promo.discountType === "percent" ? promo.discountValue : null;
-        const status = await trySend("Welcome offer", () =>
-          sendWelcomeOfferEmail({
-            to: user.email,
-            name: user.name,
-            locale: user.preferredLanguage,
-            percent: pct,
-            code: code.code,
-            expiresAt: code.expiresAt,
-          })
-        );
-        if (status === "sent") await PersonalCode.updateOne({ _id: code._id }, { $set: { emailedAt: new Date() } });
-      }
-    }
+    const pct = firstTime ? await grantWelcomeOffer(user) : null;
 
     return res.json({
       success: true,

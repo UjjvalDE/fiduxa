@@ -6,7 +6,7 @@ import { GIFT_CARDS } from "../config/pricing.js";
 import { getSiteUrl } from "../utils/site-url.js";
 import { httpError } from "../utils/helpers.js";
 import { activateGiftCard, generateGiftCardCode } from "./gift-card.service.js";
-import { availableMethods, createStripeSession } from "./payment.service.js";
+import { assertMethodEnabled, availableMethods, createStripeSession } from "./payment.service.js";
 import { createPayPalOrder, ORDER_LIFETIME_MINUTES } from "./paypal.service.js";
 import {
   sendAdminNotificationEmail,
@@ -25,6 +25,7 @@ export const allowedAmount = (cents) =>
 export const createGiftCardPurchase = async (user, data) => {
   if (!GIFT_CARDS.enabled) throw httpError(503, "Gift cards are not available at the moment.");
   if (!allowedAmount(data.amountCents)) throw httpError(422, "Please choose a valid gift card amount.");
+  assertMethodEnabled(data.method); // payment-method policy (currently PayPal only)
   if (availableMethods().length === 0) {
     throw httpError(503, "Online payment is not configured yet. Please contact us to pay by invoice.");
   }
@@ -48,6 +49,7 @@ export const createGiftCardPurchase = async (user, data) => {
 
 /** Start the payment for a pending card. Returns { url }. */
 export const startGiftCardPayment = async (card, user, method) => {
+  assertMethodEnabled(method);
   const methods = availableMethods();
   const chosen = methods.includes(method) ? method : methods[0];
   if (!chosen) throw httpError(503, "Online payment is not configured yet. Please contact us to pay by invoice.");

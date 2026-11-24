@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 import User from "../models/user.model.js";
+import { OPERATIONS } from "../config/pricing.js";
 import generateToken from "../utils/generate-token.js";
 import { setSessionCookie } from "../utils/session-cookie.js";
 import { welcomeCodeFor } from "../services/personal-code.service.js";
@@ -67,6 +68,15 @@ export const changeMyPassword = async (req, res, next) => {
 
     const user = await User.findById(req.user._id).select("+password");
 
+    if (!user.password) {
+      // Social-login-only account: set a first password via "forgot password"
+      return res.status(400).json({
+        success: false,
+        code: "NO_PASSWORD_SET",
+        message: "This account has no password yet. Use \"Forgot password\" to set one.",
+      });
+    }
+
     const matches = await bcrypt.compare(data.currentPassword, user.password);
 
     if (!matches) {
@@ -130,7 +140,65 @@ const householdSchema = z.object({
   accessNotes: z.string().trim().max(1000).optional(),
   address: z.string().trim().max(200).optional(),
   postcode: z.string().trim().max(10).optional(),
+  city: z.string().trim().max(80).optional(),
+  floor: z.string().trim().max(80).optional(),
+  billing: z.object({ name: z.string().trim().max(120).optional(), address: z.string().trim().max(200).optional(), postcode: z.string().trim().max(10).optional(), city: z.string().trim().max(80).optional() }).optional(),
 });
+
+// Saved address (konto → Adresse). Service address must be in Berlin; the
+// billing address (optional, if different) may be anywhere.
+const addressSchema = z.object({
+  address: z.string().trim().min(3).max(200),
+  postcode: z.string().trim().regex(OPERATIONS.servicePostcodeRegex, "We currently only clean in Berlin (postcodes 10115–14199)."),
+  city: z.string().trim().max(80).optional().default("Berlin"),
+  floor: z.string().trim().max(80).optional().default(""),
+  accessNotes: z.string().trim().max(1000).optional().default(""),
+  billing: z
+    .object({
+      name: z.string().trim().max(120).optional().default(""),
+      address: z.string().trim().min(3).max(200),
+      postcode: z.string().trim().min(4).max(10),
+      city: z.string().trim().min(2).max(80),
+    })
+    .nullable()
+    .optional(),
+});
+
+const addressView = (user) => {
+  const h = user.household ?? {};
+  return {
+    address: h.address ?? "",
+    postcode: h.postcode ?? "",
+    city: h.city ?? "",
+    floor: h.floor ?? "",
+    accessNotes: h.accessNotes ?? "",
+    billing: h.billing?.address ? { name: h.billing.name ?? "", address: h.billing.address, postcode: h.billing.postcode ?? "", city: h.billing.city ?? "" } : null,
+  };
+};
+
+// GET /api/v1/users/me/address
+export const getMyAddress = async (req, res, next) => {
+  try {
+    res.json({ success: true, address: addressView(req.user) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// PUT /api/v1/users/me/address – only future bookings use it (bookings and
+// invoices keep the address they were made with)
+export const updateMyAddress = async (req, res, next) => {
+  try {
+    const data = addressSchema.parse(req.body ?? {});
+    const user = await User.findById(req.user._id);
+    for (const k of ["address", "postcode", "city", "floor", "accessNotes"]) user.set(`household.${k}`, data[k]);
+    user.set("household.billing", data.billing ?? undefined);
+    await user.save();
+    res.json({ success: true, address: addressView(user) });
+  } catch (error) {
+    next(error);
+  }
+};
 
 const householdView = (user) => {
   const h = user.household?.toObject ? user.household.toObject() : user.household;
@@ -151,7 +219,9 @@ export const updateMyHousehold = async (req, res, next) => {
   try {
     const data = householdSchema.parse(req.body);
     const user = await User.findById(req.user._id);
-    user.household = data;
+    // Keep the address-card fields the booking wizard does not send
+    const prev = user.household?.toObject ? user.household.toObject() : user.household ?? {};
+    user.household = { city: prev.city, floor: prev.floor, billing: prev.billing, address: prev.address, postcode: prev.postcode, ...data };
     await user.save();
     res.json({ success: true, household: householdView(user) });
   } catch (error) {

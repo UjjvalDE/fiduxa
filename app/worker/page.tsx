@@ -32,6 +32,8 @@ import { ErrorState } from '@/app/admin/_components/states';
 import { type ApiState, useApi } from '@/app/admin/_components/use-api';
 
 import cashMessages from './_cash-messages';
+import { PendingWorkerFeedback } from './_components/job-feedback';
+import { NeedsConfirmationList } from './_components/job-confirmation';
 import messages from './_messages';
 import portalMessages from './_portal-messages';
 import { JobCard, type WorkerJobWithSlot } from './_components/job-card';
@@ -240,6 +242,8 @@ function Dashboard({ data }: { data: WorkerOverview }) {
         </Link>
       )}
 
+      {/* Internal feedback pop-up for completed jobs (until answered or dismissed) */}
+      <PendingWorkerFeedback />
       <section aria-labelledby="stats-title" className="space-y-3">
         <h2 id="stats-title" className="sr-only">
           {t.statsTitle}
@@ -320,6 +324,7 @@ function Dashboard({ data }: { data: WorkerOverview }) {
         </ul>
       </section>
 
+      <NeedsConfirmationList />
       <JobsSection />
     </div>
   );

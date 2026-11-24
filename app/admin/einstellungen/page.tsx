@@ -13,7 +13,7 @@ import { ApiError, api } from '@/lib/api';
 import { useFormat, useLocale, useMessages } from '@/lib/i18n/client';
 import type { Formatter } from '@/lib/i18n/format';
 import catalogue, { type ExtraId } from '@/lib/i18n/messages/catalogue';
-import type { CommissionTierRequirements, PlatformSettings } from '@/lib/types';
+import type { CommissionTierKey, CommissionTierRequirements, PaymentMethodKey, PlatformSettings, PoliciesSettings } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 import { centsToInput, parseEuroToCents } from '../_components/labels';
@@ -22,7 +22,7 @@ import { apiMessage, useApi, useErrorText } from '../_components/use-api';
 import settingsMessages, { type SettingsMessages } from './_messages';
 import common from '@/lib/i18n/messages/common';
 
-type SectionKey = 'pricing' | 'extras' | 'booking' | 'payments' | 'workerPay' | 'giftCards';
+type SectionKey = 'pricing' | 'extras' | 'booking' | 'payments' | 'workerPay' | 'giftCards' | 'policies';
 type Errors = Record<string, string>;
 type SaveValue = {
   pricing: PlatformSettings['pricing'];
@@ -31,6 +31,7 @@ type SaveValue = {
   payments: Pick<PlatformSettings['payments'], 'cashEnabled' | 'paypalEnabled' | 'stripeEnabled'>;
   workerPay: PlatformSettings['workerPay'];
   giftCards: NonNullable<PlatformSettings['giftCards']>;
+  policies: PoliciesSettings;
 };
 
 const STEPS = [15, 30, 60] as const;
@@ -832,6 +833,14 @@ function PaymentsSection({ settings, onSaved }: { settings: PlatformSettings; on
           {t.payments.noneEnabled}
         </p>
       )}
+      {/* Payment-method policy (Richtlinien) narrows what customers can choose */}
+      <p className="text-sm text-muted-grey">
+        {t.payments.policyNote(
+          ((settings as PlatformSettings & { policies?: PoliciesSettings }).policies?.paymentMethods?.enabled ?? ['paypal'])
+            .map((k) => t.policies.methodNames[k])
+            .join(', ')
+        )}
+      </p>
     </SectionForm>
   );
 }
@@ -1372,6 +1381,199 @@ function CommissionSection({ settings, onSaved }: { settings: PlatformSettings; 
 // Page
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Richtlinien (Stornogebühren, Barzahlung, Auszahlungen)
+// ---------------------------------------------------------------------------
+
+const TIER_KEYS: CommissionTierKey[] = ['new', 'bronze', 'silver', 'gold', 'platinum', 'diamond'];
+
+const DEFAULT_POLICIES: PoliciesSettings = {
+  cancellation: { freeHours: 24, lateFeePct: 50, veryLateHours: 4, veryLateFeePct: 100, cleanerSharePct: 80 },
+  cash: { maxTotalCents: 15000, minTier: 'bronze', suspendBelowCents: -10000 },
+  payouts: { eligibilityDays: 7, fastPayoutDays: 3, fastPayoutPct: 50, fastPayoutMinTier: 'silver' },
+  paymentMethods: { enabled: ['paypal'] },
+};
+const PAYMENT_METHOD_KEYS: PaymentMethodKey[] = ['paypal', 'stripe', 'cash'];
+
+type PoliciesDraft = {
+  freeHours: string;
+  lateFeePct: string;
+  veryLateHours: string;
+  veryLateFeePct: string;
+  cleanerSharePct: string;
+  maxTotal: string;
+  minTier: CommissionTierKey;
+  suspendBelow: string;
+  eligibilityDays: string;
+  fastPayoutDays: string;
+  fastPayoutPct: string;
+  fastPayoutMinTier: CommissionTierKey;
+  methods: PaymentMethodKey[];
+};
+
+function PoliciesSection({ settings, onSaved }: { settings: PlatformSettings; onSaved: (s: PlatformSettings) => void }) {
+  const t = useMessages(settingsMessages);
+  const f = useFormat();
+  const saved = (settings as PlatformSettings & { policies?: PoliciesSettings }).policies ?? DEFAULT_POLICIES;
+  const toDraft = (): PoliciesDraft => ({
+    freeHours: String(saved.cancellation.freeHours),
+    lateFeePct: String(saved.cancellation.lateFeePct),
+    veryLateHours: String(saved.cancellation.veryLateHours),
+    veryLateFeePct: String(saved.cancellation.veryLateFeePct),
+    cleanerSharePct: String(saved.cancellation.cleanerSharePct),
+    maxTotal: centsToInput(saved.cash.maxTotalCents),
+    minTier: saved.cash.minTier,
+    suspendBelow: centsToInput(Math.abs(saved.cash.suspendBelowCents)),
+    eligibilityDays: String(saved.payouts.eligibilityDays),
+    fastPayoutDays: String(saved.payouts.fastPayoutDays),
+    fastPayoutPct: String(saved.payouts.fastPayoutPct),
+    fastPayoutMinTier: saved.payouts.fastPayoutMinTier,
+    methods: saved.paymentMethods?.enabled ?? ['paypal'],
+  });
+  const { draft, setDraft, errors, setErrors, formError, setFormError, discard } = useDraft(saved, toDraft);
+  const { save, saving } = useSaveSection('policies', onSaved, t.policies.title);
+
+  const build = useMemo(() => {
+    const v = createValidator(t, f);
+    const freeHours = v.num('cancellation.freeHours', draft.freeHours, 0, 168, { integer: true });
+    const lateFeePct = v.num('cancellation.lateFeePct', draft.lateFeePct, 0, 100, { integer: true, unit: '%' });
+    const veryLateHours = v.num('cancellation.veryLateHours', draft.veryLateHours, 0, 168, { integer: true });
+    const veryLateFeePct = v.num('cancellation.veryLateFeePct', draft.veryLateFeePct, 0, 100, { integer: true, unit: '%' });
+    const cleanerSharePct = v.num('cancellation.cleanerSharePct', draft.cleanerSharePct, 0, 100, { integer: true, unit: '%' });
+    const maxTotalCents = v.cents('cash.maxTotalCents', draft.maxTotal, 0, 1_000_000);
+    const suspendAbs = v.cents('cash.suspendBelowCents', draft.suspendBelow, 0, 1_000_000);
+    const eligibilityDays = v.num('payouts.eligibilityDays', draft.eligibilityDays, 0, 90, { integer: true });
+    const fastPayoutDays = v.num('payouts.fastPayoutDays', draft.fastPayoutDays, 0, 90, { integer: true });
+    const fastPayoutPct = v.num('payouts.fastPayoutPct', draft.fastPayoutPct, 0, 100, { integer: true, unit: '%' });
+    if (freeHours !== undefined && veryLateHours !== undefined && veryLateHours > freeHours) v.errors['cancellation.veryLateHours'] = t.policies.errVeryLate;
+    if (lateFeePct !== undefined && veryLateFeePct !== undefined && lateFeePct > veryLateFeePct) v.errors['cancellation.lateFeePct'] = t.policies.errPctOrder;
+    if (eligibilityDays !== undefined && fastPayoutDays !== undefined && fastPayoutDays > eligibilityDays) v.errors['payouts.fastPayoutDays'] = t.policies.errFast;
+    if (draft.methods.length === 0) v.errors['paymentMethods.enabled'] = t.policies.methodsError;
+    if (Object.keys(v.errors).length > 0) return { errors: v.errors, value: null };
+    const value: PoliciesSettings = {
+      cancellation: {
+        freeHours: freeHours as number,
+        lateFeePct: lateFeePct as number,
+        veryLateHours: veryLateHours as number,
+        veryLateFeePct: veryLateFeePct as number,
+        cleanerSharePct: cleanerSharePct as number,
+      },
+      cash: { maxTotalCents: maxTotalCents as number, minTier: draft.minTier, suspendBelowCents: -(suspendAbs as number) },
+      payouts: {
+        eligibilityDays: eligibilityDays as number,
+        fastPayoutDays: fastPayoutDays as number,
+        fastPayoutPct: fastPayoutPct as number,
+        fastPayoutMinTier: draft.fastPayoutMinTier,
+      },
+      paymentMethods: { enabled: PAYMENT_METHOD_KEYS.filter((k) => draft.methods.includes(k)) },
+    };
+    return { errors: v.errors, value };
+  }, [draft, t, f]);
+
+  const dirty = !build.value || JSON.stringify(build.value) !== JSON.stringify({ ...saved, paymentMethods: saved.paymentMethods ?? DEFAULT_POLICIES.paymentMethods });
+  const toggleMethod = (key: PaymentMethodKey) =>
+    setDraft((d) => ({ ...d, methods: d.methods.includes(key) ? d.methods.filter((m) => m !== key) : [...d.methods, key] }));
+  const set = (key: Exclude<keyof PoliciesDraft, 'methods'>) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setDraft((d) => ({ ...d, [key]: e.target.value }));
+
+  const submit = async () => {
+    if (!build.value) {
+      setErrors(build.errors);
+      setFormError(t.fixErrors);
+      return;
+    }
+    setErrors({});
+    setFormError(null);
+    try {
+      await save(build.value);
+    } catch (err) {
+      if (err instanceof SectionError) {
+        setErrors(err.fieldErrors);
+        setFormError(err.message);
+      }
+    }
+  };
+
+  const numField = (key: Exclude<keyof PoliciesDraft, 'methods' | 'minTier' | 'fastPayoutMinTier'>, label: string, hint?: string, path?: string) => (
+    <Field label={label} hint={hint} error={errors[path ?? key]}>
+      {(p) => <Input {...p} inputMode="decimal" value={draft[key]} onChange={set(key)} disabled={saving} />}
+    </Field>
+  );
+  const tierField = (key: 'minTier' | 'fastPayoutMinTier', label: string, hint?: string) => (
+    <Field label={label} hint={hint}>
+      {(p) => (
+        <NativeSelect {...p} value={draft[key]} onChange={set(key)} disabled={saving}>
+          {TIER_KEYS.map((k) => (
+            <option key={k} value={k}>
+              {t.commission.tierNames[k]}
+            </option>
+          ))}
+        </NativeSelect>
+      )}
+    </Field>
+  );
+
+  return (
+    <SectionForm
+      id="richtlinien"
+      title={t.policies.title}
+      description={t.policies.description}
+      dirty={dirty}
+      saving={saving}
+      formError={formError}
+      onSubmit={submit}
+      onDiscard={discard}
+    >
+      <fieldset className="m-0 min-w-0 border-0 p-0">
+        <legend className="mb-3 text-sm font-semibold text-pine-dark">{t.policies.cancellationLegend}</legend>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {numField('freeHours', t.policies.freeHours, t.policies.freeHoursHint, 'cancellation.freeHours')}
+          {numField('lateFeePct', t.policies.lateFeePct, undefined, 'cancellation.lateFeePct')}
+          {numField('veryLateHours', t.policies.veryLateHours, t.policies.veryLateHoursHint, 'cancellation.veryLateHours')}
+          {numField('veryLateFeePct', t.policies.veryLateFeePct, undefined, 'cancellation.veryLateFeePct')}
+          {numField('cleanerSharePct', t.policies.cleanerSharePct, t.policies.cleanerShareHint, 'cancellation.cleanerSharePct')}
+        </div>
+      </fieldset>
+      <fieldset className="m-0 min-w-0 border-0 border-t border-border p-0 pt-4">
+        <legend className="mb-1 text-sm font-semibold text-pine-dark">{t.policies.methodsLegend}</legend>
+        <p className="mb-3 text-xs text-muted-grey">{t.policies.methodsHint}</p>
+        <div className="flex flex-wrap gap-4">
+          {PAYMENT_METHOD_KEYS.map((key) => (
+            <label key={key} className="flex min-h-[44px] items-center gap-2 text-sm text-charcoal">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-pine"
+                checked={draft.methods.includes(key)}
+                onChange={() => toggleMethod(key)}
+                disabled={saving}
+              />
+              {t.policies.methodNames[key]}
+            </label>
+          ))}
+        </div>
+        {errors['paymentMethods.enabled'] && <p className="mt-1 text-sm text-red-700">{errors['paymentMethods.enabled']}</p>}
+      </fieldset>
+      <fieldset className="m-0 min-w-0 border-0 border-t border-border p-0 pt-4">
+        <legend className="mb-3 text-sm font-semibold text-pine-dark">{t.policies.cashLegend}</legend>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {numField('maxTotal', t.policies.maxTotal, t.policies.maxTotalHint, 'cash.maxTotalCents')}
+          {tierField('minTier', t.policies.minTier, t.policies.minTierHint)}
+          {numField('suspendBelow', t.policies.suspendBelow, t.policies.suspendBelowHint, 'cash.suspendBelowCents')}
+        </div>
+      </fieldset>
+      <fieldset className="m-0 min-w-0 border-0 border-t border-border p-0 pt-4">
+        <legend className="mb-3 text-sm font-semibold text-pine-dark">{t.policies.payoutsLegend}</legend>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {numField('eligibilityDays', t.policies.eligibilityDays, t.policies.eligibilityHint, 'payouts.eligibilityDays')}
+          {numField('fastPayoutDays', t.policies.fastPayoutDays, t.policies.fastHint, 'payouts.fastPayoutDays')}
+          {numField('fastPayoutPct', t.policies.fastPayoutPct, undefined, 'payouts.fastPayoutPct')}
+          {tierField('fastPayoutMinTier', t.policies.fastPayoutMinTier)}
+        </div>
+      </fieldset>
+    </SectionForm>
+  );
+}
+
 export default function AdminSettingsPage() {
   const t = useMessages(settingsMessages);
   const { data, error, reload, setData } = useApi<{ settings: PlatformSettings }>('/admin/settings');
@@ -1385,6 +1587,7 @@ export default function AdminSettingsPage() {
     ['gutscheine', t.giftCards.title],
     ['verguetung', t.workerPay.title],
     ['provision-stufen', t.commission.title],
+    ['richtlinien', t.policies.title],
   ];
 
   return (
@@ -1414,6 +1617,7 @@ export default function AdminSettingsPage() {
           <GiftCardsSection settings={data.settings} onSaved={onSaved} />
           <WorkerPaySection settings={data.settings} onSaved={onSaved} />
           <CommissionSection settings={data.settings} onSaved={onSaved} />
+          <PoliciesSection settings={data.settings} onSaved={onSaved} />
         </div>
       )}
     </>

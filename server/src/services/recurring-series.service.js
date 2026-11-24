@@ -15,7 +15,7 @@ import { createEstimate } from "./estimate.service.js";
 import { pricingSnapshot, vatContained } from "./quote.service.js";
 import { getSlotsForDate, reserveAndCreate } from "./availability.service.js";
 import { cancelBooking, confirmBooking } from "./booking-lifecycle.service.js";
-import { createCheckoutForBooking, isOnlinePaymentAvailable } from "./payment.service.js";
+import { createCheckoutForBooking, isOnlinePaymentAvailable, pickMethod } from "./payment.service.js";
 import { offerJob } from "./job-dispatch.service.js";
 import { sendAdminNotificationEmail, sendSeriesPaymentEmail, trySend } from "./email.service.js";
 import { generateBookingReference } from "../utils/booking-reference.js";
@@ -188,7 +188,7 @@ const createOccurrence = async (series, date, now) => {
   const estimate = quote.estimate;
   const payable = quote.lines.payableCents;
   const online = t.paymentMethod === "online" && isOnlinePaymentAvailable() && payable >= 50;
-  const method = t.paymentMethod === "cash" ? "cash" : online ? "stripe" : "invoice";
+  const method = t.paymentMethod === "cash" ? "cash" : online ? pickMethod() ?? "invoice" : "invoice";
   const reference = await generateBookingReference();
   const priority = series.preferredWorker && RECURRING.priorityHours > 0;
 

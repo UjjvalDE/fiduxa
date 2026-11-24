@@ -22,13 +22,24 @@ import {
 import { OPERATIONS } from "../config/pricing.js";
 import { RELIABILITY } from "../config/pricing.js"; // [E]
 import { addStrike, isPaused } from "../services/reliability.service.js"; // [E]
+import { eligibilityProblem, rejectIfIneligible } from "../services/work-eligibility.service.js";
 import { distanceKm, postcodeFromAddress } from "../data/berlin-postcodes.js"; // [E]
 import { jobMismatch, MISMATCH_MESSAGES } from "../services/worker-profile.service.js";
-import { previewPayCents, recordWorkerEarning, workerPayContext } from "../services/payout.service.js";
-import { recordCashPayment } from "../services/cash.service.js";
+import { previewPayCents, workerPayContext } from "../services/payout.service.js";
+import { assertWorkerMayTakeCash } from "../services/money-policies.service.js";
 import { unreadCounts } from "../services/booking-message.service.js";
-import { sendBookingStatusEmail, sendFeedbackRequestEmail } from "../services/email.service.js";
-import { flagDurationMismatch } from "../services/feedback.service.js";
+import { EXTRA_TIME, requestExtraTime } from "../services/extra-time.service.js";
+import { recordAudit } from "../services/audit.service.js";
+import {
+  JOB_CONFIRMATION,
+  OPEN_JOB_STATUSES,
+  bookedTimes,
+  completeJob,
+  confirmDeadline,
+  lateConfirmProblem,
+  needsConfirmation,
+  resolveActualTimes,
+} from "../services/job-completion.service.js";
 
 // Open jobs: no customer name, phone or street until the cleaner accepts.
 const OPEN_JOB_FIELDS = [
@@ -82,13 +93,24 @@ const WORKER_JOB_FIELDS = [
   "payment.amountCents",
   "payment.status",
   "payment.cashCollectedCents",
+  "priceAdjustments",
+  "assignedWorker",
 ].join(" ");
 
 // Workers see the price only when they have to collect it in cash
 const forWorker = (job, payCtx) => {
-  const { payment, pricing, ...rest } = job;
+  const { payment, pricing, priceAdjustments, ...rest } = job;
+  const confirmable = needsConfirmation(job) && !lateConfirmProblem(job);
   return {
     ...rest,
+    // Past job still open: "Job erledigt bestätigen" / "Nicht stattgefunden"
+    confirmation: needsConfirmation(job)
+      ? { needed: true, possible: confirmable, deadline: confirmDeadline(job.preferredDate), defaults: bookedTimes(job), graceDays: JOB_CONFIRMATION.graceDays }
+      : null,
+    // Own extra-time requests (no prices – the customer decides and pays)
+    extraTimeRequests: (priceAdjustments ?? [])
+      .filter((a) => a.origin === "cleaner")
+      .map((a) => ({ id: a._id, minutes: a.minutes, reason: a.reason, status: a.status, expiresAt: a.expiresAt ?? null, newSlotEnd: a.newSlotEnd ?? "", at: a.at, decidedAt: a.decidedAt ?? null })),
     // Cleaner pay: the immutable record after completion, a preview before
     pay: job.workerPayout?.status
       ? { amountCents: job.workerPayout.amountCents, basis: job.workerPayout.basis ?? "hourly", commissionPct: job.workerPayout.commissionPct, final: true }
@@ -125,7 +147,7 @@ const findAssignedJob = async (req, res) => {
   return booking;
 };
 
-// GET /api/v1/worker/jobs?scope=today|upcoming|past
+// GET /api/v1/worker/jobs?scope=today|upcoming|past|confirm
 export const listMyJobs = async (req, res, next) => {
   try {
     const today = todayInBerlin();
@@ -136,6 +158,11 @@ export const listMyJobs = async (req, res, next) => {
       case "today":
         filter.preferredDate = today;
         filter.status = { $in: ["confirmed", "in_progress", "completed"] };
+        break;
+      case "confirm": // past jobs still waiting for my confirmation
+        filter.preferredDate = { $lt: today };
+        filter.status = { $in: OPEN_JOB_STATUSES };
+        filter["job.notHappened.reportedAt"] = { $exists: false };
         break;
       case "past":
         filter.$or = [
@@ -248,42 +275,175 @@ export const completeMyJob = async (req, res, next) => {
       });
     }
 
-    const cashOpen = booking.payment?.method === "cash" && booking.payment?.status !== "paid";
-    if (cashOpen && cashCollectedCents === undefined) {
-      return res.status(422).json({
-        success: false,
-        message: "Please enter the cash amount you received from the customer.",
-      });
-    }
-
-    booking.setStatus("completed", req.user._id, "Completed by worker");
-    booking.set("job.completedAt", new Date());
-    booking.set("job.workerNote", note);
-    booking.set("job.checklistDone", checklistDone);
-    if (actualDurationMinutes !== undefined) {
-      booking.set("job.actualDurationMinutes", actualDurationMinutes);
-      await flagDurationMismatch(booking);
-    }
-    await recordWorkerEarning(booking);
-    if (cashOpen) {
-      await recordCashPayment(booking, { amountCents: cashCollectedCents, actorId: req.user._id, byWorker: true });
-    }
-    await booking.save();
-
-    // Thank-you email with the invitation to rate the cleaner
-    await trySend("Booking status", () => sendBookingStatusEmail({ booking, status: "completed" }));
-    // One-time feedback request (actual duration, satisfaction, recommend,
-    // recurring keep-cleaner preference). Never sent twice per booking.
-    if (!booking.feedback?.emailedAt) {
-      booking.set("feedback.emailedAt", new Date());
-      await booking.save();
-      await trySend("Feedback request", () => sendFeedbackRequestEmail({ booking }));
-    }
+    const { feedbackPending } = await completeJob(booking, {
+      actor: req.user,
+      source: "worker",
+      note,
+      checklistDone,
+      cashCollectedCents,
+      actualDurationMinutes,
+    });
 
     return res.json({
       success: true,
       message: "Job completed.",
       job: { id: booking._id, status: booking.status, job: booking.job },
+      feedbackPending,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/v1/worker/jobs/:id/confirm-late  { startTime?, endTime?, note?, cashCollectedCents? }
+// "Job erledigt bestätigen": the cleaner forgot Start/Done on the day – confirm
+// with the actual times up to JOB_CONFIRMATION.graceDays after the job date.
+export const confirmMyJobLate = async (req, res, next) => {
+  try {
+    const data = z
+      .object({
+        startTime: z.string().trim().optional(),
+        endTime: z.string().trim().optional(),
+        note: z.string().trim().max(2000).optional().default(""),
+        checklistDone: z.array(z.string().trim().max(100)).max(100).optional().default([]),
+        cashCollectedCents: z.number().int().min(0).max(1_000_000).optional(),
+      })
+      .parse(req.body ?? {});
+
+    const booking = await findAssignedJob(req, res);
+    if (!booking) return;
+
+    // Idempotent: a repeated confirmation of the same job is a no-op
+    if (booking.status === "completed" && booking.job?.lateConfirmation) {
+      return res.json({
+        success: true,
+        alreadyCompleted: true,
+        message: "Job already confirmed.",
+        job: { id: booking._id, status: booking.status, job: booking.job },
+        feedbackPending: false,
+      });
+    }
+
+    const problem = lateConfirmProblem(booking);
+    if (problem) {
+      const messages = {
+        NOT_OPEN: "This job cannot be confirmed any more.",
+        REPORTED_NOT_HAPPENED: "You reported that this job did not take place – the office decides.",
+        NOT_YET: "This job has not started yet.",
+        WINDOW_CLOSED: `Jobs can be confirmed up to ${JOB_CONFIRMATION.graceDays} days after the date. Please contact the office.`,
+      };
+      return res.status(409).json({ success: false, code: `LATE_CONFIRM_${problem}`, message: messages[problem] });
+    }
+
+    const { startedAt, completedAt, minutes } = resolveActualTimes(booking, data);
+    const { feedbackPending } = await completeJob(booking, {
+      actor: req.user,
+      source: "late",
+      note: data.note,
+      checklistDone: data.checklistDone,
+      cashCollectedCents: data.cashCollectedCents,
+      actualDurationMinutes: minutes,
+      startedAt,
+      completedAt,
+      historyNote: "Confirmed late by worker",
+    });
+
+    return res.json({
+      success: true,
+      message: "Job confirmed.",
+      job: { id: booking._id, status: booking.status, job: booking.job },
+      feedbackPending,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/v1/worker/jobs/:id/not-happened  { reason, note? }
+// Customer not home / no access / other → office decides (no automatic fee)
+export const reportJobNotHappened = async (req, res, next) => {
+  try {
+    const { reason, note } = z
+      .object({
+        reason: z.enum(["customer_absent", "no_access", "other"]),
+        note: z.string().trim().max(1000).optional().default(""),
+      })
+      .refine((d) => d.reason !== "other" || d.note.length >= 5, { message: "Please describe what happened.", path: ["note"] })
+      .parse(req.body ?? {});
+
+    const booking = await findAssignedJob(req, res);
+    if (!booking) return;
+
+    if (booking.job?.notHappened?.reportedAt) {
+      return res.json({ success: true, alreadyReported: true, message: "Already reported. The office has been notified." });
+    }
+    const problem = lateConfirmProblem(booking);
+    if (problem && problem !== "WINDOW_CLOSED") {
+      return res.status(409).json({ success: false, code: `NOT_HAPPENED_${problem}`, message: "This job cannot be reported now." });
+    }
+
+    const claimed = await Booking.updateOne(
+      { _id: booking._id, status: { $in: OPEN_JOB_STATUSES }, "job.notHappened.reportedAt": { $exists: false } },
+      {
+        $set: {
+          "job.notHappened": { reportedAt: new Date(), reportedBy: req.user._id, reason, note, decision: "pending" },
+        },
+        $push: { statusHistory: { status: booking.status, changedAt: new Date(), changedBy: req.user._id, note: `Reported not happened (${reason})${note ? `: ${note}` : ""}` } },
+      }
+    );
+    if (claimed.modifiedCount === 0) {
+      return res.status(409).json({ success: false, message: "This job cannot be reported now." });
+    }
+
+    await recordAudit({
+      actor: req.user._id,
+      action: "booking.job.not_happened",
+      entityType: "Booking",
+      entityId: booking._id,
+      after: { reason, note },
+    });
+    await trySend("Admin notification", () =>
+      sendAdminNotificationEmail({
+        subject: `Auftrag nicht stattgefunden: ${booking.reference}`,
+        lines: [
+          `Referenz: ${booking.reference}`,
+          `Termin: ${formatGermanDate(booking.preferredDate)}, ${slotLabel(booking.slot, booking.slotEnd)}`,
+          `Reinigungskraft: ${req.user.name}`,
+          `Grund: ${reason}`,
+          `Notiz: ${note || "–"}`,
+          "Bitte im Admin-Bereich entscheiden (Gebühr nach Richtlinie / kostenlos stornieren / zurückweisen).",
+        ],
+      })
+    );
+
+    return res.status(201).json({ success: true, message: "Reported. The office will decide." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/v1/worker/jobs/:id/extra-time  { minutes, reason }
+// Ask the customer for more time during the running job (see extra-time.service.js)
+export const requestMyExtraTime = async (req, res, next) => {
+  try {
+    const { minutes, reason } = z
+      .object({
+        minutes: z
+          .number()
+          .int()
+          .min(EXTRA_TIME.minMinutes)
+          .max(EXTRA_TIME.maxMinutes)
+          .refine((m) => m % EXTRA_TIME.stepMinutes === 0, `Minutes must be in ${EXTRA_TIME.stepMinutes}-minute steps.`),
+        reason: z.string().trim().min(5, "Please explain why you need more time.").max(500),
+      })
+      .parse(req.body ?? {});
+    const booking = await findAssignedJob(req, res);
+    if (!booking) return;
+    const adjustment = await requestExtraTime(booking, req.user, { minutes, reason });
+    return res.status(201).json({
+      success: true,
+      message: "Extra time requested. The customer has been asked to approve it.",
+      request: { id: adjustment._id, minutes: adjustment.minutes, reason: adjustment.reason, status: adjustment.status, expiresAt: adjustment.expiresAt, newSlotEnd: adjustment.newSlotEnd },
     });
   } catch (error) {
     next(error);
@@ -378,6 +538,9 @@ export const listOpenJobs = async (req, res, next) => {
     if (isPaused(req.user)) {
       return res.json({ success: true, count: 0, jobs: [], paused: true, pausedAt: req.user.reliability.pausedAt });
     }
+    // Documents missing / expired → no open jobs at all (409 codes explain why on accept)
+    const blocked = eligibilityProblem(req.user, null);
+    if (blocked) return res.json({ success: true, count: 0, jobs: [], eligibility: { code: blocked.code, kind: blocked.kind } });
     const homePlz = postcodeFromAddress(req.user.workerProfile?.address);
     const candidates = await Booking.find({
       status: "confirmed",
@@ -400,6 +563,7 @@ export const listOpenJobs = async (req, res, next) => {
       .filter((booking) => isOpenJob(booking)) // not started / not in the past
       .filter((booking) => !priorityBlocks(booking, req.user._id)) // reserved for the preferred cleaner
       .filter((booking) => !jobMismatch(req.user, booking)) // holiday, pets, working hours
+      .filter((booking) => !eligibilityProblem(req.user, booking.preferredDate)) // ID / permit valid on the job date
       .filter((booking) => !conflictIn(myBusy, booking))
       .map((booking) => toOpenJob(booking, payCtx, homePlz))
       // nearest first, then date/time (unknown distances last)
@@ -445,6 +609,9 @@ export const acceptJob = async (req, res, next) => {
       return res.status(409).json({ success: false, message: MISMATCH_MESSAGES[mismatch], reason: mismatch });
     }
 
+    // Work eligibility: documents verified + valid on the job date (409 DOCUMENTS_* / *_EXPIRES_BEFORE_JOB)
+    if (rejectIfIneligible(res, req.user, booking.preferredDate)) return;
+
     const conflict = await findWorkerConflict(req.user._id, booking);
     if (conflict) {
       return res.status(409).json({
@@ -452,6 +619,9 @@ export const acceptJob = async (req, res, next) => {
         message: `You already have job ${conflict.reference} at that time.`,
       });
     }
+
+    // Cash policy: below the minimum tier or holding too much cash → no cash jobs (409 CASH_BLOCKED)
+    await assertWorkerMayTakeCash(req.user, booking);
 
     const claimed = await claimJob(booking._id, req.user._id);
     if (!claimed) {

@@ -49,6 +49,10 @@ const de = {
     keepSame: 'Gleiche Reinigungskraft',
     keepDifferent: 'Bitte jemand anderes',
     keepAuto: 'Fiduxa entscheidet',
+    cashQuestion: 'Wie viel Bargeld hast du der Reinigungskraft gegeben?',
+    cashHint: (amount: string) => `Gemeldet wurden ${amount}. Bei Abweichung prüft unser Büro den Fall.`,
+    cashHintNone: 'Optional – hilft uns bei der Abrechnung.',
+    cashInvalid: 'Bitte gib einen gültigen Betrag ein (z. B. 75 oder 75,50).',
   },
 };
 
@@ -100,6 +104,10 @@ const en: FeedbackMessages = {
     keepSame: 'The same cleaner',
     keepDifferent: 'Someone else, please',
     keepAuto: 'Fiduxa decides',
+    cashQuestion: 'How much cash did you hand to your cleaner?',
+    cashHint: (amount) => `${amount} was reported. If it differs, our office reviews the case.`,
+    cashHintNone: 'Optional – helps us with the settlement.',
+    cashInvalid: 'Please enter a valid amount (e.g. 75 or 75.50).',
   },
 };
 
@@ -149,6 +157,10 @@ const pl: FeedbackMessages = {
     keepSame: 'Ta sama osoba sprzątająca',
     keepDifferent: 'Proszę kogoś innego',
     keepAuto: 'Fiduxa decyduje',
+    cashQuestion: 'Ile gotówki przekazałeś/-aś osobie sprzątającej?',
+    cashHint: (amount) => `Zgłoszono ${amount}. W razie różnicy nasze biuro sprawdzi sprawę.`,
+    cashHintNone: 'Opcjonalnie – pomaga nam w rozliczeniu.',
+    cashInvalid: 'Podaj prawidłową kwotę (np. 75 lub 75,50).',
   },
 };
 

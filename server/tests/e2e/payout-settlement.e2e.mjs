@@ -82,7 +82,7 @@ r = await completeJob(job1, anna._id, annaT);
 b = await Booking.findById(job1);
 check("TEST 8b: earnings record: gross €75, pay €56.25 (75 %), commission €18.75, pending", r.status === 200 && b.workerPayout.amountCents === 5625 && b.workerPayout.grossCents === 7500 && b.workerPayout.commissionCents === 1875 && b.workerPayout.status === "pending", b.workerPayout);
 const dueIn = Math.round((b.workerPayout.dueAt - b.workerPayout.earnedAt) / DAY_MS);
-check("TEST 8c: eligibility date = completion + 30 days (configurable)", dueIn === 30, dueIn);
+check("TEST 8c: eligibility date = completion + 7 days (weekly payouts, configurable)", dueIn === 7, dueIn);
 r = await call("GET", "/worker/earnings", null, annaT);
 check("TEST 9a: cleaner sees pending earnings, nothing withdrawable", r.body.summary.pendingCents === 5625 && r.body.summary.dueCents === 0 && r.body.jobs[0].status === "pending", r.body.summary);
 r = await call("POST", "/admin/payouts", { workerId: String(anna._id) }, adminT);

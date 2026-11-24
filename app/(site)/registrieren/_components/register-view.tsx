@@ -8,6 +8,7 @@ import { useMessages } from '@/lib/i18n/client';
 import authMessages from '../../buchung/_auth-messages';
 import { RegisterForm } from '../../buchung/_components/auth-forms';
 import { AuthPending, AuthShell, useRedirectIfAuthenticated } from '../../buchung/_components/auth-shell';
+import { SocialLogin } from '../../buchung/_components/social-login';
 import { safeNext } from '../../buchung/_lib/messages';
 
 export function RegisterView() {
@@ -33,7 +34,14 @@ export function RegisterView() {
         )
       }
     >
-      {blocked ? <AuthPending label={t.redirecting} /> : <RegisterForm onSuccess={() => toast.success(t.register.welcome)} />}
+      {blocked ? (
+        <AuthPending label={t.redirecting} />
+      ) : (
+        <>
+          <SocialLogin from="register" next={next} />
+          <RegisterForm onSuccess={() => toast.success(t.register.welcome)} />
+        </>
+      )}
     </AuthShell>
   );
 }

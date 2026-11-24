@@ -24,7 +24,7 @@ const de = {
     pay: {
       title: 'Sicher online bezahlen',
       text: (holdMinutes: number) =>
-        `Sobald du buchst, wird deine Buchung angelegt und der Termin ${holdMinutes} Minuten für dich reserviert. Du bezahlst über unseren Zahlungsanbieter Stripe, zum Beispiel per Karte.`,
+        `Sobald du buchst, wird deine Buchung angelegt und der Termin ${holdMinutes} Minuten für dich reserviert. Du bezahlst sicher mit PayPal.`,
       detail: 'Nach erfolgreicher Zahlung ist dein Termin automatisch bestätigt – die Bestätigung erhältst du per E-Mail.',
     },
     clean: {
@@ -85,7 +85,7 @@ const en: Messages = {
     pay: {
       title: 'Pay securely online',
       text: (holdMinutes) =>
-        `As soon as you book, your booking is created and the slot is reserved for you for ${holdMinutes} minutes. You pay via our payment provider Stripe, for example by card.`,
+        `As soon as you book, your booking is created and the slot is reserved for you for ${holdMinutes} minutes. You pay securely with PayPal.`,
       detail: 'Once the payment has gone through, your booking is confirmed automatically – you receive the confirmation by email.',
     },
     clean: {
@@ -143,7 +143,7 @@ const pl: Messages = {
     pay: {
       title: 'Zapłać bezpiecznie online',
       text: (holdMinutes) =>
-        `Gdy tylko zarezerwujesz, tworzymy Twoją rezerwację, a termin jest zarezerwowany dla Ciebie przez ${holdMinutes} minut. Płacisz przez naszego operatora płatności Stripe, na przykład kartą.`,
+        `Gdy tylko zarezerwujesz, tworzymy Twoją rezerwację, a termin jest zarezerwowany dla Ciebie przez ${holdMinutes} minut. Płacisz bezpiecznie przez PayPal.`,
       detail: 'Po udanej płatności Twój termin zostaje automatycznie potwierdzony – potwierdzenie otrzymasz e-mailem.',
     },
     clean: {

@@ -68,7 +68,7 @@ const de = {
     discount: 'Rabatt',
     extrasTitle: 'Zusatzleistungen',
     preview: 'Vorschau – wird gerade bestätigt',
-    note: 'Festpreis nach Stunden. Du bezahlst online – oder, falls angeboten, bar nach der Reinigung.',
+    note: 'Festpreis nach Stunden. Du bezahlst online mit PayPal.',
   },
   checkout: {
     lead: 'Fast geschafft – sag uns noch, wo wir putzen und wie wir dich erreichen. Danach wählst du, wie du bezahlen möchtest.',
@@ -151,7 +151,7 @@ const en: FlowMessages = {
     discount: 'Discount',
     extrasTitle: 'Extras',
     preview: 'Preview – being confirmed',
-    note: 'Fixed price by the hour. You pay online – or, if offered, in cash after the cleaning.',
+    note: 'Fixed price by the hour. You pay online with PayPal.',
   },
   checkout: {
     lead: 'Almost done – tell us where we clean and how to reach you. Then choose how you would like to pay.',
@@ -232,7 +232,7 @@ const pl: FlowMessages = {
     discount: 'Rabat',
     extrasTitle: 'Usługi dodatkowe',
     preview: 'Podgląd – trwa potwierdzanie',
-    note: 'Stała cena według godzin. Płacisz online – albo, jeśli dostępne, gotówką po sprzątaniu.',
+    note: 'Stała cena według godzin. Płacisz online przez PayPal.',
   },
   checkout: {
     lead: 'Prawie gotowe – powiedz nam, gdzie sprzątamy i jak się z Tobą skontaktować. Potem wybierz sposób płatności.',

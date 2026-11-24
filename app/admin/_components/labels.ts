@@ -6,7 +6,7 @@ import type { BookingStatus, BusinessRequest, StatusHistoryEntry } from '@/lib/t
 /** Mirrors ALLOWED_TRANSITIONS in server/src/controllers/admin.controller.js */
 export const ALLOWED_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> = {
   payment_pending: ['confirmed', 'cancelled'],
-  confirmed: ['in_progress', 'cancelled'],
+  confirmed: ['in_progress', 'completed', 'cancelled'],
   in_progress: ['completed'],
   // legacy quotation-flow records
   pending_quotation: ['cancelled'],

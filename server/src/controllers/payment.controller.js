@@ -4,7 +4,9 @@ import { z } from "zod";
 import Booking from "../models/booking.model.js";
 import Payment from "../models/payment.model.js";
 import {
+  assertMethodEnabled,
   availableMethods,
+  cashAllowed,
   bookingMethods,
   createCheckoutForBooking,
   getStripe,
@@ -19,10 +21,11 @@ import {
 import { capturePayPalOrder, isPayPalConfigured, verifyPayPalWebhookSignature } from "../services/paypal.service.js";
 import { withLock } from "../utils/lock.js";
 import { logger } from "../utils/logger.js";
-import { PAYMENT_OPTIONS } from "../config/pricing.js";
+
 import { reclaimSlot, releaseSlot } from "../services/availability.service.js";
 import { reacquireBookingDiscounts } from "../services/booking-discounts.service.js";
 import { activatePaidGiftCard } from "../services/gift-card-purchase.service.js";
+import { applyPaidAdjustment, captureAdjustmentPayPal } from "../services/money-policies.service.js";
 
 // Late payment for an expired hold: slot, promotion and gift card amounts
 // must ALL be available again – otherwise the payment is refunded.
@@ -65,7 +68,7 @@ export const getPaymentConfig = (req, res) => {
     methods: availableMethods(),
     // Everything the customer can choose at checkout, incl. "cash"
     bookingMethods: bookingMethods(),
-    cashEnabled: PAYMENT_OPTIONS.cashEnabled,
+    cashEnabled: cashAllowed(),
   });
 };
 
@@ -114,6 +117,8 @@ export const createCheckoutSession = async (req, res, next) => {
         method: z.enum(["stripe", "paypal"]).optional(),
       })
       .parse(req.body);
+    // Payment-method policy (POLICIES.paymentMethods – currently PayPal only)
+    assertMethodEnabled(method);
 
     const booking = await Booking.findOne({ _id: bookingId, customer: req.user._id });
 

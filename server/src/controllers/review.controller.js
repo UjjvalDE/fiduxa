@@ -10,6 +10,8 @@ import { refreshWorkerTier } from "../services/commission.service.js";
 import { flagDurationMismatch } from "../services/feedback.service.js";
 import User from "../models/user.model.js";
 import BookingSeries from "../models/booking-series.model.js";
+import { CUSTOMER_ISSUE_TAGS } from "../models/job-feedback.model.js";
+import { saveCustomerFeedback } from "../services/job-feedback.service.js";
 
 const REVIEW_WINDOW_DAYS = 60;
 
@@ -35,6 +37,14 @@ export const createReview = async (req, res, next) => {
         actualDurationMinutes: z.number().int().min(15).max(1440).optional(),
         // Recurring bookings: who should clean next time?
         keepCleaner: z.enum(["same", "different", "auto"]).optional(),
+        // Cash bookings: the amount the customer handed to the cleaner
+        actualCashCents: z.number().int().min(0).max(1_000_000).optional(),
+        // Structured post-service feedback (pop-up) – stored as JobFeedback
+        overallExperience: score.optional(),
+        professionalPunctual: score.optional(),
+        completedAsExpected: z.enum(["yes", "partly", "no"]).optional(),
+        issueTags: z.array(z.enum(CUSTOMER_ISSUE_TAGS)).max(CUSTOMER_ISSUE_TAGS.length).optional(),
+        issueText: z.string().trim().max(1000).optional(),
       })
       .parse(req.body);
 
@@ -51,7 +61,7 @@ export const createReview = async (req, res, next) => {
       });
     }
 
-    const { actualDurationMinutes, keepCleaner, ...reviewData } = data;
+    const { actualDurationMinutes, keepCleaner, actualCashCents, overallExperience, professionalPunctual, completedAsExpected, issueTags, issueText, ...reviewData } = data;
     const review = await Review.create({
       booking: booking._id,
       customer: req.user._id,
@@ -64,6 +74,16 @@ export const createReview = async (req, res, next) => {
       throw error;
     });
 
+    // Every rating also lands in the structured feedback (cleanerRating = stars)
+    await saveCustomerFeedback(booking, {
+      overallExperience,
+      cleanerRating: data.rating,
+      professionalPunctual,
+      completedAsExpected,
+      issueTags: issueTags?.length ? [...new Set(issueTags)] : undefined,
+      issueText: issueText || undefined,
+    });
+
     if (data.rating <= 2) {
       await trySend("Admin notification", () =>
         sendAdminNotificationEmail({
@@ -74,6 +94,25 @@ export const createReview = async (req, res, next) => {
     }
 
     // Customer-reported actual duration + duration-mismatch review flag
+    // Cash confirmation: a different amount than the cleaner reported flags the booking
+    if (actualCashCents !== undefined && booking.payment?.method === "cash") {
+      booking.set("feedback.customer.actualCashCents", actualCashCents);
+      booking.set("feedback.customer.submittedAt", new Date());
+      const reported = booking.payment?.cashCollectedCents;
+      const mismatch = reported != null && reported !== actualCashCents;
+      if (mismatch && !booking.feedback?.cashMismatch) {
+        await trySend("Admin notification", () =>
+          sendAdminNotificationEmail({
+            subject: `Bar-Abweichung bei ${booking.reference}`,
+            lines: [
+              `Reinigungskraft meldete: ${(reported / 100).toFixed(2)} € · Kunde bestätigt: ${(actualCashCents / 100).toFixed(2)} €`,
+              "Bitte prüfen und mit der Reinigungskraft klären.",
+            ],
+          })
+        );
+      }
+      booking.set("feedback.cashMismatch", mismatch);
+    }
     if (actualDurationMinutes !== undefined) {
       booking.set("feedback.customer.actualDurationMinutes", actualDurationMinutes);
       booking.set("feedback.customer.submittedAt", new Date());

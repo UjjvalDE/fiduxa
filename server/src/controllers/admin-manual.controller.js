@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import Booking from "../models/booking.model.js";
 import User from "../models/user.model.js";
-import { OPERATIONS, PAYMENT_OPTIONS, PRICING, SUPPORTED_LOCALES } from "../config/pricing.js";
+import { OPERATIONS, PRICING, SUPPORTED_LOCALES } from "../config/pricing.js";
 import { findExtra, findService } from "../data/catalogue.js";
 import { recordAudit } from "../services/audit.service.js";
 import { reserveAndCreate } from "../services/availability.service.js";
@@ -16,7 +16,7 @@ import { reserveBookingDiscounts, rollbackBookingDiscounts } from "../services/b
 import { confirmBooking } from "../services/booking-lifecycle.service.js";
 import { sendPasswordResetEmail, trySend } from "../services/email.service.js";
 import { sendPaymentLinkEmail } from "../services/invoice-email.service.js";
-import { createCheckoutForBooking, isOnlinePaymentAvailable } from "../services/payment.service.js";
+import { assertMethodEnabled, createCheckoutForBooking, isOnlinePaymentAvailable } from "../services/payment.service.js";
 import { buildQuote, pricingSnapshot, publicQuote } from "../services/quote.service.js";
 import { generateBookingReference } from "../utils/booking-reference.js";
 import { getSiteUrl } from "../utils/site-url.js";
@@ -157,9 +157,9 @@ export const createManualBooking = async (req, res, next) => {
         throw httpError(422, `Duration must be between ${PRICING.minimumMinutes} and ${PRICING.maximumMinutes} minutes in ${PRICING.roundingMinutes}-minute steps.`);
       }
     }
-    if (data.paymentMethod === "cash" && !PAYMENT_OPTIONS.cashEnabled) {
-      return res.status(422).json({ success: false, message: "Cash payment is not available." });
-    }
+    // Payment-method policy (POLICIES.paymentMethods – currently PayPal only);
+    // "link" = online pay link (only the enabled online methods), "invoice" = office arrangement
+    if (data.paymentMethod === "cash") assertMethodEnabled("cash");
     if (data.paymentMethod === "link" && !isOnlinePaymentAvailable()) {
       return res.status(422).json({ success: false, message: "Online payment is not configured yet. Please choose cash or invoice." });
     }

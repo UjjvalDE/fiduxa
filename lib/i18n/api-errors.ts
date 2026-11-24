@@ -11,6 +11,17 @@ import type { Locale } from './config';
 type Dict = Record<string, string>;
 
 const DE: Dict = {
+  // job confirmation (cleaner / admin correction)
+  'Please enter times as HH:MM.': 'Bitte Zeiten als HH:MM eingeben.',
+  'The end time must be after the start time (same day).': 'Das Ende muss nach dem Beginn liegen (gleicher Tag).',
+  'The end time cannot be in the future.': 'Das Ende darf nicht in der Zukunft liegen.',
+  'This job is already completed.': 'Dieser Auftrag ist bereits abgeschlossen.',
+  'This job cannot be confirmed any more.': 'Dieser Auftrag kann nicht mehr bestätigt werden.',
+  'You reported that this job did not take place – the office decides.': 'Du hast gemeldet, dass der Einsatz nicht stattgefunden hat – das Büro entscheidet.',
+  'This job has not started yet.': 'Dieser Einsatz hat noch nicht begonnen.',
+  'This job cannot be reported now.': 'Dieser Einsatz kann jetzt nicht gemeldet werden.',
+  'No open report for this booking.': 'Zu dieser Buchung gibt es keine offene Meldung.',
+  'Admin-Korrektur: please give a reason (the cleaner normally starts and completes the job).': 'Admin-Korrektur: Bitte einen Grund angeben (normalerweise startet und beendet die Reinigungskraft den Einsatz).',
   // auth & account
   'Authentication required': 'Bitte melde dich an.',
   'Invalid or expired token': 'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.',
@@ -25,6 +36,10 @@ const DE: Dict = {
   'Unable to create account': 'Das Konto konnte nicht erstellt werden.',
   'Unable to log in': 'Die Anmeldung ist fehlgeschlagen.',
   'Current password is incorrect.': 'Das aktuelle Passwort ist falsch.',
+  'This account has no password yet. Use "Forgot password" to set one.':
+    'Dein Konto hat noch kein Passwort (Anmeldung über Google/Apple). Lege über „Passwort vergessen?“ eines fest.',
+  'Please confirm the deletion by entering the email address of your account.':
+    'Bitte bestätige die Löschung mit der E-Mail-Adresse deines Kontos.',
   'The reset link is invalid or has expired.': 'Der Link ist ungültig oder abgelaufen.',
   'You do not have permission to access this resource': 'Dafür fehlt dir die Berechtigung.',
   // booking
@@ -231,12 +246,44 @@ const DE: Dict = {
   'Nothing to change.': 'Es gibt nichts zu ändern.',
   // [slot-B-de]
   // [slot-C-de]
+  // money policies (cancellation fees, cash rules, adjustments, refunds)
+  'Cash payment is only possible up to 150.00 €.': 'Barzahlung ist nur bis 150,00 € möglich.',
+  'Cash jobs require at least the Bronze level. Please choose jobs paid online.': 'Bar-Aufträge gibt es ab Stufe Bronze. Bitte wähle online bezahlte Aufträge.',
+  'You are holding too much customer cash. Please settle it with the office before taking new cash jobs.': 'Du hältst zu viel Bargeld von Kundschaft. Bitte rechne es zuerst mit dem Büro ab, bevor du neue Bar-Aufträge übernimmst.',
+  'A booking with status "cancelled" cannot be cancelled.': 'Diese Buchung ist bereits storniert.',
+  'This adjustment has already been decided.': 'Über diese Preisanpassung wurde bereits entschieden.',
+  'This adjustment is already settled.': 'Diese Preisanpassung ist bereits abgeschlossen.',
+  'There is nothing to pay for this adjustment.': 'Für diese Preisanpassung ist nichts zu zahlen.',
+  'Adjustment not found.': 'Preisanpassung nicht gefunden.',
+  'Adjustment approved.': 'Preisanpassung bestätigt.',
+  'Adjustment declined.': 'Preisanpassung abgelehnt.',
+  'Adjustment proposed to the customer.': 'Preisanpassung wurde dem Kunden vorgeschlagen.',
+  'Adjustment waived.': 'Preisanpassung erlassen.',
+  'Adjustment marked as paid.': 'Preisanpassung als bezahlt markiert.',
+  'Duration adjustments are only possible for completed bookings.': 'Dauer-Anpassungen sind nur bei abgeschlossenen Buchungen möglich.',
+  'There is already an open duration adjustment for this booking.': 'Für diese Buchung gibt es bereits eine offene Dauer-Anpassung.',
+  'The duration change does not change the price.': 'Diese Dauer-Änderung ändert den Preis nicht.',
+  'A negative adjustment is refunded, not paid. Use waive or refund it manually.': 'Eine negative Anpassung wird erstattet, nicht bezahlt. Bitte erlassen oder manuell erstatten.',
+  'There is no payable amount for this adjustment. Please contact us.': 'Für diese Anpassung gibt es keinen zahlbaren Betrag. Bitte kontaktiere uns.',
+  'Refund issued.': 'Erstattung ausgelöst.',
+  'Partial refund issued.': 'Teilerstattung ausgelöst.',
   // [slot-D-de]
   // [slot-E-de]
   // [slot-F-de]
 };
 
 const PL: Dict = {
+  // job confirmation (cleaner / admin correction)
+  'Please enter times as HH:MM.': 'Wpisz godziny w formacie GG:MM.',
+  'The end time must be after the start time (same day).': 'Koniec musi być po początku (ten sam dzień).',
+  'The end time cannot be in the future.': 'Koniec nie może być w przyszłości.',
+  'This job is already completed.': 'To zlecenie jest już zakończone.',
+  'This job cannot be confirmed any more.': 'Tego zlecenia nie można już potwierdzić.',
+  'You reported that this job did not take place – the office decides.': 'Zgłoszono, że zlecenie się nie odbyło – decyduje biuro.',
+  'This job has not started yet.': 'To zlecenie jeszcze się nie rozpoczęło.',
+  'This job cannot be reported now.': 'Tego zlecenia nie można teraz zgłosić.',
+  'No open report for this booking.': 'Brak otwartego zgłoszenia dla tej rezerwacji.',
+  'Admin-Korrektur: please give a reason (the cleaner normally starts and completes the job).': 'Korekta admina: podaj powód (zwykle osoba sprzątająca sama rozpoczyna i kończy zlecenie).',
   'Authentication required': 'Zaloguj się.',
   'Invalid or expired token': 'Sesja wygasła. Zaloguj się ponownie.',
   'Invalid or inactive account': 'To konto jest nieaktywne.',
@@ -250,6 +297,10 @@ const PL: Dict = {
   'Unable to create account': 'Nie udało się utworzyć konta.',
   'Unable to log in': 'Logowanie nie powiodło się.',
   'Current password is incorrect.': 'Obecne hasło jest nieprawidłowe.',
+  'This account has no password yet. Use "Forgot password" to set one.':
+    'Twoje konto nie ma jeszcze hasła (logowanie przez Google/Apple). Ustaw je przez „Nie pamiętasz hasła?”.',
+  'Please confirm the deletion by entering the email address of your account.':
+    'Potwierdź usunięcie, podając adres e-mail swojego konta.',
   'The reset link is invalid or has expired.': 'Link jest nieprawidłowy lub wygasł.',
   'You do not have permission to access this resource': 'Brak uprawnień.',
   'Please check the submitted information.': 'Sprawdź wprowadzone dane.',
@@ -450,6 +501,26 @@ const PL: Dict = {
   'Nothing to change.': 'Nie ma nic do zmiany.',
   // [slot-B-pl]
   // [slot-C-pl]
+  'Cash payment is only possible up to 150.00 €.': 'Płatność gotówką jest możliwa tylko do 150,00 €.',
+  'Cash jobs require at least the Bronze level. Please choose jobs paid online.': 'Zlecenia gotówkowe wymagają co najmniej poziomu Brąz. Wybierz zlecenia opłacane online.',
+  'You are holding too much customer cash. Please settle it with the office before taking new cash jobs.': 'Masz zbyt dużo gotówki od klientów. Rozlicz ją najpierw z biurem, zanim przyjmiesz nowe zlecenia gotówkowe.',
+  'A booking with status "cancelled" cannot be cancelled.': 'Ta rezerwacja jest już anulowana.',
+  'This adjustment has already been decided.': 'Decyzja o tej korekcie ceny została już podjęta.',
+  'This adjustment is already settled.': 'Ta korekta ceny jest już rozliczona.',
+  'There is nothing to pay for this adjustment.': 'Za tę korektę nie ma nic do zapłaty.',
+  'Adjustment not found.': 'Nie znaleziono korekty ceny.',
+  'Adjustment approved.': 'Korekta ceny zaakceptowana.',
+  'Adjustment declined.': 'Korekta ceny odrzucona.',
+  'Adjustment proposed to the customer.': 'Korekta ceny została zaproponowana klientowi.',
+  'Adjustment waived.': 'Korekta ceny anulowana.',
+  'Adjustment marked as paid.': 'Korekta ceny oznaczona jako opłacona.',
+  'Duration adjustments are only possible for completed bookings.': 'Korekty czasu są możliwe tylko dla zakończonych rezerwacji.',
+  'There is already an open duration adjustment for this booking.': 'Dla tej rezerwacji istnieje już otwarta korekta czasu.',
+  'The duration change does not change the price.': 'Ta zmiana czasu nie zmienia ceny.',
+  'A negative adjustment is refunded, not paid. Use waive or refund it manually.': 'Ujemna korekta jest zwracana, nie opłacana. Anuluj ją lub zwróć ręcznie.',
+  'There is no payable amount for this adjustment. Please contact us.': 'Za tę korektę nie ma kwoty do zapłaty. Skontaktuj się z nami.',
+  'Refund issued.': 'Zwrot zlecony.',
+  'Partial refund issued.': 'Częściowy zwrot zlecony.',
   // [slot-D-pl]
   // [slot-E-pl]
   // [slot-F-pl]

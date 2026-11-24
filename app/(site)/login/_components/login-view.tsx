@@ -8,6 +8,7 @@ import { useMessages } from '@/lib/i18n/client';
 import authMessages from '../../buchung/_auth-messages';
 import { LoginForm } from '../../buchung/_components/auth-forms';
 import { AuthPending, AuthShell, useRedirectIfAuthenticated } from '../../buchung/_components/auth-shell';
+import { SocialLogin } from '../../buchung/_components/social-login';
 import { safeNext } from '../../buchung/_lib/messages';
 
 export function LoginView() {
@@ -36,7 +37,10 @@ export function LoginView() {
       {blocked ? (
         <AuthPending label={t.redirecting} />
       ) : (
-        <LoginForm onSuccess={(user) => toast.success(t.login.welcome(user.name.split(' ')[0]))} />
+        <>
+          <SocialLogin from="login" next={next} />
+          <LoginForm onSuccess={(user) => toast.success(t.login.welcome(user.name.split(' ')[0]))} />
+        </>
       )}
     </AuthShell>
   );

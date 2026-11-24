@@ -9,6 +9,8 @@ import { createEstimate } from "./estimate.service.js";
 import { computeDiscount } from "./promotion.service.js";
 import { moveBooking } from "./availability.service.js";
 import { findWorkerConflict } from "./job-dispatch.service.js";
+import { eligibilityProblem } from "./work-eligibility.service.js";
+import User from "../models/user.model.js";
 import { OPERATIONS, PRICING } from "../config/pricing.js";
 import { httpError, slotStartInstant } from "../utils/helpers.js";
 
@@ -128,7 +130,9 @@ export const rescheduleBooking = async (booking, { slotId, startTime, preferredD
       slot: startTime,
       estimate: { durationMinutes },
     };
-    const conflict = await findWorkerConflict(booking.assignedWorker, probe);
+    const worker = await User.findById(booking.assignedWorker).select("role documents workEligibility");
+    // Cleaner busy at the new time, or their ID / permit expires before the new date
+    const conflict = (await findWorkerConflict(booking.assignedWorker, probe)) || (worker && eligibilityProblem(worker, preferredDate));
     if (conflict) {
       if (!forceUnassign) {
         throw Object.assign(

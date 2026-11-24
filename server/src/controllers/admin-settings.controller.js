@@ -125,6 +125,13 @@ const settingsSchema = z
             fastPayoutMinTier: z.enum(["new", "bronze", "silver", "gold", "platinum", "diamond"]),
           })
           .refine((p) => p.fastPayoutDays <= p.eligibilityDays, "The fast payout must come before the regular eligibility."),
+        // Selectable customer payment methods (owner decision: PayPal only for now)
+        paymentMethods: z
+          .object({
+            enabled: z.array(z.enum(["paypal", "stripe", "cash"])).min(1, "At least one payment method must stay enabled.").max(3)
+              .transform((list) => [...new Set(list)]),
+          })
+          .optional(),
       })
       .optional(),
     // [slot-D-settings-schema]

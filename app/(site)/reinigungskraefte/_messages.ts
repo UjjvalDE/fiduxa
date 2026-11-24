@@ -42,7 +42,7 @@ const de = {
     eyebrow: 'Bereit?',
     titleBefore: 'Festpreis sehen und',
     titleEm: 'direkt buchen',
-    text: 'In drei Schritten zum Termin – sicher bezahlen mit Karte oder PayPal.',
+    text: 'In drei Schritten zum Termin – sicher bezahlen mit PayPal.',
     button: 'Jetzt buchen',
   },
   profile: {
@@ -108,7 +108,7 @@ const en: CleanersMessages = {
     eyebrow: 'Ready?',
     titleBefore: 'See your fixed price and',
     titleEm: 'book right away',
-    text: 'Three steps to your appointment – pay securely by card or PayPal.',
+    text: 'Three steps to your appointment – pay securely with PayPal.',
     button: 'Book now',
   },
   profile: {
@@ -172,7 +172,7 @@ const pl: CleanersMessages = {
     eyebrow: 'Gotowe?',
     titleBefore: 'Zobacz stałą cenę i',
     titleEm: 'zarezerwuj od razu',
-    text: 'Trzy kroki do terminu – bezpieczna płatność kartą lub PayPal.',
+    text: 'Trzy kroki do terminu – bezpieczna płatność przez PayPal.',
     button: 'Zarezerwuj',
   },
   profile: {

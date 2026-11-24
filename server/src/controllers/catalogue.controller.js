@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { EXTRAS, SERVICES, extraAvailableFor, findService } from "../data/catalogue.js";
-import { OPERATIONS, PRICING, PAYMENT_OPTIONS } from "../config/pricing.js";
+import { OPERATIONS, PRICING } from "../config/pricing.js";
+import { cashAllowed } from "../services/payment.service.js";
 
 // GET /api/v1/services
 export const getServices = (req, res) => {
@@ -64,7 +65,7 @@ export const getPublicPricing = (req, res) => {
       cancellationCutoffHours: OPERATIONS.cancellationCutoffHours,
       maxBookingDaysAhead: OPERATIONS.maxBookingDaysAhead,
       startStepMinutes: OPERATIONS.startStepMinutes,
-      cashEnabled: PAYMENT_OPTIONS.cashEnabled,
+      cashEnabled: cashAllowed(),
     },
   });
 };

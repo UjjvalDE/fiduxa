@@ -2,18 +2,20 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, Gift, LogOut, Repeat, UserRound } from 'lucide-react';
+import { CalendarDays, FileText, Gift, LogOut, Repeat, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useAuth } from '@/lib/auth';
 import { useMessages } from '@/lib/i18n/client';
 import { cn } from '@/lib/utils';
 import messages from '../_messages';
+import serviceMessages from '../_service-messages';
 import { firstName } from './booking-helpers';
 
 const LINKS = [
   { href: '/konto', key: 'bookings', icon: CalendarDays, match: (p: string) => p === '/konto' || p.startsWith('/konto/buchungen') },
   { href: '/konto/putzplan', key: 'putzplan', icon: Repeat, match: (p: string) => p.startsWith('/konto/putzplan') },
+  { href: '/konto/rechnungen', key: 'invoices', icon: FileText, match: (p: string) => p.startsWith('/konto/rechnungen') },
   { href: '/konto/gutscheine', key: 'giftCards', icon: Gift, match: (p: string) => p.startsWith('/konto/gutscheine') },
   { href: '/konto/profil', key: 'profile', icon: UserRound, match: (p: string) => p.startsWith('/konto/profil') },
 ] as const;
@@ -21,7 +23,7 @@ const LINKS = [
 export function AccountNav() {
   const pathname = usePathname() ?? '';
   const { user, logout } = useAuth();
-  const t = useMessages(messages).nav;
+  const t = { ...useMessages(messages).nav, ...useMessages(serviceMessages).nav };
 
   const onLogout = () => {
     logout();

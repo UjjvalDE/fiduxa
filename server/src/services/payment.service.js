@@ -2,7 +2,7 @@ import Stripe from "stripe";
 
 import Payment from "../models/payment.model.js";
 import { findService } from "../data/catalogue.js";
-import { OPERATIONS, PAYMENT_OPTIONS } from "../config/pricing.js";
+import { OPERATIONS, PAYMENT_OPTIONS, POLICIES } from "../config/pricing.js";
 import { httpError, slotLabel } from "../utils/helpers.js";
 import {
   createPayPalOrder,
@@ -20,13 +20,26 @@ const STRIPE_LOCALES = { de: "de", en: "en", pl: "pl" };
 export const isPaymentConfigured = () => Boolean(process.env.STRIPE_SECRET_KEY);
 
 /** Online methods the customer can choose ("stripe" = card etc. via Stripe Checkout) */
+/** Payment-method policy (POLICIES.paymentMethods.enabled – owner decision: PayPal only) */
+export const methodAllowedByPolicy = (method) => (POLICIES.paymentMethods?.enabled ?? []).includes(method);
+/** Cash can be chosen for NEW bookings (settings switch AND policy) */
+export const cashAllowed = () => PAYMENT_OPTIONS.cashEnabled && methodAllowedByPolicy("cash");
+/** 422 PAYMENT_METHOD_DISABLED when a customer-selectable method is switched off */
+export const assertMethodEnabled = (method) => {
+  if (!method || !["paypal", "stripe", "cash"].includes(method)) return;
+  const enabled = method === "cash" ? cashAllowed() : methodAllowedByPolicy(method) && PAYMENT_OPTIONS[`${method}Enabled`] !== false;
+  if (!enabled) {
+    throw Object.assign(httpError(422, "This payment method is currently not available."), { code: "PAYMENT_METHOD_DISABLED" });
+  }
+};
+
 export const availableMethods = () => [
-  ...(isPaymentConfigured() && PAYMENT_OPTIONS.stripeEnabled ? ["stripe"] : []),
-  ...(isPayPalConfigured() && PAYMENT_OPTIONS.paypalEnabled ? ["paypal"] : []),
+  ...(isPaymentConfigured() && PAYMENT_OPTIONS.stripeEnabled && methodAllowedByPolicy("stripe") ? ["stripe"] : []),
+  ...(isPayPalConfigured() && PAYMENT_OPTIONS.paypalEnabled && methodAllowedByPolicy("paypal") ? ["paypal"] : []),
 ];
 
 /** All methods a customer can choose when booking (online + cash) */
-export const bookingMethods = () => [...availableMethods(), ...(PAYMENT_OPTIONS.cashEnabled ? ["cash"] : [])];
+export const bookingMethods = () => [...availableMethods(), ...(cashAllowed() ? ["cash"] : [])];
 
 // No online method at all → bookings use "invoice" mode.
 export const isOnlinePaymentAvailable = () => availableMethods().length > 0;

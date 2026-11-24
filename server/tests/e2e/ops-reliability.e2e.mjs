@@ -32,6 +32,9 @@ const { runJob } = await import(ROOT + "/src/jobs/scheduler.js");
 await connectDB();
 await User.db.dropDatabase();
 for (const M of Object.values(User.db.models)) await M.syncIndexes();
+// Fixture: this suite exercises the card (Stripe) and cash flows that the owner switched off
+// for now (POLICIES.paymentMethods.enabled = ["paypal"]); they are re-enabled for this test DB only.
+await (await import(ROOT + "/src/models/settings.model.js")).default.updateOne({ key: "platform" }, { $set: { "policies.paymentMethods.enabled": ["paypal", "stripe", "cash"] } }, { upsert: true });
 await loadSettings();
 const server = app.listen(0);
 const origin = `http://127.0.0.1:${server.address().port}`;

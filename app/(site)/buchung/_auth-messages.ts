@@ -7,6 +7,24 @@ const de = {
   redirecting: 'Einen Moment, du wirst weitergeleitet…',
   eyebrow: 'Kundenkonto',
   passwordEyebrow: 'Passwort',
+  social: {
+    google: 'Weiter mit Google',
+    apple: 'Weiter mit Apple',
+    divider: 'oder mit E-Mail',
+    errors: {
+      cancelled: 'Die Anmeldung wurde abgebrochen.',
+      invalid_state: 'Die Anmeldung ist abgelaufen oder ungültig. Bitte versuche es noch einmal.',
+      email_unverified:
+        'Deine E-Mail-Adresse ist beim Anbieter nicht bestätigt. Bitte bestätige sie dort oder melde dich mit E-Mail und Passwort an.',
+      role_not_allowed:
+        'Die Anmeldung mit Google oder Apple ist nur für Kundenkonten möglich. Reinigungskräfte und Team-Mitglieder melden sich bitte mit E-Mail und Passwort an.',
+      inactive: 'Dieses Konto ist deaktiviert. Bitte kontaktiere uns.',
+      already_linked:
+        'Dein Konto ist bereits mit einem anderen Google- bzw. Apple-Konto verbunden. Bitte nutze dieses oder melde dich mit E-Mail und Passwort an.',
+      not_configured: 'Diese Anmeldemöglichkeit ist gerade nicht verfügbar. Bitte melde dich mit E-Mail und Passwort an.',
+      generic: 'Die Anmeldung hat leider nicht geklappt. Bitte versuche es noch einmal.',
+    },
+  },
   fields: {
     name: 'Vor- und Nachname',
     email: 'E-Mail-Adresse',
@@ -103,6 +121,24 @@ const en: AuthMessages = {
   redirecting: 'One moment, redirecting you…',
   eyebrow: 'Customer account',
   passwordEyebrow: 'Password',
+  social: {
+    google: 'Continue with Google',
+    apple: 'Continue with Apple',
+    divider: 'or with email',
+    errors: {
+      cancelled: 'The sign-in was cancelled.',
+      invalid_state: 'The sign-in has expired or is invalid. Please try again.',
+      email_unverified:
+        'Your email address is not verified with the provider. Please verify it there or log in with email and password.',
+      role_not_allowed:
+        'Signing in with Google or Apple is only available for customer accounts. Cleaners and team members please log in with email and password.',
+      inactive: 'This account is deactivated. Please contact us.',
+      already_linked:
+        'Your account is already connected to a different Google or Apple account. Please use that one or log in with email and password.',
+      not_configured: 'This sign-in option is currently unavailable. Please log in with email and password.',
+      generic: 'Unfortunately the sign-in did not work. Please try again.',
+    },
+  },
   fields: {
     name: 'Full name',
     email: 'Email address',
@@ -196,6 +232,24 @@ const pl: AuthMessages = {
   redirecting: 'Chwileczkę, przekierowujemy Cię…',
   eyebrow: 'Konto klienta',
   passwordEyebrow: 'Hasło',
+  social: {
+    google: 'Kontynuuj z Google',
+    apple: 'Kontynuuj z Apple',
+    divider: 'lub e-mailem',
+    errors: {
+      cancelled: 'Logowanie zostało przerwane.',
+      invalid_state: 'Logowanie wygasło lub jest nieprawidłowe. Spróbuj ponownie.',
+      email_unverified:
+        'Twój adres e-mail nie jest potwierdzony u dostawcy. Potwierdź go tam lub zaloguj się e-mailem i hasłem.',
+      role_not_allowed:
+        'Logowanie przez Google lub Apple jest dostępne tylko dla kont klientów. Osoby sprzątające i członkowie zespołu logują się e-mailem i hasłem.',
+      inactive: 'To konto jest dezaktywowane. Skontaktuj się z nami.',
+      already_linked:
+        'Twoje konto jest już połączone z innym kontem Google lub Apple. Użyj go lub zaloguj się e-mailem i hasłem.',
+      not_configured: 'Ta metoda logowania jest obecnie niedostępna. Zaloguj się e-mailem i hasłem.',
+      generic: 'Niestety logowanie się nie powiodło. Spróbuj ponownie.',
+    },
+  },
   fields: {
     name: 'Imię i nazwisko',
     email: 'Adres e-mail',

@@ -4,7 +4,8 @@ import mongoose from "mongoose";
 import { z } from "zod";
 
 import User from "../models/user.model.js";
-import { anonymiseUser, assertDeletable, exportUserData, RETENTION_YEARS } from "../services/account-privacy.service.js";
+import { anonymiseUser, assertDeletable, deletionPreview, exportUserData, RETENTION_YEARS } from "../services/account-privacy.service.js";
+import { recordAudit } from "../services/audit.service.js";
 import { clearSessionCookie } from "../utils/session-cookie.js";
 
 const RETENTION_MESSAGE =
@@ -24,15 +25,43 @@ export const exportMyData = async (req, res, next) => {
   }
 };
 
-// DELETE /api/v1/users/me  { password }
+// GET /api/v1/users/me/deletion-check → blockers, confirmation method, unpaid earnings
+export const getMyDeletionCheck = async (req, res, next) => {
+  try {
+    return res.json({ success: true, ...(await deletionPreview(req.user)) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// DELETE /api/v1/users/me  { password }  (social-login-only accounts: { confirmEmail })
 export const deleteMyAccount = async (req, res, next) => {
   try {
-    const { password } = z.object({ password: z.string().min(1).max(72) }).parse(req.body ?? {});
+    const { password, confirmEmail } = z
+      .object({ password: z.string().min(1).max(72).optional(), confirmEmail: z.string().trim().max(254).optional() })
+      .parse(req.body ?? {});
     const user = await User.findById(req.user._id).select("+password");
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(400).json({ success: false, message: "Current password is incorrect." });
+    if (!user) return res.status(400).json({ success: false, message: "Current password is incorrect." });
+    if (user.password) {
+      if (!password || !(await bcrypt.compare(password, user.password))) {
+        return res.status(400).json({ success: false, message: "Current password is incorrect." });
+      }
+    } else if (!confirmEmail || confirmEmail.toLowerCase() !== user.email) {
+      // Social-login-only account (no password): confirm with the account email instead
+      return res.status(400).json({
+        success: false,
+        code: "CONFIRM_EMAIL_REQUIRED",
+        message: "Please confirm the deletion by entering the email address of your account.",
+      });
     }
-    await assertDeletable(user);
+    try {
+      await assertDeletable(user);
+    } catch (error) {
+      if (error.code !== "OPEN_BOOKINGS" && error.code !== "OPEN_JOBS") throw error;
+      await recordAudit({ actor: user._id, action: "account.delete.blocked", entityType: "User", entityId: user._id, after: { code: error.code, bookings: error.bookings?.map((b) => b.reference) } });
+      // Customers cancel (per the cancellation policy) / cleaners release first – the list links to them
+      return res.status(409).json({ success: false, code: error.code, message: error.message, bookings: error.bookings ?? [] });
+    }
     const summary = await anonymiseUser(user, { actorId: user._id, self: true });
     clearSessionCookie(res);
     return res.json({ success: true, message: RETENTION_MESSAGE, retentionYears: RETENTION_YEARS, ...summary });

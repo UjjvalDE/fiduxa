@@ -58,6 +58,9 @@ import portalMessages from '../../_portal-messages';
 import { PayoutStatusBadge, payoutDisplayStatus } from '../../_components/portal-ui';
 import { centsToInput, parseEuroToCents, useJobTime } from '../../_components/cash';
 import { JobStatusBadge, type WorkerJobWithSlot } from '../../_components/job-card';
+import { ExtraTimePanel, WorkerFeedbackDialog } from '../../_components/job-feedback';
+import { ConfirmLatePanel } from '../../_components/job-confirmation';
+import type { FeedbackPendingItem } from '@/lib/types';
 import { ISSUE_TYPES, type IssueType, mapsUrl } from '../../_components/labels';
 import {
   RELEASE_CUTOFF_HOURS,
@@ -811,6 +814,7 @@ function JobDetail({ id }: { id: string }) {
   const [completeOpen, setCompleteOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [issueOpen, setIssueOpen] = useState(false);
+  const [feedbackItem, setFeedbackItem] = useState<FeedbackPendingItem | null>(null);
 
   // Checklist progress lives in sessionStorage per job
   const [ticked, setTicked] = useState<string[]>([]);
@@ -895,6 +899,7 @@ function JobDetail({ id }: { id: string }) {
     }
   };
 
+  const needsLateConfirm = Boolean(job.confirmation?.needed || (job.job as { notHappened?: { decision?: string } } | undefined)?.notHappened?.decision === 'pending');
   const canReport = job.status === 'confirmed' || job.status === 'in_progress' || job.status === 'completed';
   const showSteps = job.status === 'confirmed' || job.status === 'in_progress' || job.status === 'completed';
 
@@ -1024,6 +1029,17 @@ function JobDetail({ id }: { id: string }) {
 
       {showSteps && <StepList job={job} />}
 
+      {/* Past job not confirmed on the day: late confirmation / did not happen */}
+      {needsLateConfirm && (
+        <ConfirmLatePanel
+          job={job}
+          onDone={(item) => {
+            reload();
+            if (item) setFeedbackItem(item);
+          }}
+        />
+      )}
+
       {/* Actions by state – one primary button at a time */}
       {job.status === 'confirmed' && isToday && !onTheWayAt && (
         <div className="space-y-2">
@@ -1083,9 +1099,10 @@ function JobDetail({ id }: { id: string }) {
         </p>
       )}
 
-      {job.status === 'in_progress' && (
+      {job.status === 'in_progress' && !needsLateConfirm && (
         <>
           {todoSection}
+          <ExtraTimePanel jobId={job._id} inProgress requests={job.extraTimeRequests ?? []} onChange={reload} />
           <Button type="button" onClick={() => setCompleteOpen(true)} className="h-14 w-full text-lg">
             <CheckCircle2 className="mr-2 h-6 w-6" aria-hidden="true" />
             {t.complete}
@@ -1095,6 +1112,9 @@ function JobDetail({ id }: { id: string }) {
 
       {job.status === 'completed' && (
         <>
+          {(job.extraTimeRequests?.length ?? 0) > 0 && (
+            <ExtraTimePanel jobId={job._id} inProgress={false} requests={job.extraTimeRequests ?? []} onChange={reload} />
+          )}
           <div role="status" className="flex items-center gap-3 rounded-2xl border border-sage bg-mint p-4 text-pine-dark">
             <CheckCircle2 className="h-6 w-6 shrink-0" aria-hidden="true" />
             <span className="font-semibold">{t.doneBanner}</span>
@@ -1234,8 +1254,11 @@ function JobDetail({ id }: { id: string }) {
         onDone={() => {
           setTicked([]);
           reload();
+          // Completion → internal feedback pop-up right away
+          setFeedbackItem({ bookingId: job._id, reference: job.reference, serviceId: job.serviceId, preferredDate: job.preferredDate, completedAt: null });
         }}
       />
+      <WorkerFeedbackDialog item={feedbackItem} onClose={() => setFeedbackItem(null)} />
       <ReleaseDialog
         open={releaseOpen}
         onOpenChange={setReleaseOpen}

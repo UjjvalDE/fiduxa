@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Award, CalendarDays, ClipboardList, Clock, Home, UserRound, Wallet } from 'lucide-react';
+import { Award, CalendarDays, ClipboardList, Clock, FileCheck, Home, UserRound, Wallet } from 'lucide-react';
 
 import { useAuth } from '@/lib/auth';
 import { useMessages } from '@/lib/i18n/client';
 import { cn } from '@/lib/utils';
 
 import portalMessages from '../_portal-messages';
+import accountMessages from '@/app/_account/messages';
 import { canEditProfile, setupComplete, useWorkerOverview } from './worker-context';
 
 type Item = { href: string; label: string; short?: string; icon: typeof Home; badge?: boolean };
@@ -17,6 +18,7 @@ function useNavItems(): Item[] | null {
   const { user } = useAuth();
   const { data } = useWorkerOverview();
   const t = useMessages(portalMessages).nav;
+  const docsLabel = useMessages(accountMessages).docs.navLabel;
   if (user?.role !== 'worker' || !data) return null;
 
   const approved = data.worker.workerStatus === 'approved';
@@ -32,6 +34,8 @@ function useNavItems(): Item[] | null {
     items.push({ href: '/worker/profil', label: t.profile, icon: UserRound });
     items.push({ href: '/worker/verfuegbarkeit', label: t.availability, short: t.availabilityShort, icon: Clock });
   }
+  // Verification checklist (ID / work permit) – always reachable
+  items.push({ href: '/worker/dokumente', label: docsLabel, icon: FileCheck });
   return items;
 }
 

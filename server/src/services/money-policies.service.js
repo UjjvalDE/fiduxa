@@ -11,6 +11,7 @@ import { DAY_MS, httpError, slotStartInstant } from "../utils/helpers.js";
 import { commissionCounters, tierForCounters } from "./commission.service.js";
 import { netPayout } from "./cash.service.js";
 import { createAdjustmentCheckout, refundBookingPayment } from "./payment.service.js";
+import { capturePayPalOrder } from "./paypal.service.js";
 import { payoutEligibilityDays } from "./payout.service.js";
 import { sendAdminNotificationEmail, trySend } from "./email.service.js";
 import { sendCancellationFeeEmail, sendPriceAdjustmentEmail } from "./money-policies-email.service.js";
@@ -183,7 +184,7 @@ const CASH_BLOCKED = {
 export const assertWorkerMayTakeCash = async (worker, booking) => {
   if (booking.payment?.method !== "cash" || booking.payment?.status === "paid") return;
   const why = await cashRestriction(worker);
-  if (why) throw Object.assign(httpError(409, CASH_BLOCKED[why]), { code: "CASH_BLOCKED", reason: why });
+  if (why) throw Object.assign(httpError(409, CASH_BLOCKED[why]), { code: `CASH_BLOCKED_${why.toUpperCase()}`, reason: why });
 };
 
 /** Cleaners whose net balance is below policies.cash.suspendBelowCents → [{ worker, netCents }] */
@@ -345,6 +346,36 @@ export const applyPaidAdjustment = async (payment) => {
   await booking.save();
   await trySend("Price adjustment", () => sendPriceAdjustmentEmail({ booking, adjustment, variant: "paid" }));
   return booking;
+};
+
+/**
+ * PayPal return for an adjustment pay link: capture the order, verify the
+ * amount and mark the adjustment paid. Returns true when paid.
+ */
+export const captureAdjustmentPayPal = async ({ booking, payment, orderId }) => {
+  if (payment.status === "paid") return true;
+  if (payment.status === "expired" || booking.status === "cancelled") return false;
+  const capture = await capturePayPalOrder(orderId);
+  if (capture.status !== "COMPLETED") {
+    payment.status = capture.status === "PENDING" ? "processing" : "failed";
+    payment.paymentIntentId = capture.captureId;
+    payment.failureReason = capture.status === "PENDING" ? "" : `PayPal status ${capture.status}`;
+    await payment.save();
+    return false;
+  }
+  if (capture.amountCents !== payment.amountCents || capture.currency !== "EUR") {
+    payment.status = "failed";
+    payment.paymentIntentId = capture.captureId;
+    payment.failureReason = `Amount mismatch: got ${capture.amountCents} ${capture.currency}`;
+    await payment.save();
+    return false;
+  }
+  payment.status = "paid";
+  payment.paidAt = new Date();
+  payment.paymentIntentId = capture.captureId;
+  await payment.save();
+  await applyPaidAdjustment(payment);
+  return true;
 };
 
 /** Refresh (or create) the pay link of an open positive adjustment for the account page */

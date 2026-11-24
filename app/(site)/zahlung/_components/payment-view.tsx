@@ -8,7 +8,7 @@ import {
   CalendarPlus,
   CircleAlert,
   CircleCheck,
-  CreditCard,
+  Wallet,
   Info,
   LoaderCircle,
   Lock,
@@ -285,7 +285,7 @@ function PaymentContent({ booking, summary, onRefresh }: { booking: Booking; sum
             </section>
           )}
 
-          <Card title={t.pay.cardTitle} icon={CreditCard}>
+          <Card title={t.pay.cardTitle} icon={Wallet}>
             <PaymentMethodPicker
               methods={methods}
               value={method}

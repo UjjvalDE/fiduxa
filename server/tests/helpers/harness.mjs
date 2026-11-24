@@ -24,6 +24,9 @@ export const prepareEnv = (dbName) => {
     "ADMIN_NOTIFICATION_EMAIL", "PAYPALAPIKEY", "PAYPALSECRET_KEY", "PAYPAL_API_BASE", "HOURLY_RATE_CENTS",
     // never let tests touch the LIVE PayPal account
     "PAYPAL_MODE", "PAYPAL_CLIENT_ID", "PAYPAL_SECRET_KEY",
+    // social login: suites configure local mocks explicitly
+    "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "APPLE_CLIENT_ID", "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY",
+    "OAUTH_CALLBACK_BASE_URL", "GOOGLE_AUTH_URL", "GOOGLE_TOKEN_URL", "GOOGLE_JWKS_URL", "APPLE_AUTH_URL", "APPLE_TOKEN_URL", "APPLE_JWKS_URL",
   ]) delete process.env[k];
 };
 

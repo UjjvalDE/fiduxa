@@ -12,6 +12,7 @@ import {
   trySend,
 } from "./email.service.js";
 import { jobMismatch } from "./worker-profile.service.js";
+import { eligibilityProblem } from "./work-eligibility.service.js";
 
 const BUSY_STATUSES = ["confirmed", "in_progress", "accepted"];
 
@@ -100,7 +101,7 @@ export const findEligibleWorkers = async (booking) => {
     isActive: true,
     emailVerified: true,
     ...(exclusive && { _id: booking.jobOffer.priorityWorker }),
-  }).select("name email preferredLanguage workerProfile.petsOk availability holidays reliability.pausedAt");
+  }).select("name email role preferredLanguage workerProfile.petsOk availability holidays reliability.pausedAt documents workEligibility");
 
   const busy = await loadBusyRanges(workers.map((w) => w._id), [booking.preferredDate]);
   return workers.filter(
@@ -108,6 +109,7 @@ export const findEligibleWorkers = async (booking) => {
       !excluded.includes(String(worker._id)) &&
       !worker.reliability?.pausedAt && // paused for reliability strikes (package E)
       !jobMismatch(worker, booking) &&
+      !eligibilityProblem(worker, booking.preferredDate) && // documents valid on the job date
       !conflictIn(busy.get(String(worker._id)), booking)
   );
 };

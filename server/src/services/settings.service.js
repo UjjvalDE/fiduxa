@@ -160,6 +160,8 @@ export const saveSettings = async (data, adminId) => {
   for (const section of ["pricing", "booking", "payments", "workerPay", "extras", "giftCards", "finance", "recurring", "invoicing", "reliability", "security", "verification", "policies" /* [slot-sections] */]) {
     if (data[section] !== undefined) set[section] = data[section];
   }
+  // Older admin clients send the policies without paymentMethods: keep the current choice
+  if (set.policies && !set.policies.paymentMethods) set.policies = { ...set.policies, paymentMethods: clone(OPERATIONS.policies.paymentMethods) };
   const doc = await Settings.findOneAndUpdate(
     { key: "platform" },
     { $set: set },

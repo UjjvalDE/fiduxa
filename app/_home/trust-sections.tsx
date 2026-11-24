@@ -1,5 +1,5 @@
 // Trust sections of the homepage (server components), fed by GET /home/trust:
-//   <WorryFreeSection />  bento grid: no employer duties, § 35a, fair pay,
+//   <WorryFreeSection />  bento grid: easy online booking, invoices, fair pay,
 //                         approved cleaners & replacement, live rating
 //   <ReviewsSection />    #bewertungen – rating summary + review carousel
 //   <ServiceAreaStrip />  "Wir reinigen in ganz Berlin" + district chips
@@ -123,12 +123,8 @@ export function WorryFreeSection({ trust }: { trust: HomeTrust | null }) {
               <ReceiptText size={21} aria-hidden="true" />
             </div>
             <span className="bento-kicker">{t.tax.kicker}</span>
-            <p className="bento-figure">
-              <strong>{t.tax.value}</strong> <span>{t.tax.title}</span>
-            </p>
+            <h3>{t.tax.title}</h3>
             <p>{t.tax.text}</p>
-            <p className="bento-small">{t.tax.conditions}</p>
-            <p className="bento-small bento-disclaimer">{t.tax.disclaimer}</p>
           </article>
 
           <div className="bento-row">

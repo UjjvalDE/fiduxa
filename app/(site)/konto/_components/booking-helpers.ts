@@ -55,3 +55,14 @@ export function isBeforeCutoff(booking: Pick<Booking, 'status' | 'preferredDate'
 export const firstName = (name: string | undefined) => (name ? name.trim().split(/\s+/)[0] : '');
 
 export const paymentHref = (id: string) => `/zahlung/${encodeURIComponent(id)}`;
+
+/** Calendar day "YYYY-MM-DD" in Berlin */
+const berlinDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+
+/**
+ * Appointment day is over but the cleaner has not confirmed the job yet
+ * (server flag `awaitingConfirmation`, else computed from the date).
+ */
+export const isAwaitingConfirmation = (booking: Pick<Booking, 'status' | 'preferredDate' | 'awaitingConfirmation'>, now = new Date()) =>
+  booking.awaitingConfirmation ??
+  ((booking.status === 'confirmed' || booking.status === 'in_progress') && !!booking.preferredDate && booking.preferredDate.slice(0, 10) < berlinDay(now));

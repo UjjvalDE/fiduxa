@@ -18,6 +18,7 @@ import { EditBookingButton } from '../../_components/booking-edit';
 import { ChangeLogCard, FeedbackCard } from '../../_components/booking-insights';
 import { QuotationHistory } from '../../_components/booking-quotation';
 import { BookingPaymentCard } from '../../_components/booking-payment';
+import { PriceAdjustmentsCard } from '../../_components/price-adjustments';
 import { BookingPricingCard } from '../../_components/booking-pricing';
 import { WorkerPayoutCard } from '../../_components/payout-parts';
 import { historyActor } from '../../_components/labels';
@@ -290,6 +291,7 @@ export default function AdminBookingDetailPage({ params }: { params: { id: strin
           <AssignWorker booking={b} onChanged={reload} />
           <BookingPricingCard booking={b} />
           <BookingPaymentCard booking={b} onChanged={reload} />
+          <PriceAdjustmentsCard booking={b} onChanged={reload} />
           <WorkerPayoutCard booking={b} onChanged={reload} />
 
           {(b.job?.onTheWayAt || b.job?.startedAt || b.job?.completedAt || b.job?.workerNote) && (

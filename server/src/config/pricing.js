@@ -130,8 +130,8 @@ Object.defineProperty(RECURRING, "defaults", { value: RECURRING_DEFAULTS, enumer
 // Placeholders until the owner fills them in; the VAT/legal model is settled
 // with the tax adviser, so VAT display and the note are configurable too.
 export const INVOICING = {
-  companyName: process.env.INVOICE_COMPANY_NAME || "Fiduxa (bitte in den Einstellungen ergänzen)",
-  addressLines: (process.env.INVOICE_ADDRESS_LINES || "Adresse bitte in den Einstellungen ergänzen|Berlin").split("|").map((l) => l.trim()).filter(Boolean),
+  companyName: process.env.INVOICE_COMPANY_NAME || "Fiduxa GmbH",
+  addressLines: (process.env.INVOICE_ADDRESS_LINES || "Putlitzstraße 4|10551 Berlin|Deutschland").split("|").map((l) => l.trim()).filter(Boolean),
   // USt-IdNr. or Steuernummer
   taxId: process.env.INVOICE_TAX_ID || "",
   email: process.env.INVOICE_EMAIL || process.env.SMTP_FROM || "",
@@ -162,7 +162,18 @@ export const POLICIES = {
     fastPayoutPct: 50, // … for this share of the pending amount
     fastPayoutMinTier: "silver",
   },
+  // Owner decision (PayPal only for now): which customer payment methods can be
+  // CHOSEN for new payments (bookings, edits, gift cards, pay links, manual
+  // bookings). "stripe" (card) and "cash" stay implemented and can be switched
+  // back on in Einstellungen → Richtlinien. Existing bookings that were paid
+  // another way keep working (display, refunds, cash collection).
+  // Office "invoice" bookings (admin manual / no provider configured) are not
+  // governed by this list.
+  paymentMethods: {
+    enabled: ["paypal"], // subset of PAYMENT_METHOD_KEYS
+  },
 };
+export const PAYMENT_METHOD_KEYS = ["paypal", "stripe", "cash"];
 // Defaults captured once (settings.service.js merges admin overrides over them).
 // settings.service.js reaches the policies through OPERATIONS (shared-slot rule:
 // no new imports there); both links are non-enumerable so spreads/JSON never copy them.

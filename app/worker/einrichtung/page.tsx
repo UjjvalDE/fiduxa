@@ -8,6 +8,8 @@ import { useMessages } from '@/lib/i18n/client';
 import { ErrorState } from '@/app/admin/_components/states';
 
 import messages from '../_messages';
+import accountMessages from '@/app/_account/messages';
+import { DeleteAccountSection } from '@/app/_account/delete-account';
 import portalMessages from '../_portal-messages';
 import { BankForm, ProfileForm } from '../_components/onboarding-forms';
 import { PageSkeleton, PageTitle, PortalCard } from '../_components/portal-ui';
@@ -20,6 +22,7 @@ function Setup() {
   const p = useMessages(portalMessages);
   const { data, error, reload } = useWorkerOverview();
   const update = useOverviewUpdaters();
+  const { docs, del } = useMessages(accountMessages);
 
   if (error && !data) return <ErrorState message={error} onRetry={reload} />;
   if (!data) return <PageSkeleton label={p.common.loading} />;
@@ -62,6 +65,18 @@ function Setup() {
           editable={editable}
           onSaved={update.bankSaved}
         />
+      </PortalCard>
+
+      <Link
+        href="/worker/dokumente"
+        className="flex min-h-[52px] items-center gap-3 rounded-xl border border-sage bg-mint px-4 text-sm font-semibold text-pine-dark hover:border-pine focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className="flex-1">{docs.title}: {docs.subtitle}</span>
+        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+      </Link>
+
+      <PortalCard title={del.title}>
+        <DeleteAccountSection />
       </PortalCard>
     </div>
   );

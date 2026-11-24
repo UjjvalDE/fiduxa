@@ -271,8 +271,9 @@ const toBuffer = (doc) =>
     doc.on("data", (c) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
-    doc.end();
   });
+// Callers must draw everything first and call doc.end() before awaiting the
+// buffer – ending early produced blank PDFs.
 
 const PAGE = { left: 50, right: 545, width: 495 };
 const GREEN = "#174D3A";
@@ -315,7 +316,12 @@ const rule = (doc, y, color = "#D9E2DC") => {
 
 const footer = (doc, t) => {
   const lines = [issuerLines().join(" · "), [INVOICING.taxId && `${t.taxId}: ${INVOICING.taxId}`, INVOICING.email && `${t.email}: ${INVOICING.email}`].filter(Boolean).join(" · ")].filter(Boolean);
+  // Footer sits inside the bottom margin – lift the margin so pdfkit does not
+  // push it onto a second page.
+  const bottom = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
   doc.font("Helvetica").fontSize(8).fillColor(GREY).text(lines.join("\n"), PAGE.left, 790, { width: PAGE.width, align: "center", lineBreak: true });
+  doc.page.margins.bottom = bottom;
 };
 
 const hoursLabel = (minutes) => {
@@ -361,32 +367,52 @@ export const renderInvoicePdf = async ({ booking, number, issuedAt, figures }) =
     y = doc.y + 3;
   }
 
-  // Line items
-  y += 12;
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(GREY);
-  doc.text(t.position.toUpperCase(), PAGE.left, y);
-  doc.text(t.amount.toUpperCase(), PAGE.right - 110, y, { width: 110, align: "right" });
-  y = rule(doc, y + 14, GREEN);
+  // Line items – table: service | booking | service date | hours | rate | amount
+  const COLS = {
+    de: ["Leistung", "Buchung", "Leistungsdatum", "Std.", "Preis/Std.", "Betrag", "Rechnungsbetrag"],
+    en: ["Service", "Booking", "Service date", "Hours", "Rate/h", "Amount", "Invoice total"],
+    pl: ["Usługa", "Rezerwacja", "Data usługi", "Godz.", "Cena/godz.", "Kwota", "Kwota faktury"],
+  }[l];
+  const X = [
+    { x: PAGE.left, w: 120 }, { x: PAGE.left + 122, w: 86 }, { x: PAGE.left + 210, w: 82 },
+    { x: PAGE.left + 294, w: 40, align: "right" }, { x: PAGE.left + 336, w: 64, align: "right" }, { x: PAGE.right - 93, w: 93, align: "right" },
+  ];
+  const tableRow = (cells, yy, { bold = false, color = "#24312B", size = 9.5 } = {}) => {
+    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(size).fillColor(color);
+    let bottom = yy;
+    cells.forEach((c, i) => {
+      if (c == null || c === "") return;
+      doc.text(String(c), X[i].x, yy, { width: X[i].w, align: X[i].align ?? "left" });
+      bottom = Math.max(bottom, doc.y);
+    });
+    return bottom + 6;
+  };
+
+  y += 14;
+  y = tableRow(COLS.slice(0, 6).map((c) => c.toUpperCase()), y, { bold: true, color: GREY, size: 7.5 });
+  y = rule(doc, y - 2, GREEN);
 
   const e = booking.estimate ?? {};
   const serviceName = SERVICE_NAMES[l][booking.serviceId] ?? findService(booking.serviceId)?.name ?? booking.serviceId;
-  const labourLabel = `${serviceName} – ${t.labour(hoursLabel(e.durationMinutes), money(e.hourlyRateCents ?? PRICING.hourlyRateCents, l))}`;
-  y = row(doc, y, labourLabel, money(f.labourCents, l));
+  const rateCents = e.hourlyRateCents ?? PRICING.hourlyRateCents;
+  y = tableRow([serviceName, booking.reference, day(booking.preferredDate, l), hoursLabel(e.durationMinutes), money(rateCents, l), money(f.labourCents, l)], y);
   for (const extra of e.extras ?? []) {
-    y = row(doc, y, t.extra(extra.label ?? extra.id), money(extra.priceCents ?? 0, l), { color: GREY });
+    y = tableRow([t.extra(extra.label ?? extra.id), "", "", "", "", money(extra.priceCents ?? 0, l)], y, { color: GREY });
   }
-  if (f.recurringDiscountCents) y = row(doc, y, t.recurringDiscount, `− ${money(f.recurringDiscountCents, l)}`);
-  if (f.promotionDiscountCents) y = row(doc, y, t.promotion(booking.pricing?.promotion?.code), `− ${money(f.promotionDiscountCents, l)}`);
+  if (f.recurringDiscountCents) y = tableRow([t.recurringDiscount, "", "", "", "", `− ${money(f.recurringDiscountCents, l)}`], y);
+  if (f.promotionDiscountCents) y = tableRow([t.promotion(booking.pricing?.promotion?.code), "", "", "", "", `− ${money(f.promotionDiscountCents, l)}`], y);
 
   y = rule(doc, y + 2);
   if (INVOICING.showVat && f.vatRate > 0) {
-    y = row(doc, y, t.net, money(f.netCents, l));
-    y = row(doc, y, t.vat(pct(f.vatRate, l)), money(f.vatCents, l));
+    y = row(doc, y, t.net, money(f.netCents, l), { color: GREY });
+    y = row(doc, y, t.vat(pct(f.vatRate, l)), money(f.vatCents, l), { color: GREY });
   }
-  y = row(doc, y, t.total, money(f.totalCents, l), { bold: true, size: 11 });
-  if (INVOICING.showVat && f.vatRate > 0) {
-    y = row(doc, y, t.vatIncluded(pct(f.vatRate, l)), money(f.vatCents, l), { color: GREY, size: 9 });
-  }
+  // Green total bar
+  y += 4;
+  doc.rect(PAGE.left, y, PAGE.width, 30).fill(GREEN);
+  doc.fillColor("#FFFFFF").font("Helvetica-Bold").fontSize(10).text(COLS[6].toUpperCase(), PAGE.left + 12, y + 10, { width: 250 });
+  doc.fontSize(12).text(money(f.totalCents, l), PAGE.right - 172, y + 9, { width: 160, align: "right" });
+  y += 40;
   if (INVOICING.vatNote) {
     doc.font("Helvetica").fontSize(9).fillColor(GREY).text(INVOICING.vatNote, PAGE.left, y, { width: PAGE.width });
     y = doc.y + 4;
@@ -397,20 +423,20 @@ export const renderInvoicePdf = async ({ booking, number, issuedAt, figures }) =
   if (f.giftCardCents) y = row(doc, y, t.giftCard, `− ${money(f.giftCardCents, l)}`);
   const methodLabel = t.methods[f.paymentMethod] ?? f.paymentMethod;
   const paidAt = booking.payment?.paidAt ? ` (${day(booking.payment.paidAt, l)})` : "";
-  y = row(doc, y, `${f.paidCents > 0 ? t.paidVia(methodLabel) : t.paid}${paidAt}`, money(f.paidCents, l), { bold: true });
-  y = row(doc, y, t.open, money(0, l), { color: GREY });
+  // Issued on completion before the money arrived (e.g. bank transfer): the
+  // amount is shown as open instead of paid.
+  const settled = f.paidCents === 0 || ["paid", "partially_refunded", "refunded", "refund_pending"].includes(booking.payment?.status);
+  if (settled) {
+    y = row(doc, y, `${f.paidCents > 0 ? t.paidVia(methodLabel) : t.paid}${paidAt}`, money(f.paidCents, l), { bold: true });
+    y = row(doc, y, t.open, money(0, l), { color: GREY });
+  } else {
+    y = row(doc, y, t.open, money(f.paidCents, l), { bold: true });
+  }
 
-  // § 35a block
-  y += 16;
-  doc.roundedRect(PAGE.left, y, PAGE.width, 92, 6).fillAndStroke("#F1F6F3", "#D9E2DC");
-  doc.fillColor(GREEN).font("Helvetica-Bold").fontSize(10).text(t.taxTitle, PAGE.left + 12, y + 10, { width: PAGE.width - 24 });
-  doc.fillColor("#24312B").font("Helvetica-Bold").fontSize(10).text(t.taxLabour(money(f.totalCents, l)), PAGE.left + 12, doc.y + 4, { width: PAGE.width - 24 });
-  doc.font("Helvetica").fontSize(8.5).fillColor(GREY).text(t.taxLabourNote, PAGE.left + 12, doc.y + 3, { width: PAGE.width - 24 });
-  doc.font("Helvetica-Bold").fontSize(8.5).fillColor(f.taxDeductible ? GREEN : "#9B2C2C").text(f.taxDeductible ? t.taxOkNote : t.taxCashNote, PAGE.left + 12, doc.y + 3, { width: PAGE.width - 24 });
-  y = Math.max(doc.y, y + 92) + 18;
-
+  y += 20;
   doc.font("Helvetica").fontSize(10).fillColor("#24312B").text(t.thanks, PAGE.left, y);
   footer(doc, t);
+  doc.end();
   return out;
 };
 
@@ -466,9 +492,17 @@ export const issueInvoiceForBooking = async (booking) => {
 
 /** Stored PDF of a booking's invoice (or null) */
 export const loadInvoicePdf = async (bookingId) => {
-  const doc = await Booking.findById(bookingId).select("+invoice.pdf invoice.number").lean();
+  const doc = await Booking.findById(bookingId).select("+invoice.pdf").lean();
   if (!doc?.invoice?.number || !doc.invoice.pdf) return null;
-  return { number: doc.invoice.number, pdf: Buffer.from(doc.invoice.pdf.buffer ?? doc.invoice.pdf) };
+  const pdf = Buffer.from(doc.invoice.pdf.buffer ?? doc.invoice.pdf);
+  if (pdf.length >= 2000) return { number: doc.invoice.number, pdf };
+  // Invoices issued before the blank-PDF fix contain an empty page. Re-render
+  // once with the SAME number, date and stored figures, and persist it.
+  const { number, issuedAt } = doc.invoice;
+  const figures = { ...invoiceFigures(doc), ...metaOf(doc.invoice) };
+  const fixed = await renderInvoicePdf({ booking: doc, number, issuedAt, figures });
+  await Booking.updateOne({ _id: doc._id, "invoice.number": number }, { $set: { "invoice.pdf": fixed } });
+  return { number, pdf: fixed };
 };
 
 /** Attachment descriptor for the outbox */
@@ -482,7 +516,7 @@ export const listInvoicesForCustomer = async (customerId, { year } = {}) => {
   const filter = { customer: customerId, "invoice.number": { $exists: true } };
   if (year) filter["invoice.issuedAt"] = { $gte: new Date(Date.UTC(year, 0, 1)), $lt: new Date(Date.UTC(year + 1, 0, 1)) };
   const docs = await Booking.find(filter)
-    .select("reference serviceId preferredDate slot slotEnd locale payment.status payment.method invoice")
+    .select("reference serviceId preferredDate slot slotEnd locale status estimate.durationMinutes job.actualDurationMinutes payment.status payment.method invoice")
     .sort({ "invoice.issuedAt": -1 })
     .lean();
   return docs.map((b) => ({
@@ -490,6 +524,12 @@ export const listInvoicesForCustomer = async (customerId, { year } = {}) => {
     reference: b.reference,
     serviceId: b.serviceId,
     preferredDate: b.preferredDate,
+    slot: b.slot,
+    slotEnd: b.slotEnd ?? "",
+    bookingStatus: b.status,
+    // Booked duration incl. approved extra time
+    durationMinutes: b.estimate?.durationMinutes ?? null,
+    // paid · pending · unpaid · failed · refunded · partially_refunded · refund_pending
     paymentStatus: b.payment?.status,
     ...metaOf(b.invoice),
   }));
@@ -556,6 +596,7 @@ export const renderTaxStatementPdf = async ({ user, year, invoices, locale }) =>
   doc.text(t.statementNote, PAGE.left, doc.y + 4, { width: PAGE.width });
   doc.text(`${t.issued}: ${day(new Date(), l)}`, PAGE.left, doc.y + 12, { width: PAGE.width });
   footer(doc, t);
+  doc.end();
   return { pdf: await out, totals: { count: eligible.length, labourCents: sumTotal, vatCents: sumVat, netCents: sumTotal - sumVat, excludedCash: cashCount } };
 };
 

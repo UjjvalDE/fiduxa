@@ -23,13 +23,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { api } from '@/lib/api';
+import { ApiError, api } from '@/lib/api';
 import { useFormat, useLocale, useMessages } from '@/lib/i18n/client';
 import { translateApiError } from '@/lib/i18n/api-errors';
 import catalogue from '@/lib/i18n/messages/catalogue';
 import common from '@/lib/i18n/messages/common';
 import profileMessages from '@/lib/i18n/messages/profile';
-import type { Booking, BookingPayment, BookingStatus, BookingWithSeries, CleanerCard as CleanerCardData, CustomerReview, PublicPricing } from '@/lib/types';
+import type { Booking, BookingPayment, BookingStatus, BookingWithSeries, CancelPreview, CleanerCard as CleanerCardData, CustomerReview, PublicPricing } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { CleanerAvatar } from '@/componets/site/cleaner-avatar';
 import { MessageThread } from '@/componets/site/message-thread';
@@ -54,15 +54,16 @@ import putzplanMessages from '../_putzplan-messages';
 import feedbackMessages from './feedback-messages';
 import { slotRange } from '../../_shared/slot-range';
 import { ReviewSection } from './review-section';
+import { CustomerAdjustments } from './price-adjustments';
 import { EditBooking } from './booking-edit';
 import {
   DEFAULT_CANCELLATION_HOURS,
   bookingAmount,
   firstName,
-  isBeforeCutoff,
   isCancellableStatus,
   isHoldExpired,
   needsPayment,
+  isAwaitingConfirmation,
   nextActionKey,
   paymentHref,
   slotStartInstant,
@@ -192,7 +193,6 @@ export function BookingDetail({ id }: { id: string }) {
   const payNow = needsPayment(booking);
   const expired = isHoldExpired(booking);
   const canCancel = isCancellableStatus(booking.status) && !expired;
-  const beforeCutoff = isBeforeCutoff(booking, cancellationHours);
   // Mirror of the server rule for PATCH /customer/bookings/:id (server still enforces):
   // editable statuses and more than the cutoff (24 h) before the start
   const editStart = slotStartInstant(booking.preferredDate, booking.slot);
@@ -201,6 +201,7 @@ export function BookingDetail({ id }: { id: string }) {
   const worker = booking.assignedWorker && typeof booking.assignedWorker === 'object' ? booking.assignedWorker : null;
   const history = (booking.statusHistory ?? []).slice().sort((a, b) => new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime());
   const isLegacy = nextActionKey(booking.status) === 'legacy';
+  const awaiting = isAwaitingConfirmation(booking);
   const extraText = cat.extras as Record<string, { label: string } | undefined>;
   const statusLabels = tc.bookingStatus as Record<string, { label: string } | undefined>;
   const tp = tf.pets;
@@ -213,7 +214,7 @@ export function BookingDetail({ id }: { id: string }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="!m-0 !text-2xl !leading-tight sm:!text-3xl">{tc.services[booking.serviceId] ?? booking.serviceId}</h1>
-            <StatusBadge kind="booking" status={booking.status} />
+            {awaiting ? <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-900">{t.awaiting.badge}</span> : <StatusBadge kind="booking" status={booking.status} />}
             {booking.payment && !isLegacy && booking.status !== 'expired' && <StatusBadge kind="payment" status={booking.payment.status} />}
             {(booking as BookingWithSeries).series && (
               <Link
@@ -227,7 +228,7 @@ export function BookingDetail({ id }: { id: string }) {
           <p className="mb-0 mt-2 text-sm text-muted-grey">
             {t.detail.reference} <strong className="text-pine-dark">{booking.reference}</strong> · {t.detail.bookedAt(f.dateTime(booking.createdAt))}
           </p>
-          {!payNow && !expired && <p className="mb-0 mt-2 text-sm text-charcoal">{t.nextAction[nextActionKey(booking.status)]}</p>}
+          {!payNow && !expired && <p className="mb-0 mt-2 text-sm text-charcoal">{awaiting ? t.awaiting.text : t.nextAction[nextActionKey(booking.status)]}</p>}
         </div>
         {(canEdit || canCancel || booking.status === 'completed') && (
           <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
@@ -245,17 +246,7 @@ export function BookingDetail({ id }: { id: string }) {
                 }}
               />
             )}
-            {canCancel &&
-              (beforeCutoff ? (
-                <CancelBooking booking={booking} cancellationHours={cancellationHours} onDone={setBooking} />
-              ) : (
-                <p className="m-0 max-w-xs text-xs leading-relaxed text-muted-grey sm:text-right">
-                  {t.cancel.tooLate(cancellationHours)}{' '}
-                  <Link href="/kontakt" className="font-bold text-pine underline underline-offset-2">
-                    {t.detail.contact_link}
-                  </Link>
-                </p>
-              ))}
+            {canCancel && <CancelBooking booking={booking} onDone={setBooking} />}
           </div>
         )}
       </header>
@@ -286,8 +277,10 @@ export function BookingDetail({ id }: { id: string }) {
             canReview={detail.canReview}
             plannedDurationMinutes={booking.estimate?.durationMinutes ?? null}
             recurring={booking.frequency !== 'one-time'}
+            cash={booking.payment?.method === 'cash' ? { reportedCents: booking.payment.cashCollectedCents ?? null } : null}
             onSaved={(review) => setDetail((d) => ({ ...d, review, canReview: false }))}
           />
+          <CustomerAdjustments booking={booking} onChanged={load} />
           <Card title={t.detail.appointmentTitle}>
             <dl className="m-0 grid gap-4 sm:grid-cols-2">
               <Item label={t.detail.date}>
@@ -651,23 +644,46 @@ interface CancelResponse {
   status: BookingStatus;
   payment?: BookingPayment;
   refunded?: boolean;
+  fee?: { feeCents: number; feePct: number; refundCents: number; outstandingCents: number };
 }
 
-type CancelOutcome = 'refunded' | 'refundPending' | 'noCharge';
+type CancelOutcome = 'refunded' | 'partialRefund' | 'feeOutstanding' | 'refundPending' | 'noCharge';
 
-function CancelBooking({ booking, cancellationHours, onDone }: { booking: Booking; cancellationHours: number; onDone: (b: Booking) => void }) {
+/**
+ * Cancellation is always possible online. The dialog first loads the fee the
+ * policy applies right now (GET …/cancel-preview) and shows it; the request
+ * confirms exactly that fee (409 FEE_CHANGED → the new fee is shown again).
+ */
+function CancelBooking({ booking, onDone }: { booking: Booking; onDone: (b: Booking) => void }) {
   const t = useMessages(messages).cancel;
   const { locale } = useLocale();
+  const f = useFormat();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ outcome: CancelOutcome; booking: Booking } | null>(null);
+  const [preview, setPreview] = useState<CancelPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [result, setResult] = useState<{ outcome: CancelOutcome; fee: CancelResponse['fee']; booking: Booking } | null>(null);
   const busyRef = useRef(false);
 
-  const paid = booking.payment?.status === 'paid';
-  const description =
-    booking.status === 'payment_pending' ? t.pending : paid ? t.paid(cancellationHours) : t.unpaid(cancellationHours);
+  const loadPreview = useCallback(async () => {
+    setPreviewLoading(true);
+    try {
+      const res = await api.get<CancelPreview>(`/customer/bookings/${booking._id}/cancel-preview`);
+      setPreview(res);
+    } catch (e) {
+      setError(translateApiError(e, locale));
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [booking._id, locale]);
+
+  const openDialog = () => {
+    setOpen(true);
+    setError(null);
+    loadPreview();
+  };
 
   const close = () => {
     setOpen(false);
@@ -675,6 +691,22 @@ function CancelBooking({ booking, cancellationHours, onDone }: { booking: Bookin
     // Apply the new state only after the dialog closed (the button disappears with it)
     if (result) onDone(result.booking);
   };
+
+  const feeCents = preview?.feeCents ?? 0;
+  const paid = (preview?.paidCents ?? 0) > 0 || booking.payment?.status === 'paid';
+  const lines: string[] = [];
+  if (booking.status === 'payment_pending') lines.push(t.pending);
+  else if (preview) {
+    if (preview.tier === 'free') {
+      lines.push(t.freeUntil(f.dateTime(preview.cutoffs.freeUntil)));
+      if (paid) lines.push(t.refundAmount(f.euro(preview.refundCents)));
+    } else {
+      lines.push(t.feeApplies(preview.feePct, f.euro(preview.feeCents)));
+      if (preview.refundCents > 0) lines.push(t.refundAmount(f.euro(preview.refundCents)));
+      else if (paid) lines.push(t.noRefund);
+      if (preview.outstandingCents > 0) lines.push(t.outstanding(f.euro(preview.outstandingCents)));
+    }
+  }
 
   const cancel = async () => {
     if (busyRef.current) return;
@@ -686,11 +718,29 @@ function CancelBooking({ booking, cancellationHours, onDone }: { booking: Bookin
     setBusy(true);
     setError(null);
     try {
-      const res = await api.post<CancelResponse>(`/customer/bookings/${booking._id}/cancel`, { reason: reason.trim() });
-      const outcome: CancelOutcome = res.refunded ? 'refunded' : res.payment?.status === 'refund_pending' ? 'refundPending' : 'noCharge';
+      const res = await api.post<CancelResponse>(`/customer/bookings/${booking._id}/cancel`, {
+        reason: reason.trim(),
+        ...(feeCents > 0 && { confirmFeeCents: feeCents }),
+      });
+      const fee = res.fee;
+      const outcome: CancelOutcome =
+        fee && fee.feeCents > 0
+          ? fee.outstandingCents > 0
+            ? 'feeOutstanding'
+            : res.refunded
+              ? 'partialRefund'
+              : res.payment?.status === 'refund_pending'
+                ? 'refundPending'
+                : 'noCharge'
+          : res.refunded
+            ? 'refunded'
+            : res.payment?.status === 'refund_pending'
+              ? 'refundPending'
+              : 'noCharge';
       const now = new Date().toISOString();
       setResult({
         outcome,
+        fee,
         booking: {
           ...booking,
           status: res.status ?? 'cancelled',
@@ -702,10 +752,30 @@ function CancelBooking({ booking, cancellationHours, onDone }: { booking: Bookin
       });
       toast.success(t.toast);
     } catch (e) {
-      setError(translateApiError(e, locale));
+      if (e instanceof ApiError && e.code === 'FEE_CHANGED' && e.body) {
+        setPreview(e.body as unknown as CancelPreview);
+        setError(t.feeChanged);
+      } else {
+        setError(translateApiError(e, locale));
+      }
     } finally {
       busyRef.current = false;
       setBusy(false);
+    }
+  };
+
+  const resultText = (r: NonNullable<typeof result>) => {
+    switch (r.outcome) {
+      case 'refunded':
+        return t.refunded;
+      case 'partialRefund':
+        return t.partialRefund(f.euro(r.fee?.refundCents ?? 0), f.euro(r.fee?.feeCents ?? 0));
+      case 'feeOutstanding':
+        return t.feeOutstanding(f.euro(r.fee?.outstandingCents ?? 0));
+      case 'refundPending':
+        return t.refundPending;
+      default:
+        return r.fee && r.fee.feeCents > 0 ? t.feeKept(f.euro(r.fee.feeCents)) : t.noCharge;
     }
   };
 
@@ -714,11 +784,11 @@ function CancelBooking({ booking, cancellationHours, onDone }: { booking: Bookin
       open={open}
       onOpenChange={(next) => {
         if (busy) return;
-        if (next) setOpen(true);
+        if (next) openDialog();
         else close();
       }}
     >
-      <button type="button" onClick={() => setOpen(true)} className="button button-quiet button-small shrink-0 !text-red-700">
+      <button type="button" onClick={openDialog} className="button button-quiet button-small shrink-0 !text-red-700">
         <CircleX className="h-4 w-4" aria-hidden="true" /> {t.button}
       </button>
       <AlertDialogContent className="w-[calc(100%-32px)] rounded-2xl">
@@ -728,9 +798,7 @@ function CancelBooking({ booking, cancellationHours, onDone }: { booking: Bookin
               <AlertDialogTitle className="flex items-center gap-2 text-pine-dark">
                 <CircleCheck className="h-5 w-5 text-pine" aria-hidden="true" /> {t.doneTitle}
               </AlertDialogTitle>
-              <AlertDialogDescription role="status">
-                {result.outcome === 'refunded' ? t.refunded : result.outcome === 'refundPending' ? t.refundPending : t.noCharge}
-              </AlertDialogDescription>
+              <AlertDialogDescription role="status">{resultText(result)}</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <button type="button" onClick={close} className="button button-small">
@@ -742,8 +810,21 @@ function CancelBooking({ booking, cancellationHours, onDone }: { booking: Bookin
           <>
             <AlertDialogHeader>
               <AlertDialogTitle className="text-pine-dark">{t.title(booking.reference)}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {description} {t.irreversible}
+              <AlertDialogDescription asChild>
+                <div className="grid gap-1 text-sm text-muted-grey">
+                  {previewLoading && !preview ? (
+                    <p className="m-0 flex items-center gap-2">
+                      <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> {t.loadingPreview}
+                    </p>
+                  ) : (
+                    lines.map((line, i) => (
+                      <p key={i} className={cn('m-0', i === 0 && feeCents > 0 && 'font-semibold text-red-700')}>
+                        {line}
+                      </p>
+                    ))
+                  )}
+                  <p className="m-0">{t.irreversible}</p>
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <FormField id="cancel-reason" label={t.reason} optional hint={t.reasonHint}>
@@ -755,11 +836,11 @@ function CancelBooking({ booking, cancellationHours, onDone }: { booking: Bookin
               <button
                 type="button"
                 onClick={cancel}
-                disabled={busy}
+                disabled={busy || previewLoading || (booking.status !== 'payment_pending' && !preview)}
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-red-700 px-4 text-sm font-bold text-white hover:bg-red-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:opacity-70"
               >
                 {busy && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />}
-                {t.confirm}
+                {feeCents > 0 ? t.confirmWithFee(f.euro(feeCents)) : t.confirm}
               </button>
             </AlertDialogFooter>
           </>

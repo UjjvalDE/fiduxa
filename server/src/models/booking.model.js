@@ -205,6 +205,29 @@ const bookingSchema = new mongoose.Schema(
       checklistDone: { type: [String], default: [] },
       // Actual cleaning duration as reported by the cleaner (minutes)
       actualDurationMinutes: { type: Number, min: 0, max: 1440 },
+      // Confirmed by the cleaner after the job day (forgot to tap Start/Done)
+      lateConfirmation: { type: Boolean, default: undefined },
+      // Job-confirmation watch: evening reminder to the cleaner / admin alert after the grace window
+      confirmReminderAt: Date,
+      stuckAlertAt: Date,
+      // Cleaner reports the job did not take place → admin decides (no automatic fee)
+      notHappened: {
+        reportedAt: Date,
+        reportedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        reason: { type: String, enum: ["customer_absent", "no_access", "other"] },
+        note: { type: String, maxlength: 1000, default: undefined },
+        decision: { type: String, enum: ["pending", "no_access_fee", "cancel_free", "dismissed"] },
+        decidedAt: Date,
+        decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        decisionNote: { type: String, maxlength: 500, default: undefined },
+      },
+      // Admin override (not the normal flow): who corrected start/completion and why
+      adminCorrection: {
+        at: Date,
+        by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        reason: { type: String, maxlength: 500 },
+        status: String,
+      },
     },
 
     // Post-cleaning follow-up (feedback email, customer-reported facts)
@@ -238,7 +261,16 @@ const bookingSchema = new mongoose.Schema(
             // edit = admin/customer edit · duration = cleaning took longer/shorter
             kind: { type: String, enum: ["edit", "duration"], default: "edit" },
             minutes: Number, // duration adjustments: extra (+) / fewer (−) minutes
-            status: { type: String, enum: ["proposed", "open", "paid", "refunded", "waived", "declined"], required: true },
+            // expired = a cleaner's extra-time request nobody answered in time
+            status: { type: String, enum: ["proposed", "open", "paid", "refunded", "waived", "declined", "expired"], required: true },
+            // Who started it: admin/system (edits, duration reviews) or the cleaner
+            // during the job (extra-time request, see extra-time.service.js)
+            origin: { type: String, enum: ["admin", "cleaner", "system"], default: undefined },
+            // Cleaner requests: the customer must answer before this instant
+            expiresAt: Date,
+            // Cleaner requests: duration/end time before → after approval
+            previousDurationMinutes: Number,
+            newSlotEnd: String,
             at: { type: Date, default: Date.now },
             by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
             decidedAt: Date, // customer approved/declined

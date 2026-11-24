@@ -1,4 +1,4 @@
-import { recordWorkerEarning } from "../services/payout.service.js";
+import { rejectIfIneligible } from "../services/work-eligibility.service.js";
 import { jobMismatch } from "../services/worker-profile.service.js";
 import { z } from "zod";
 import mongoose from "mongoose";
@@ -7,7 +7,7 @@ import Booking from "../models/booking.model.js";
 import User from "../models/user.model.js";
 import AuditLog from "../models/audit-log.model.js";
 import { ACTIVE_BOOKING_STATUSES, ALL_BOOKING_STATUSES } from "../config/pricing.js";
-import { sendBookingStatusEmail, trySend } from "../services/email.service.js";
+import { trySend } from "../services/email.service.js";
 import { cancelBooking, confirmBooking } from "../services/booking-lifecycle.service.js";
 import {
   findWorkerConflict,
@@ -15,7 +15,9 @@ import {
   offerJob,
 } from "../services/job-dispatch.service.js";
 import { recordAudit } from "../services/audit.service.js";
-import { EDITABLE_STATUSES, logBookingChange, repriceBooking, rescheduleBooking } from "../services/booking-edit.service.js";
+import { completeJob, findStuckJobs, resolveActualTimes } from "../services/job-completion.service.js";
+import { EDITABLE_STATUSES, logBookingChange, paidOnline, repriceBooking, rescheduleBooking } from "../services/booking-edit.service.js";
+import { addPriceAdjustment, assertWorkerMayTakeCash, cancellationPreview, settleAdjustment } from "../services/money-policies.service.js";
 import { assertBookableDate, moveBooking } from "../services/availability.service.js";
 import { findService } from "../data/catalogue.js";
 import { sendBookingUpdatedEmail, sendWorkerScheduleChangedEmail } from "../services/email.service.js";
@@ -32,13 +34,21 @@ const statusSchema = z.object({
   note: z.string().trim().max(500).optional().default(""),
   // When cancelling a paid booking: refund automatically via Stripe (default)
   refund: z.boolean().optional().default(true),
+  // Admin-Korrektur (start / complete): actual times of the job (HH:MM, job date)
+  startTime: z.string().trim().optional(),
+  endTime: z.string().trim().optional(),
+  cashCollectedCents: z.number().int().min(0).max(1_000_000).optional(),
 });
+
+// Starting / completing is the CLEANER's job – the admin may only correct it
+// ("Admin-Korrektur") with a reason, which is audited.
+const CORRECTION_STATUSES = ["in_progress", "completed"];
 
 // Allowed admin status transitions
 // payment_pending → confirmed = manual confirmation (e.g. paid by invoice)
 const ALLOWED_TRANSITIONS = {
   payment_pending: ["confirmed", "cancelled"],
-  confirmed: ["in_progress", "cancelled"],
+  confirmed: ["in_progress", "completed", "cancelled"],
   in_progress: ["completed"],
   // legacy quotation-flow records
   pending_quotation: ["cancelled"],
@@ -165,7 +175,15 @@ export const getBookingDetails = async (req, res, next) => {
 // PATCH /api/v1/admin/bookings/:id/status  { status, note?, refund? }
 export const updateBookingStatus = async (req, res, next) => {
   try {
-    const { status, note, refund } = statusSchema.parse(req.body);
+    const { status, note, refund, startTime, endTime, cashCollectedCents } = statusSchema.parse(req.body);
+
+    if (CORRECTION_STATUSES.includes(status) && note.length < 5) {
+      return res.status(422).json({
+        success: false,
+        code: "CORRECTION_REASON_REQUIRED",
+        message: "Admin-Korrektur: please give a reason (the cleaner normally starts and completes the job).",
+      });
+    }
 
     const booking = await loadBooking(req, res);
     if (!booking) return;
@@ -196,25 +214,26 @@ export const updateBookingStatus = async (req, res, next) => {
         note: note || "Confirmed manually by admin",
         paid: booking.payment?.status === "paid",
       });
+    } else if (status === "completed") {
+      const times = req.body?.startTime || req.body?.endTime ? resolveActualTimes(booking, { startTime, endTime }) : null;
+      booking.set("job.adminCorrection", { at: new Date(), by: req.user._id, reason: note, status });
+      await completeJob(booking, {
+        actor: req.user,
+        source: "admin",
+        cashCollectedCents,
+        historyNote: `Admin-Korrektur: ${note}`,
+        ...(times && { startedAt: times.startedAt, completedAt: times.completedAt, actualDurationMinutes: times.minutes }),
+      });
     } else {
-      booking.setStatus(status, req.user._id, note);
-      if (status === "in_progress" && !booking.job?.startedAt) {
-        booking.set("job.startedAt", new Date());
-      }
-      if (status === "completed" && !booking.job?.completedAt) {
-        booking.set("job.completedAt", new Date());
-      }
-      if (status === "completed") await recordWorkerEarning(booking);
+      booking.setStatus(status, req.user._id, `Admin-Korrektur: ${note}`);
+      booking.set("job.adminCorrection", { at: new Date(), by: req.user._id, reason: note, status });
+      if (!booking.job?.startedAt) booking.set("job.startedAt", new Date());
       await booking.save();
-
-      if (status === "completed") {
-        await trySend("Booking status", () => sendBookingStatusEmail({ booking, status }));
-      }
     }
 
     await recordAudit({
       actor: req.user._id,
-      action: "booking.status.changed",
+      action: CORRECTION_STATUSES.includes(status) ? "booking.status.admin_correction" : "booking.status.changed",
       entityType: "Booking",
       entityId: booking._id,
       before: { status: previousStatus },
@@ -293,6 +312,9 @@ export const assignWorker = async (req, res, next) => {
         });
       }
 
+      // Work eligibility: ID / work permit verified and valid on the job date
+      if (rejectIfIneligible(res, worker, booking.preferredDate, { admin: true })) return;
+
       // Prevent overlapping jobs for the same cleaner (incl. travel buffer)
       const clash = await findWorkerConflict(worker._id, booking);
 
@@ -302,6 +324,9 @@ export const assignWorker = async (req, res, next) => {
           message: `This worker is already assigned to ${clash.reference} in the same slot.`,
         });
       }
+
+      // Cash policy: tier below the minimum or too much cash held → no cash jobs (409)
+      await assertWorkerMayTakeCash(worker, booking);
 
       booking.assignedWorker = worker._id;
       booking.assignedAt = new Date();
@@ -646,6 +671,19 @@ export const editBookingDetails = async (req, res, next) => {
     if (changes.length === 0 && !contactChanged) {
       return res.json({ success: true, message: "Nothing changed.", priceDeltaCents: 0 });
     }
+
+    // Online-paid booking got more/less expensive: the payment record stays,
+    // the difference is settled as a price adjustment (pay link / partial refund)
+    let adjustment = null;
+    if (priceDeltaCents !== 0 && paidOnline(booking)) {
+      adjustment = addPriceAdjustment(booking, {
+        deltaCents: priceDeltaCents,
+        reason: `Booking edited by the office: ${changes.filter((c) => c.field !== "totalCents").map((c) => c.field).join(", ")}`,
+        kind: "edit",
+        by: req.user._id,
+      });
+      await settleAdjustment(booking, adjustment, { actorId: req.user._id });
+    }
     await booking.save();
 
     await recordAudit({
@@ -671,9 +709,82 @@ export const editBookingDetails = async (req, res, next) => {
       priceDeltaCents,
       // Paid bookings keep their payment record – the admin settles the delta
       paymentUntouched: booking.payment?.status === "paid" && priceDeltaCents !== 0,
+      adjustment,
       unassignedWorker,
       changes,
       booking,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /api/v1/admin/bookings/stuck – past jobs the cleaner has not confirmed
+export const listStuckJobs = async (req, res, next) => {
+  try {
+    const jobs = await findStuckJobs({ limit: 100 });
+    return res.json({ success: true, count: jobs.length, jobs });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// PATCH /api/v1/admin/bookings/:id/not-happened  { decision, note }
+// Cleaner reported "did not take place": the admin decides. Only here a fee
+// (existing no-access / cancellation policy) can be charged – never automatically.
+export const decideNotHappened = async (req, res, next) => {
+  try {
+    const { decision, note } = z
+      .object({
+        decision: z.enum(["no_access_fee", "cancel_free", "dismissed"]),
+        note: z.string().trim().min(5, "Please give a reason.").max(500),
+      })
+      .parse(req.body ?? {});
+
+    const booking = await loadBooking(req, res);
+    if (!booking) return;
+    if (booking.job?.notHappened?.decision !== "pending") {
+      return res.status(409).json({ success: false, message: "No open report for this booking." });
+    }
+    if (!["confirmed", "in_progress"].includes(booking.status)) {
+      return res.status(409).json({ success: false, message: "This booking is no longer open." });
+    }
+
+    booking.set("job.notHappened.decision", decision);
+    booking.set("job.notHappened.decidedAt", new Date());
+    booking.set("job.notHappened.decidedBy", req.user._id);
+    booking.set("job.notHappened.decisionNote", note);
+
+    let result = {};
+    if (decision === "dismissed") {
+      // Report rejected → the cleaner can confirm the job again (or the admin corrects)
+      booking.set("job.notHappened.reportedAt", undefined);
+      booking.statusHistory.push({ status: booking.status, changedBy: req.user._id, note: `Not-happened report dismissed: ${note}` });
+      await booking.save();
+    } else {
+      const fee = decision === "no_access_fee" ? cancellationPreview(booking, { noAccess: true }) : null;
+      result = await cancelBooking(booking, {
+        actorId: req.user._id,
+        reason: note,
+        note: `Did not take place (${booking.job.notHappened.reason}) – ${decision}: ${note}`,
+        autoRefund: true,
+        fee,
+      });
+    }
+
+    await recordAudit({
+      actor: req.user._id,
+      action: "booking.not_happened.decided",
+      entityType: "Booking",
+      entityId: booking._id,
+      before: { status: "pending" },
+      after: { decision, note, status: booking.status, feeCents: result.fee?.feeCents ?? 0 },
+    });
+
+    return res.json({
+      success: true,
+      message: "Decision saved.",
+      booking: { id: booking._id, status: booking.status, notHappened: booking.job.notHappened, cancellation: booking.cancellation },
     });
   } catch (error) {
     next(error);

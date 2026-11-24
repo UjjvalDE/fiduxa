@@ -58,6 +58,10 @@ await User.db.dropDatabase();
 for (const M of Object.values(User.db.models)) await M.syncIndexes(); // syncAllIndexes
 await AvailabilitySlot.syncIndexes();
 await (await import(ROOT + "/src/models/reservation-lock.model.js")).default.syncIndexes();
+// Fixture: this suite exercises the card (Stripe) and cash flows that the owner switched off
+// for now (POLICIES.paymentMethods.enabled = ["paypal"]); they are re-enabled for this test DB only.
+await (await import(ROOT + "/src/models/settings.model.js")).default.updateOne({ key: "platform" }, { $set: { "policies.paymentMethods.enabled": ["paypal", "stripe", "cash"] } }, { upsert: true });
+await (await import(ROOT + "/src/services/settings.service.js")).loadSettings();
 
 const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}/api/v1`;

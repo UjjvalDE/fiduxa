@@ -121,6 +121,7 @@ const de = {
     failed: { label: 'Fehlgeschlagen', tone: 'danger' },
     refund_pending: { label: 'Erstattung ausstehend', tone: 'warning' },
     refunded: { label: 'Erstattet', tone: 'neutral' },
+    partially_refunded: { label: 'Teilweise erstattet', tone: 'warning' },
   } as StatusMap<BookingPaymentStatus>,
   workerStatus: {
     not_applicable: { label: '–', tone: 'neutral' },
@@ -259,7 +260,8 @@ const en: CommonMessages = {
     failed: { label: 'Failed', tone: 'danger' },
     refund_pending: { label: 'Refund pending', tone: 'warning' },
     refunded: { label: 'Refunded', tone: 'neutral' },
-  },
+    partially_refunded: { label: 'Partially refunded', tone: 'warning' },
+  } as StatusMap<BookingPaymentStatus>,
   workerStatus: {
     not_applicable: { label: '–', tone: 'neutral' },
     invited: { label: 'Invited', tone: 'neutral' },
@@ -395,7 +397,8 @@ const pl: CommonMessages = {
     failed: { label: 'Nieudana', tone: 'danger' },
     refund_pending: { label: 'Zwrot w toku', tone: 'warning' },
     refunded: { label: 'Zwrócono', tone: 'neutral' },
-  },
+    partially_refunded: { label: 'Częściowo zwrócono', tone: 'warning' },
+  } as StatusMap<BookingPaymentStatus>,
   workerStatus: {
     not_applicable: { label: '–', tone: 'neutral' },
     invited: { label: 'Zaproszony', tone: 'neutral' },

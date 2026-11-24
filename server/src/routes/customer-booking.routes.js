@@ -12,6 +12,7 @@ import {
 import { messageHandlers } from "../controllers/booking-message.controller.js";
 import { createReview } from "../controllers/review.controller.js";
 import { getMySeries, listMySeries, skipMyOccurrence, updateMySeries } from "../controllers/recurring-series.controller.js";
+import { dismissMyFeedback, getMyPendingFeedback } from "../controllers/job-feedback.controller.js";
 
 const customerMessages = messageHandlers("customer");
 
@@ -19,7 +20,10 @@ export const customerBookingRouter = Router();
 
 customerBookingRouter.use(protect);
 
+// Feedback pop-up (must be registered before "/:id")
+customerBookingRouter.get("/feedback/pending", getMyPendingFeedback);
 customerBookingRouter.get("/:id", getMyBooking);
+customerBookingRouter.post("/:id/feedback/dismiss", dismissMyFeedback);
 customerBookingRouter.get("/:id/cancel-preview", getCancelPreview);
 customerBookingRouter.post("/:id/cancel", cancelMyBooking);
 // Price adjustments (duration review / edits of paid bookings): customer decides, pays

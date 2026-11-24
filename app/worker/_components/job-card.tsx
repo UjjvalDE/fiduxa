@@ -1,5 +1,6 @@
 'use client';
 
+import type { WorkerExtraTimeRequest } from '@/lib/types';
 import Link from 'next/link';
 import { CalendarDays, ChevronRight, Clock, MapPin, MessageSquare, PawPrint } from 'lucide-react';
 
@@ -9,6 +10,7 @@ import type { BookingStatus, WorkerJob } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 import messages from '../_messages';
+import confirmMessages from '../_confirm-messages';
 import portalMessages from '../_portal-messages';
 import { CashBadge, useJobTime } from './cash';
 import { JOB_STATUS_CLASSES } from './labels';
@@ -20,6 +22,17 @@ export type WorkerJobWithSlot = Omit<WorkerJob, 'workerPayout'> & {
   slotEnd?: string;
   assignedAt?: string;
   workerPayout?: (WorkerPayout & { cashHeldCents?: number }) | null;
+  extraTimeRequests?: WorkerExtraTimeRequest[];
+  /** Past job still open: late confirmation ("Job erledigt bestätigen") */
+  confirmation?: JobConfirmationInfo | null;
+};
+
+export type JobConfirmationInfo = {
+  needed: boolean;
+  possible: boolean;
+  deadline: string;
+  graceDays: number;
+  defaults: { startTime: string; endTime: string };
 };
 
 export function JobStatusBadge({ status }: { status: BookingStatus }) {
@@ -41,6 +54,7 @@ export function JobCard({ job, unread = 0 }: { job: WorkerJobWithSlot; unread?: 
   const c = useMessages(common);
   const f = useFormat();
   const jobTime = useJobTime();
+  const tc = useMessages(confirmMessages);
   const service = c.services[job.serviceId] ?? job.serviceId;
 
   return (
@@ -53,7 +67,13 @@ export function JobCard({ job, unread = 0 }: { job: WorkerJobWithSlot; unread?: 
           <p className="text-base font-semibold text-pine-dark">{service}</p>
           <p className="font-mono text-xs text-muted-grey">{job.reference}</p>
         </div>
-        <JobStatusBadge status={job.status} />
+        {job.confirmation?.needed ? (
+          <span className="inline-flex whitespace-nowrap rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900">
+            {tc.badge}
+          </span>
+        ) : (
+          <JobStatusBadge status={job.status} />
+        )}
       </div>
       <ul className="mt-3 space-y-1.5 text-sm text-charcoal">
         <li className="flex items-center gap-2">

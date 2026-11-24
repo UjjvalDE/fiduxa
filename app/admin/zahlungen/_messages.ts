@@ -1,7 +1,7 @@
 import { defineMessages } from '@/lib/i18n/config';
 import type { AdminPayment } from '@/lib/types';
 
-type PaymentStatus = AdminPayment['status'];
+type PaymentStatus = AdminPayment['status'] | 'partially_refunded';
 
 const de = {
   title: 'Zahlungen',
@@ -47,6 +47,7 @@ const de = {
     failed: 'Fehlgeschlagen',
     expired: 'Abgelaufen',
     refunded: 'Erstattet',
+    partially_refunded: 'Teilweise erstattet',
   } as Record<PaymentStatus, string>,
 };
 
@@ -92,6 +93,7 @@ const en: typeof de = {
     failed: 'Failed',
     expired: 'Expired',
     refunded: 'Refunded',
+    partially_refunded: 'Partially refunded',
   },
 };
 
@@ -137,6 +139,7 @@ const pl: typeof de = {
     failed: 'Nieudana',
     expired: 'Wygasła',
     refunded: 'Zwrócona',
+    partially_refunded: 'Częściowo zwrócona',
   },
 };
 

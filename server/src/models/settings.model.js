@@ -123,6 +123,10 @@ const settingsSchema = new mongoose.Schema(
         fastPayoutPct: { type: Number, min: 0, max: 100 },
         fastPayoutMinTier: { type: String, enum: ["new", "bronze", "silver", "gold", "platinum", "diamond"] },
       },
+      // Selectable customer payment methods (POLICIES.paymentMethods)
+      paymentMethods: {
+        enabled: { type: [String], enum: ["paypal", "stripe", "cash"], default: undefined },
+      },
     },
     // [slot-D-settings-model]
     reliability: {

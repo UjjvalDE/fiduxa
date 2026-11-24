@@ -74,7 +74,7 @@ const de = {
       'Gebuchte Stunden × Stundensatz – inklusive aller gewählten Extras. Den Endpreis siehst du, bevor du buchst. Er wird mit deiner Buchung festgehalten.',
     payTitle: 'Sicher online bezahlen',
     payText: (holdMinutes: number) =>
-      `Du bezahlst direkt bei der Buchung über unseren Zahlungsanbieter Stripe, zum Beispiel per Karte. Während du bezahlst, ist dein Termin ${holdMinutes} Minuten für dich reserviert. Nach erfolgreicher Zahlung wird er automatisch bestätigt.`,
+      `Du bezahlst direkt bei der Buchung sicher mit PayPal. Während du bezahlst, ist dein Termin ${holdMinutes} Minuten für dich reserviert. Nach erfolgreicher Zahlung wird er automatisch bestätigt.`,
     cancelTitle: 'Kostenlos stornieren',
     cancelText: (hours: number) =>
       `Bis ${hours} Stunden vor dem Termin kannst du online in deinem Konto stornieren. Bereits bezahlte Beträge werden automatisch erstattet.`,
@@ -226,7 +226,7 @@ const en: Messages = {
       'Hours booked × hourly rate – including all selected extras. You see the final price before you book, and it is recorded with your booking.',
     payTitle: 'Pay securely online',
     payText: (holdMinutes) =>
-      `You pay right when you book via our payment provider Stripe, for example by card. While you pay, your slot is reserved for you for ${holdMinutes} minutes. Once the payment has gone through, your booking is confirmed automatically.`,
+      `You pay right when you book, securely with PayPal. While you pay, your slot is reserved for you for ${holdMinutes} minutes. Once the payment has gone through, your booking is confirmed automatically.`,
     cancelTitle: 'Cancel free of charge',
     cancelText: (hours) =>
       `You can cancel online in your account up to ${hours} hours before the appointment. Any amount already paid is refunded automatically.`,
@@ -372,7 +372,7 @@ const pl: Messages = {
       'Zarezerwowane godziny × stawka godzinowa – z wszystkimi wybranymi dodatkami. Cenę końcową widzisz przed rezerwacją, a następnie zostaje ona zapisana w Twojej rezerwacji.',
     payTitle: 'Bezpieczna płatność online',
     payText: (holdMinutes) =>
-      `Płacisz od razu przy rezerwacji przez naszego operatora płatności Stripe, na przykład kartą. Podczas płatności termin jest zarezerwowany dla Ciebie przez ${holdMinutes} minut. Po udanej płatności zostaje automatycznie potwierdzony.`,
+      `Płacisz od razu przy rezerwacji, bezpiecznie przez PayPal. Podczas płatności termin jest zarezerwowany dla Ciebie przez ${holdMinutes} minut. Po udanej płatności zostaje automatycznie potwierdzony.`,
     cancelTitle: 'Bezpłatne anulowanie',
     cancelText: (hours) =>
       `Do ${hours} godzin przed terminem możesz anulować online na swoim koncie. Już zapłacone kwoty są zwracane automatycznie.`,

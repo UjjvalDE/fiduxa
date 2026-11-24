@@ -30,6 +30,7 @@ import User from "../models/user.model.js";
 import { getWorkerStats, publicWorkerCard, PUBLIC_WORKER_FIELDS } from "../services/worker-profile.service.js";
 import { unreadCounts } from "../services/booking-message.service.js";
 import { reviewWindowOpen } from "../controllers/review.controller.js";
+import { decideExtraTime, isCleanerRequest } from "../services/extra-time.service.js";
 
 const CUSTOMER_HIDDEN_FIELDS =
   "-adminNotes -statusHistory.changedBy -quotation.sentBy -quotationHistory -assignedBy -jobOffer -job.issueReported";
@@ -200,14 +201,25 @@ export const decideMyAdjustment = async (req, res, next) => {
     const adjustment = findAdjustment(booking, res, req.params.adjId);
     if (!adjustment) return;
 
-    await decideAdjustment(booking, adjustment, decision, { actorId: req.user._id });
+    // Cleaner extra-time requests also change duration/end time/cleaner pay
+    if (isCleanerRequest(adjustment)) await decideExtraTime(booking, adjustment, decision, { actorId: req.user._id });
+    else await decideAdjustment(booking, adjustment, decision, { actorId: req.user._id });
     await trySend("Admin notification", () =>
       sendAdminNotificationEmail({
         subject: `Preisanpassung ${decision === "approve" ? "angenommen" : "abgelehnt"}: ${booking.reference}`,
         lines: [`Differenz: ${(adjustment.deltaCents / 100).toFixed(2)} €`, `Grund: ${adjustment.reason || "-"}`, `Status: ${adjustment.status}`],
       })
     );
-    return res.json({ success: true, message: decision === "approve" ? "Adjustment approved." : "Adjustment declined.", adjustment, payment: booking.payment });
+    return res.json({
+      success: true,
+      message: decision === "approve" ? "Adjustment approved." : "Adjustment declined.",
+      adjustment,
+      payment: booking.payment,
+      // New end time + final price (both shown to the customer)
+      slotEnd: booking.slotEnd,
+      durationMinutes: booking.estimate?.durationMinutes,
+      totalCents: booking.pricing?.totalCents ?? booking.estimate?.totalCents,
+    });
   } catch (error) {
     next(error);
   }

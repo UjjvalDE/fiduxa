@@ -92,12 +92,17 @@ if (process.env.NODE_ENV === "development") {
 // The bypass only works in NODE_ENV=test – never in production.
 const rateLimitsOff = process.env.NODE_ENV === "test" && process.env.DISABLE_RATE_LIMIT === "1";
 
+// Local development: every request comes from localhost (dev reloads, session
+// polling), so the per-IP limits run out within minutes. Raise them ×50 there;
+// production keeps the strict limits.
+const devLimitFactor = process.env.NODE_ENV === "development" ? 50 : 1;
+
 const limiter = (windowMinutes, limit) =>
   rateLimitsOff
     ? (req, res, next) => next()
     : rateLimit({
     windowMs: windowMinutes * 60 * 1000,
-    limit,
+    limit: limit * devLimitFactor,
     standardHeaders: "draft-8",
     legacyHeaders: false,
     message: {
@@ -116,6 +121,7 @@ app.use("/api/v1/business-requests", limiter(60, 10));
 app.use("/api/v1/contact", limiter(60, 10));
 app.use("/api/v1/jobs/applications", limiter(60, 5), express.json({ limit: "8mb" })); // CV ≤ 5 MB as base64
 app.use("/api/v1/worker/documents", express.json({ limit: "8mb" })); // cleaner documents ≤ 5 MB as base64 (package E)
+app.use("/api/v1/auth/oauth", limiter(15, 60)); // social login round-trips
 app.use("/api/v1/auth/2fa/verify", limiter(15, 20)); // 2FA code guessing (package E)
 // Guessing gift card codes / coupons
 app.use("/api/v1/gift-cards/check", limiter(15, 20));

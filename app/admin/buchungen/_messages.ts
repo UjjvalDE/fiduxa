@@ -133,14 +133,14 @@ const de = {
       description: 'Die Kundschaft erhält eine Bestätigung per E-Mail.',
     } as Transition,
     in_progress: {
-      label: 'Als begonnen markieren',
+      label: 'Admin-Korrektur: als begonnen markieren',
       title: 'Reinigung als begonnen markieren?',
-      description: 'Normalerweise startet die Reinigungskraft den Einsatz selbst in ihrem Portal.',
+      description: 'Nur als Korrektur: Normalerweise startet die Reinigungskraft den Einsatz selbst in ihrem Portal. Bitte einen Grund angeben – die Änderung wird protokolliert.',
     } as Transition,
     completed: {
-      label: 'Abschließen',
-      title: 'Einsatz als abgeschlossen markieren?',
-      description: 'Die Kundschaft wird per E-Mail informiert. Dieser Schritt kann nicht rückgängig gemacht werden.',
+      label: 'Admin-Korrektur: abschließen',
+      title: 'Einsatz per Admin-Korrektur abschließen?',
+      description: 'Nur als Korrektur – normalerweise bestätigt die Reinigungskraft den Einsatz selbst (auch bis 7 Tage nachträglich). Grund angeben; die Änderung wird protokolliert. Rechnung, Verdienst und E-Mails laufen wie beim normalen Abschluss. Nicht rückgängig zu machen.',
     } as Transition,
     cancelled: {
       label: 'Stornieren',
@@ -405,14 +405,14 @@ const en: BookingMessages = {
       description: 'The customer receives a confirmation email.',
     },
     in_progress: {
-      label: 'Mark as started',
+      label: 'Admin correction: mark as started',
       title: 'Mark the cleaning as started?',
-      description: 'Normally the cleaner starts the job themselves in their portal.',
+      description: 'Correction only: normally the cleaner starts the job themselves in their portal. Please give a reason – the change is audited.',
     },
     completed: {
-      label: 'Complete',
-      title: 'Mark the job as completed?',
-      description: 'The customer is informed by email. This step cannot be undone.',
+      label: 'Admin correction: complete',
+      title: 'Complete the job as an admin correction?',
+      description: 'Correction only – normally the cleaner confirms the job themselves (up to 7 days later). Give a reason; the change is audited. Invoice, pay and emails run as for a normal completion. Cannot be undone.',
     },
     cancelled: {
       label: 'Cancel booking',
@@ -676,14 +676,14 @@ const pl: BookingMessages = {
       description: 'Klient otrzyma potwierdzenie e-mailem.',
     },
     in_progress: {
-      label: 'Oznacz jako rozpoczęte',
+      label: 'Korekta admina: oznacz jako rozpoczęte',
       title: 'Oznaczyć sprzątanie jako rozpoczęte?',
-      description: 'Zwykle osoba sprzątająca sama rozpoczyna zlecenie w swoim portalu.',
+      description: 'Tylko jako korekta: zwykle osoba sprzątająca sama rozpoczyna zlecenie w portalu. Podaj powód – zmiana jest protokołowana.',
     },
     completed: {
-      label: 'Zakończ',
-      title: 'Oznaczyć zlecenie jako zakończone?',
-      description: 'Klient zostanie poinformowany e-mailem. Tego kroku nie można cofnąć.',
+      label: 'Korekta admina: zakończ',
+      title: 'Zakończyć zlecenie korektą admina?',
+      description: 'Tylko jako korekta – zwykle osoba sprzątająca sama potwierdza zlecenie (do 7 dni później). Podaj powód; zmiana jest protokołowana. Faktura, wynagrodzenie i e-maile jak przy zwykłym zakończeniu. Nie można cofnąć.',
     },
     cancelled: {
       label: 'Anuluj rezerwację',

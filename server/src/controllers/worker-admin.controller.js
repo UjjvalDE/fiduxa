@@ -30,7 +30,7 @@ const createInvitationToken = () => {
 };
 
 const WORKER_REVIEW_FIELDS =
-  "name email phone emailVerified workerStatus workerProfile bankAccountHolder bankAccountLast4 payoutMethod workerReview createdAt avatarUpdatedAt availability holidays workerPayRateCents documents reliability";
+  "name email phone emailVerified workerStatus workerProfile bankAccountHolder bankAccountLast4 payoutMethod workerReview createdAt avatarUpdatedAt availability holidays workerPayRateCents documents reliability workEligibility role";
 
 const createWorkerSchema = z.object({
   name: z.string().trim().min(2).max(100),

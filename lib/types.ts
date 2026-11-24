@@ -302,6 +302,8 @@ export interface StatusHistoryEntry {
 
 export interface Booking {
   _id: string;
+  /** my-bookings: date is past, cleaner has not confirmed the job yet */
+  awaitingConfirmation?: boolean;
   reference: string;
   customer: string | PersonRef;
   serviceId: ServiceId;
@@ -825,6 +827,8 @@ export interface AuditLog {
 
 export interface DashboardStats {
   totalBookings: number;
+  /** Past jobs the cleaner has not confirmed (or reported as not happened) */
+  stuckJobs?: number;
   paymentPending: number;
   confirmedBookings: number;
   inProgressBookings: number;
@@ -1418,6 +1422,138 @@ export type BookingWithSeries = Booking & { series?: string | null; seriesIndex?
 export type SeriesAction = 'pause' | 'resume' | 'end';
 /* [slot-B-types] */
 /* [slot-C-types] */
+/** Money policies (admin settings → policies): cancellation fees, cash rules, payouts */
+export interface PoliciesSettings {
+  cancellation: { freeHours: number; lateFeePct: number; veryLateHours: number; veryLateFeePct: number; cleanerSharePct: number };
+  cash: { maxTotalCents: number; minTier: CommissionTierKey; suspendBelowCents: number };
+  payouts: { eligibilityDays: number; fastPayoutDays: number; fastPayoutPct: number; fastPayoutMinTier: CommissionTierKey };
+  /** Selectable customer payment methods (owner decision: PayPal only for now) */
+  paymentMethods?: { enabled: PaymentMethodKey[] };
+}
+export type CancelFeeTier = 'free' | 'late' | 'very_late';
+/** GET /customer/bookings/:id/cancel-preview */
+export interface CancelPreview {
+  cancellable?: boolean;
+  tier: CancelFeeTier;
+  feePct: number;
+  feeCents: number;
+  priceCents: number;
+  paidCents: number;
+  chargedCents: number;
+  refundCents: number;
+  outstandingCents: number;
+  cleanerCents: number;
+  cutoffs: { start: string; freeUntil: string; veryLateFrom: string };
+  policy: PoliciesSettings['cancellation'];
+}
+export type PriceAdjustmentStatus = 'proposed' | 'open' | 'paid' | 'refunded' | 'waived' | 'declined' | 'expired';
+/** booking.priceAdjustments[] – price deltas after edits / duration reviews */
+export interface PriceAdjustment {
+  _id: string;
+  deltaCents: number;
+  reason: string;
+  kind: 'edit' | 'duration';
+  minutes?: number;
+  status: PriceAdjustmentStatus;
+  at: string;
+  decidedAt?: string;
+  resolvedAt?: string;
+  paidVia?: 'online' | 'cash' | 'invoice';
+  checkoutUrl?: string;
+  /** cleaner = extra-time request during the job */
+  origin?: 'admin' | 'cleaner' | 'system';
+  expiresAt?: string;
+  previousDurationMinutes?: number;
+  newSlotEnd?: string;
+}
+export interface PaymentRefundEntry {
+  amountCents: number;
+  reason: string;
+  refundId: string | null;
+  at: string;
+}
+/** Booking fields added by the money policies (cancellation fee, adjustments, cash feedback) */
+export type BookingWithMoney = Booking & {
+  priceAdjustments?: PriceAdjustment[];
+  cancellation?: Booking['cancellation'] & { feeCents?: number; feePct?: number; cleanerCents?: number; refundCents?: number; charged?: boolean };
+  feedback?: { durationMismatch?: boolean; cashMismatch?: boolean; customer?: { actualCashCents?: number } };
+};
+/** Payment record fields added by partial refunds / adjustment pay links */
+export type AdminPaymentWithRefunds = Omit<AdminPayment, 'status'> & {
+  status: AdminPayment['status'] | 'partially_refunded';
+  purpose?: 'booking' | 'gift_card' | 'adjustment';
+  refundedCents?: number;
+  refunds?: PaymentRefundEntry[];
+};
 /* [slot-D-types] */
 /* [slot-E-types] */
 /* [slot-F-types] */
+
+// [worker/admin feedback / extra time]
+export type PaymentMethodKey = 'paypal' | 'stripe' | 'cash';
+export type ExtraTimeRequestStatus = PriceAdjustmentStatus;
+/** worker job: own extra-time requests (no prices) */
+export interface WorkerExtraTimeRequest {
+  id: string;
+  minutes: number;
+  reason: string;
+  status: ExtraTimeRequestStatus;
+  expiresAt: string | null;
+  newSlotEnd: string;
+  at: string;
+  decidedAt: string | null;
+}
+export interface FeedbackPendingItem {
+  bookingId: string;
+  reference: string;
+  serviceId: string;
+  preferredDate: string;
+  completedAt: string | null;
+}
+type Avg = number | null;
+export interface FeedbackCustomerAverages { key: string; count: number; overallExperience: Avg; cleanerRating: Avg; professionalPunctual: Avg; notAsExpected: number }
+export interface FeedbackWorkerAverages { key: string; count: number; experience: Avg; customerRating: Avg; homeCondition: Avg; cooperative: Avg; jobDifficulty: Avg; withDifficulties: number }
+export interface FeedbackTagCount { tag: string; count: number }
+/** GET /admin/feedback (internal) */
+export interface AdminFeedbackSummary {
+  overall: { customer: FeedbackCustomerAverages | null; worker: FeedbackWorkerAverages | null };
+  dismissed: { customer?: number; worker?: number };
+  perCleaner: (FeedbackCustomerAverages & { name: string; email: string })[];
+  perCustomer: (FeedbackWorkerAverages & { name: string; email: string })[];
+  perDistrict: { postcode: string; customer?: FeedbackCustomerAverages; worker?: FeedbackWorkerAverages }[];
+  tags: { customerIssues: FeedbackTagCount[]; workerDifficulties: FeedbackTagCount[]; workerConditions: FeedbackTagCount[] };
+}
+
+// [customer feedback / extra time / invoices]
+/** Price adjustment incl. cleaner extra-time requests (origin "cleaner") */
+export type CustomerPriceAdjustment = Omit<PriceAdjustment, 'status'> & {
+  status: PriceAdjustmentStatus | 'expired';
+  origin?: 'admin' | 'cleaner' | 'system';
+  expiresAt?: string;
+  previousDurationMinutes?: number;
+  newSlotEnd?: string;
+};
+/** GET /customer/invoices */
+export interface CustomerInvoice {
+  bookingId: string;
+  reference: string;
+  serviceId: string;
+  preferredDate: string;
+  slot?: string;
+  slotEnd?: string;
+  durationMinutes: number | null;
+  paymentStatus?: 'paid' | 'pending' | 'unpaid' | 'failed' | 'refunded' | 'partially_refunded' | 'refund_pending';
+  number: string;
+  issuedAt: string;
+  totalCents: number;
+  paymentMethod?: string;
+}
+/** GET /customer/bookings/feedback/pending */
+export interface PendingFeedback {
+  bookingId: string;
+  reference: string;
+  serviceId: string;
+  preferredDate: string;
+  completedAt: string | null;
+  cleanerName?: string;
+}

@@ -97,7 +97,7 @@ const de = {
       category: 'Zahlung',
       question: 'Wie bezahle ich?',
       answer:
-        'Direkt bei der Buchung, sicher online über unseren Zahlungsanbieter Stripe – zum Beispiel per Karte. Welche Zahlungsarten zur Verfügung stehen, siehst du auf der Zahlungsseite. Deine Zahlungsdaten gibst du direkt bei Stripe ein.',
+        'Direkt bei der Buchung, sicher online mit PayPal. Du wirst zu PayPal weitergeleitet, bestätigst die Zahlung dort und kommst danach automatisch zurück. Deine Zugangsdaten gibst du nur bei PayPal ein.',
     },
     {
       id: 'rechnung',
@@ -117,7 +117,7 @@ const de = {
       category: 'Stornierung',
       question: 'Bekomme ich mein Geld zurück, wenn ich storniere?',
       answer:
-        'Ja. Stornierst du rechtzeitig online, wird ein bereits bezahlter Betrag automatisch erstattet – auf das Zahlungsmittel, mit dem du bezahlt hast. Wann die Gutschrift sichtbar ist, hängt von deiner Bank bzw. deinem Kartenanbieter ab.',
+        'Ja. Stornierst du rechtzeitig online, wird ein bereits bezahlter Betrag automatisch erstattet – auf das Zahlungsmittel, mit dem du bezahlt hast. Wann die Gutschrift sichtbar ist, hängt von deiner Bank bzw. deinem Zahlungsanbieter ab.',
     },
     {
       id: 'nicht-enthalten',
@@ -173,7 +173,7 @@ const de = {
       category: 'Datenschutz',
       question: 'Was passiert mit meinen Daten?',
       answer:
-        'Wir verwenden deine Angaben, um deine Buchung zu bearbeiten und den Termin durchzuführen. Online-Zahlungen wickelt unser Zahlungsanbieter Stripe ab. Reinigungskräfte sehen nur, was sie für den Einsatz brauchen – etwa Adresse, Telefonnummer und Zugangshinweise, aber keine Preise. Details findest du in unserer Datenschutzerklärung.',
+        'Wir verwenden deine Angaben, um deine Buchung zu bearbeiten und den Termin durchzuführen. Online-Zahlungen wickelt unser Zahlungsanbieter PayPal ab. Reinigungskräfte sehen nur, was sie für den Einsatz brauchen – etwa Adresse, Telefonnummer und Zugangshinweise, aber keine Preise. Details findest du in unserer Datenschutzerklärung.',
     },
   ],
 };
@@ -260,7 +260,7 @@ const en: Messages = {
       category: 'Payment',
       question: 'How do I pay?',
       answer:
-        'Right when you book, securely online via our payment provider Stripe – for example by card. The available payment methods are shown on the payment page. You enter your payment details directly with Stripe.',
+        'Right when you book, securely online with PayPal. You are redirected to PayPal, confirm the payment there and are brought back automatically. You only enter your login details at PayPal.',
     },
     {
       id: 'rechnung',
@@ -280,7 +280,7 @@ const en: Messages = {
       category: 'Cancellation',
       question: 'Do I get my money back if I cancel?',
       answer:
-        'Yes. If you cancel online in time, any amount already paid is refunded automatically – to the payment method you used. When the refund shows up depends on your bank or card provider.',
+        'Yes. If you cancel online in time, any amount already paid is refunded automatically – to the payment method you used. When the refund shows up depends on your bank or payment provider.',
     },
     {
       id: 'nicht-enthalten',
@@ -336,7 +336,7 @@ const en: Messages = {
       category: 'Data protection',
       question: 'What happens to my data?',
       answer:
-        'We use your details to process your booking and carry out the appointment. Online payments are handled by our payment provider Stripe. Cleaners only see what they need for the job – such as address, phone number and access notes, but no prices. You can find details in our privacy policy.',
+        'We use your details to process your booking and carry out the appointment. Online payments are handled by our payment provider PayPal. Cleaners only see what they need for the job – such as address, phone number and access notes, but no prices. You can find details in our privacy policy.',
     },
   ],
 };
@@ -428,7 +428,7 @@ const pl: Messages = {
       category: 'Płatność',
       question: 'Jak mogę zapłacić?',
       answer:
-        'Od razu przy rezerwacji, bezpiecznie online przez naszego operatora płatności Stripe – na przykład kartą. Dostępne metody płatności zobaczysz na stronie płatności. Dane płatnicze wprowadzasz bezpośrednio w Stripe.',
+        'Od razu przy rezerwacji, bezpiecznie online przez PayPal. Zostaniesz przekierowany do PayPal, potwierdzisz płatność i automatycznie wrócisz. Dane logowania podajesz tylko w PayPal.',
     },
     {
       id: 'rechnung',
@@ -448,7 +448,7 @@ const pl: Messages = {
       category: 'Anulowanie',
       question: 'Czy otrzymam zwrot pieniędzy po anulowaniu?',
       answer:
-        'Tak. Jeśli anulujesz online w terminie, już zapłacona kwota zostanie automatycznie zwrócona – na środek płatności, którego użyłeś/-aś. Kiedy zwrot będzie widoczny, zależy od Twojego banku lub wydawcy karty.',
+        'Tak. Jeśli anulujesz online w terminie, już zapłacona kwota zostanie automatycznie zwrócona – na środek płatności, którego użyłeś/-aś. Kiedy zwrot będzie widoczny, zależy od Twojego banku lub operatora płatności.',
     },
     {
       id: 'nicht-enthalten',
@@ -504,7 +504,7 @@ const pl: Messages = {
       category: 'Ochrona danych',
       question: 'Co dzieje się z moimi danymi?',
       answer:
-        'Twoje dane wykorzystujemy do obsługi rezerwacji i realizacji terminu. Płatności online obsługuje nasz operator płatności Stripe. Osoby sprzątające widzą tylko to, czego potrzebują do zlecenia – np. adres, numer telefonu i informacje o dostępie, ale nie ceny. Szczegóły znajdziesz w naszej polityce prywatności.',
+        'Twoje dane wykorzystujemy do obsługi rezerwacji i realizacji terminu. Płatności online obsługuje nasz operator płatności PayPal. Osoby sprzątające widzą tylko to, czego potrzebują do zlecenia – np. adres, numer telefonu i informacje o dostępie, ale nie ceny. Szczegóły znajdziesz w naszej polityce prywatności.',
     },
   ],
 };

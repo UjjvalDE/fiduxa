@@ -35,6 +35,9 @@ await User.db.dropDatabase();
 // Rebuild every index before testing (unique indexes back business rules)
 for (const M of Object.values(User.db.models)) await M.syncIndexes(); // syncAllIndexes
 for (const M of [AvailabilitySlot, ReservationLock, GiftCard, GiftCardTransaction, Promotion, PromotionRedemption, PersonalCode, Booking]) await M.syncIndexes();
+// Fixture: this suite exercises the card (Stripe) and cash flows that the owner switched off
+// for now (POLICIES.paymentMethods.enabled = ["paypal"]); they are re-enabled for this test DB only.
+await (await import(ROOT + "/src/models/settings.model.js")).default.updateOne({ key: "platform" }, { $set: { "policies.paymentMethods.enabled": ["paypal", "stripe", "cash"] } }, { upsert: true });
 await loadSettings();
 await ensureDefaultPromotions();
 const server = app.listen(0);

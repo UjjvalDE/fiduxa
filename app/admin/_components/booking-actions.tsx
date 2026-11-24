@@ -83,6 +83,7 @@ export function StatusActions({ booking, onChanged }: { booking: Booking; onChan
               confirmLabel={copy.label}
               destructive={destructive}
               withNote
+              noteRequired={destructive ? undefined : status === 'in_progress' || status === 'completed'}
               noteLabel={destructive ? t.status.reasonNote : t.status.note}
               onOpenChange={(open) => {
                 if (open) setRefund(true);

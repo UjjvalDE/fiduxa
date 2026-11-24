@@ -29,6 +29,7 @@ import type { AdminWorker, Pagination, WorkerStatus } from '@/lib/types';
 import { EmptyState, ErrorState, ListSkeleton, NativeSelect, PageHeader, PaginationBar } from '../_components/states';
 import { useApi, useErrorText, useQueryParams } from '../_components/use-api';
 import messages from './_messages';
+import docMessages from '../dokumente/_messages';
 
 const KEYS = ['status', 'search', 'page'] as const;
 
@@ -199,6 +200,7 @@ function Verified({ ok }: { ok: boolean }) {
 
 function WorkersList() {
   const t = useMessages(messages);
+  const docT = useMessages(docMessages);
   const c = useMessages(common);
   const f = useFormat();
   const { values, setParams } = useQueryParams(KEYS);
@@ -215,7 +217,14 @@ function WorkersList() {
       <PageHeader
         title={t.title}
         description={t.description}
-        actions={<InviteDialog onInvited={reload} />}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/admin/dokumente">{docT.open}</Link>
+            </Button>
+            <InviteDialog onInvited={reload} />
+          </div>
+        }
       />
 
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">

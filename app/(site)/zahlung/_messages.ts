@@ -24,7 +24,7 @@ const de = {
   pay: {
     cardTitle: 'Zahlungsart',
     cardText:
-      'Du wirst zu unserem Zahlungspartner Stripe weitergeleitet und wählst dort eine der angebotenen Zahlungsarten, zum Beispiel Kreditkarte. Deine Kartendaten gibst du nur bei Stripe ein – Fiduxa speichert sie nicht.',
+      'Du bezahlst sicher über PayPal: Du wirst zu PayPal weitergeleitet, bestätigst die Zahlung dort und kommst danach automatisch zu deiner Buchung zurück. Deine Zugangsdaten gibst du nur bei PayPal ein – Fiduxa speichert sie nicht.',
     holdTitle: 'Dein Termin ist reserviert',
     holdText: 'Schließe die Zahlung ab, bevor die Reservierung abläuft – danach wird der Termin wieder freigegeben.',
     button: (amount: string) => `Jetzt bezahlen · ${amount}`,
@@ -125,7 +125,7 @@ const en: PaymentMessages = {
   pay: {
     cardTitle: 'Payment method',
     cardText:
-      'You will be redirected to our payment partner Stripe, where you choose one of the payment methods offered, for example credit card. You only enter your card details at Stripe – Fiduxa does not store them.',
+      'You pay securely via PayPal: you are redirected to PayPal, confirm the payment there and are brought back to your booking automatically. You only enter your login details at PayPal – Fiduxa does not store them.',
     holdTitle: 'Your slot is reserved',
     holdText: 'Complete the payment before the reservation runs out – after that the slot is released again.',
     button: (amount) => `Pay now · ${amount}`,
@@ -227,7 +227,7 @@ const pl: PaymentMessages = {
   pay: {
     cardTitle: 'Metoda płatności',
     cardText:
-      'Zostaniesz przekierowany do naszego partnera płatniczego Stripe, gdzie wybierzesz jedną z dostępnych metod płatności, na przykład kartę kredytową. Dane karty podajesz tylko w Stripe – Fiduxa ich nie przechowuje.',
+      'Płacisz bezpiecznie przez PayPal: zostaniesz przekierowany do PayPal, potwierdzisz tam płatność i automatycznie wrócisz do swojej rezerwacji. Dane logowania podajesz tylko w PayPal – Fiduxa ich nie przechowuje.',
     holdTitle: 'Twój termin jest zarezerwowany',
     holdText: 'Dokończ płatność, zanim rezerwacja wygaśnie – potem termin zostanie ponownie zwolniony.',
     button: (amount) => `Zapłać teraz · ${amount}`,

@@ -18,7 +18,7 @@ import { HoldCountdown } from '../../zahlung/_components/countdown';
 import { slotRange } from '../../_shared/slot-range';
 import messages from '../_messages';
 import feedbackMessages from './feedback-messages';
-import { bookingAmount, firstName, isHoldExpired, needsPayment, nextActionKey, paymentHref } from './booking-helpers';
+import { bookingAmount, firstName, isAwaitingConfirmation, isHoldExpired, needsPayment, nextActionKey, paymentHref } from './booking-helpers';
 
 type Scope = 'upcoming' | 'past';
 
@@ -70,6 +70,7 @@ function BookingCard({ booking, unread, onHoldExpired }: { booking: Booking; unr
   const f = useFormat();
   const payNow = needsPayment(booking);
   const expired = isHoldExpired(booking);
+  const awaiting = isAwaitingConfirmation(booking);
   const title = tc.services[booking.serviceId] ?? booking.serviceId;
   const showPaymentBadge = booking.payment && booking.status !== 'expired' && nextActionKey(booking.status) !== 'legacy';
 
@@ -85,7 +86,11 @@ function BookingCard({ booking, unread, onHoldExpired }: { booking: Booking; unr
             {title}
             <span className="sr-only">{t.list.detailsSr(booking.reference)}</span>
           </Link>
-          <StatusBadge kind="booking" status={booking.status} />
+          {awaiting ? (
+            <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-900">{t.awaiting.badge}</span>
+          ) : (
+            <StatusBadge kind="booking" status={booking.status} />
+          )}
           {showPaymentBadge && booking.payment && <StatusBadge kind="payment" status={booking.payment.status} />}
           {unread > 0 && (
             <span className="inline-flex items-center gap-1 rounded-full bg-pine px-2 py-0.5 text-xs font-bold text-white">
@@ -124,7 +129,7 @@ function BookingCard({ booking, unread, onHoldExpired }: { booking: Booking; unr
             <TimerOff className="h-4 w-4" aria-hidden="true" /> {t.list.expiredRebook}
           </Link>
         ) : (
-          <p className="mb-0 mt-2 text-sm text-muted-grey">{t.nextAction[nextActionKey(booking.status)]}</p>
+          <p className="mb-0 mt-2 text-sm text-muted-grey">{awaiting ? t.awaiting.text : t.nextAction[nextActionKey(booking.status)]}</p>
         )}
       </div>
       <div className="flex items-center justify-between gap-4 sm:flex-col sm:items-end sm:justify-center">

@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 const messages = defineMessages({
   de: {
     legend: 'Wie möchtest du bezahlen?',
+    single: 'Zahlungsart',
     loading: 'Zahlungsarten werden geladen…',
     stripe: {
       title: 'Karte & mehr',
@@ -42,7 +43,7 @@ const messages = defineMessages({
     } as Record<PaymentMethod, string>,
     payWith: {
       stripe: (total: string | null) => (total ? `Jetzt bezahlen · ${total}` : 'Jetzt bezahlen'),
-      paypal: (total: string | null) => (total ? `Weiter zu PayPal · ${total}` : 'Weiter zu PayPal'),
+      paypal: (total: string | null) => (total ? `Mit PayPal bezahlen · ${total}` : 'Mit PayPal bezahlen'),
       cash: (total: string | null) => (total ? `Verbindlich buchen – bar bezahlen · ${total}` : 'Verbindlich buchen – bar bezahlen'),
     },
     redirecting: {
@@ -53,6 +54,7 @@ const messages = defineMessages({
   },
   en: {
     legend: 'How would you like to pay?',
+    single: 'Payment method',
     loading: 'Loading payment methods…',
     stripe: {
       title: 'Card & more',
@@ -76,7 +78,7 @@ const messages = defineMessages({
     },
     payWith: {
       stripe: (total) => (total ? `Pay now · ${total}` : 'Pay now'),
-      paypal: (total) => (total ? `Continue to PayPal · ${total}` : 'Continue to PayPal'),
+      paypal: (total) => (total ? `Pay with PayPal · ${total}` : 'Pay with PayPal'),
       cash: (total) => (total ? `Book now – pay in cash · ${total}` : 'Book now – pay in cash'),
     },
     redirecting: {
@@ -87,6 +89,7 @@ const messages = defineMessages({
   },
   pl: {
     legend: 'Jak chcesz zapłacić?',
+    single: 'Metoda płatności',
     loading: 'Ładowanie metod płatności…',
     stripe: {
       title: 'Karta i inne',
@@ -110,7 +113,7 @@ const messages = defineMessages({
     },
     payWith: {
       stripe: (total) => (total ? `Zapłać teraz · ${total}` : 'Zapłać teraz'),
-      paypal: (total) => (total ? `Przejdź do PayPal · ${total}` : 'Przejdź do PayPal'),
+      paypal: (total) => (total ? `Zapłać przez PayPal · ${total}` : 'Zapłać przez PayPal'),
       cash: (total) => (total ? `Rezerwuję wiążąco – płacę gotówką · ${total}` : 'Rezerwuję wiążąco – płacę gotówką'),
     },
     redirecting: {
@@ -210,6 +213,27 @@ export function PaymentMethodPicker({
   disabled?: boolean;
 }) {
   const t = useMessages(messages);
+  // Only one method offered (currently PayPal only): no picker, just a clear,
+  // preselected summary – the pay button below starts the payment.
+  if (methods.length === 1) {
+    const only = methods[0];
+    const isPayPal = only === 'paypal';
+    return (
+      <div className="m-0" aria-describedby={error && errorId ? errorId : undefined}>
+        <p className="mb-3 mt-0 text-sm font-bold text-pine-dark">{t.single}</p>
+        <div className={cn('flex items-center gap-3 rounded-[14px] border-2 p-4', isPayPal ? 'border-[#0070e0] bg-[#f3f8ff]' : 'border-pine bg-mint')}>
+          <span className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-[10px]', isPayPal ? 'bg-[#ffc439] text-[#003087]' : 'bg-cream text-pine')} aria-hidden="true">
+            {isPayPal ? <Wallet className="h-5 w-5" /> : only === 'cash' ? <Banknote className="h-5 w-5" /> : <CreditCard className="h-5 w-5" />}
+          </span>
+          <span className="grid min-w-0">
+            {isPayPal ? <PayPalWordmark className="text-lg leading-tight" /> : <span className="text-[15px] font-bold leading-tight text-pine-dark">{t[only].title}</span>}
+            {isPayPal && <span className="sr-only">{t.paypal.title}</span>}
+            <span className="text-xs leading-relaxed text-muted-grey">{t[only].text}</span>
+          </span>
+        </div>
+      </div>
+    );
+  }
   return (
     <fieldset
       className="m-0 min-w-0 border-0 p-0"

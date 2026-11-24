@@ -22,6 +22,8 @@ import { ErrorState } from '@/app/admin/_components/states';
 import { useErrorText } from '@/app/admin/_components/use-api';
 
 import messages from '../_messages';
+import accountMessages from '@/app/_account/messages';
+import { DeleteAccountSection } from '@/app/_account/delete-account';
 import portalMessages from '../_portal-messages';
 import { BERLIN_DISTRICTS } from '../_components/labels';
 import { PhotoUpload } from '../_components/photo-upload';
@@ -444,7 +446,22 @@ function ProfilePage() {
   const { data, error, reload } = useWorkerOverview();
   if (error && !data) return <ErrorState message={error} onRetry={reload} />;
   if (!data) return <PageSkeleton label={t.loading} />;
-  return <ProfileEditor data={data} />;
+  return (
+    <div className="space-y-5">
+      <ProfileEditor data={data} />
+      <AccountCard />
+    </div>
+  );
+}
+
+/** Data export + account deletion (GDPR) */
+function AccountCard() {
+  const ta = useMessages(accountMessages).del;
+  return (
+    <PortalCard title={ta.title} id="konto-loeschen">
+      <DeleteAccountSection />
+    </PortalCard>
+  );
 }
 
 export default function WorkerProfilePage() {

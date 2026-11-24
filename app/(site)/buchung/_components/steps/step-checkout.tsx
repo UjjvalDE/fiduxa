@@ -22,6 +22,7 @@ import messages from '../../_messages';
 import flowMessages from '../../_flow-messages';
 import { ErrorBox, FieldError, FormField, inputClass, textareaClass } from '../form-field';
 import { LoginForm, RegisterForm } from '../auth-forms';
+import { SocialLogin } from '../social-login';
 import { GiftCardField, PromoCodeField, WelcomeHint } from '../checkout-discounts';
 import { QuoteBreakdown } from '../../../_shared/price-breakdown';
 import pricingMessages from '../../../_shared/pricing-messages';
@@ -148,6 +149,7 @@ export function StepCheckout({
                 <FieldError id="account-error">{errors.account}</FieldError>
               </div>
             )}
+            <SocialLogin from="checkout" next="/buchung" />
             <Tabs defaultValue="register">
               <TabsList className="mb-5 grid h-auto w-full grid-cols-2 rounded-[12px] bg-cream p-1">
                 <TabsTrigger value="register" className="rounded-[10px] py-2 text-sm font-bold data-[state=active]:text-pine-dark">
