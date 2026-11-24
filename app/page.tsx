@@ -1,0 +1,20 @@
+import type { Metadata } from 'next';
+
+import { getMessages } from '@/lib/i18n/server';
+import { HomePage } from './_home/home-page';
+import homeMessages from './_home/messages';
+import { fetchActivePromotions, fetchGiftConfig } from './_home/promotions';
+
+export function generateMetadata(): Metadata {
+  const t = getMessages(homeMessages);
+  return {
+    title: { absolute: t.metaTitle },
+    description: t.metaDescription,
+    openGraph: { title: t.metaTitle, description: t.metaDescription, type: 'website', images: ['/images/home-hero.jpg'] },
+  };
+}
+
+export default async function Home() {
+  const [promotions, giftConfig] = await Promise.all([fetchActivePromotions(), fetchGiftConfig()]);
+  return <HomePage promotions={promotions} giftConfig={giftConfig} />;
+}

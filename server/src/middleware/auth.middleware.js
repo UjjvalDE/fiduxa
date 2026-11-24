@@ -1,0 +1,60 @@
+import jwt from "jsonwebtoken";
+import User from "../models/user.model.js";
+
+export const protect = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await User.findById(decoded.userId);
+
+    if (!user || !user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or inactive account",
+      });
+    }
+
+    // Reject tokens issued before the last password change
+    if ((decoded.tv ?? 0) !== (user.tokenVersion ?? 0)) {
+      return res.status(401).json({
+        success: false,
+        message: "Session expired. Please log in again.",
+      });
+    }
+
+    req.user = user;
+
+    next();
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid or expired token",
+    });
+  }
+};
+
+// Like protect, but anonymous requests continue without req.user
+// (public endpoints that personalise their answer, e.g. price quotes).
+export const optionalAuth = async (req, res, next) => {
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) return next();
+  try {
+    const decoded = jwt.verify(header.split(" ")[1], process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId);
+    if (user?.isActive && (decoded.tv ?? 0) === (user.tokenVersion ?? 0)) req.user = user;
+  } catch {
+    /* invalid token → treat as anonymous */
+  }
+  return next();
+};
