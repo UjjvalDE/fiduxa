@@ -2,6 +2,9 @@ import mongoose from "mongoose";
 
 import AvailabilitySlot from "../models/availability-slot.model.js";
 import Booking from "../models/booking.model.js";
+import User from "../models/user.model.js";
+import { ACTIVE_WORKER_FILTER, WORKER_MATCH_FIELDS, jobProfile, loadSchedules, suitabilityProblem } from "./matching.service.js";
+import { userEvents } from "../utils/events.js";
 import { withLock } from "../utils/lock.js";
 import { releaseBookingDiscounts } from "./booking-discounts.service.js";
 import { ACTIVE_BOOKING_STATUSES, OPERATIONS, PRICING } from "../config/pricing.js";
@@ -100,21 +103,112 @@ const overlapping = (intervals, start, end) => {
   return intervals.filter((b) => b.start < end + buffer && start < b.end + buffer).length;
 };
 
+// ---------------------------------------------------------------------------
+// Cleaner-aware capacity (OPERATIONS.slotCapacity.mode = "cleaners", default)
+//
+// A start time is only offered when, for the WHOLE job [start, start+duration]
+// (incl. OPERATIONS.travelBufferMinutes before/after), there is at least one
+// eligible cleaner free: approved, active, verified e-mail, not paused, not on
+// holiday, inside their weekly hours, documents valid on the day, and no
+// overlapping job of their own. Active bookings without a cleaner (holds that
+// are being paid, confirmed jobs nobody accepted yet) each consume one free
+// cleaner (slotCapacity.unassignedConsumesCleaner). The result is capped by
+// the admin window capacity. "window" mode = admin capacity only (legacy).
+// The same calculation runs inside the day lock when a booking is created,
+// moved or re-claimed, so the list, the reservation and the final booking
+// agree – two customers can never both take the last free cleaner.
+// ---------------------------------------------------------------------------
+export const cleanerAwareSlots = () => (OPERATIONS.slotCapacity?.mode ?? "cleaners") === "cleaners";
+
+const UNASSIGNED_FIELDS = "preferredDate slot estimate.durationMinutes serviceId extras pets customer customerDetails.postcode assignment.excluded";
+
+const loadCleanerPool = async (dates, excludeId) => {
+  if (!cleanerAwareSlots()) return null;
+  const workers = await User.find(ACTIVE_WORKER_FILTER).select(WORKER_MATCH_FIELDS).lean();
+  const schedules = workers.length ? await loadSchedules(workers.map((w) => w._id), dates, { excludeId }) : new Map();
+  const unassigned =
+    OPERATIONS.slotCapacity?.unassignedConsumesCleaner === false
+      ? []
+      : (
+          await Booking.find({
+            preferredDate: { $in: dates },
+            status: { $in: ACTIVE_BOOKING_STATUSES },
+            assignedWorker: null,
+            ...(excludeId && { _id: { $ne: excludeId } }),
+          })
+            .select(UNASSIGNED_FIELDS)
+            .lean()
+        ).map((b) => ({ day: dayKey(b.preferredDate), ...bookingInterval(b), job: jobProfile(b) }));
+  return { workers, schedules, unassigned };
+};
+
+/**
+ * Free SUITABLE cleaners for a job at [start, start+duration) on `date`.
+ * Bookings without a cleaner that overlap (incl. travel buffer) each need a
+ * suitable cleaner of their own: a small bipartite matching (augmenting
+ * paths) assigns them first, then counts how many more jobs like the probe
+ * still fit. `job` = { serviceId, extras, postcode, pets } (optional).
+ */
+const freeCleanerCapacity = (pool, date, start, duration, excludeId, job = null) => {
+  const probe = { ...(job ?? {}), _id: excludeId ?? "probe", preferredDate: date, slot: toHHMM(start), estimate: { durationMinutes: duration } };
+  const strictHours = OPERATIONS.slotCapacity?.respectWorkingHours !== false;
+  const ctx = { schedules: pool.schedules };
+  const suitableFor = (j) => pool.workers.filter((w) => !suitabilityProblem(w, j, ctx, { strictHours })).map((w) => String(w._id));
+  const probeCands = suitableFor(probe);
+  if (probeCands.length === 0) return 0;
+  const buffer = OPERATIONS.travelBufferMinutes ?? 0;
+  const day = dayKey(date);
+  const others = pool.unassigned
+    .filter((b) => b.day === day && b.start < start + duration + buffer && start < b.end + buffer)
+    .map((b) => suitableFor({ ...b.job, preferredDate: date }));
+  // Augmenting-path matching: owner = workerId → index of the job holding it
+  const owner = new Map();
+  const tryAssign = (jobIdx, cands, seen) => {
+    for (const w of cands(jobIdx)) {
+      if (seen.has(w)) continue;
+      seen.add(w);
+      const holder = owner.get(w);
+      if (holder === undefined || tryAssign(holder, cands, seen)) {
+        owner.set(w, jobIdx);
+        return true;
+      }
+    }
+    return false;
+  };
+  const jobs = [...others];
+  const cands = (i) => jobs[i];
+  for (let i = 0; i < others.length; i++) tryAssign(i, cands, new Set());
+  let free = 0;
+  for (let k = 0; k < probeCands.length; k++) {
+    jobs.push(probeCands);
+    if (!tryAssign(jobs.length - 1, cands, new Set())) break;
+    free += 1;
+  }
+  return free;
+};
+
+/** Remaining places at `t` (window capacity, capped by free cleaners) */
+const remainingAt = (slot, intervals, pool, t, duration, excludeId, job = null) => {
+  const windowLeft = slot.capacity - overlapping(intervals, t, t + duration);
+  if (windowLeft <= 0 || !pool) return windowLeft;
+  return Math.min(windowLeft, freeCleanerCapacity(pool, slot.date, t, duration, excludeId, job));
+};
+
 /** Start options of one window for a job of `duration` minutes */
-const startOptions = (slot, intervals, duration) => {
+const startOptions = (slot, intervals, duration, pool = null, job = null) => {
   const { start, end, fixed } = windowBounds(slot);
   const step = OPERATIONS.startStepMinutes || 30;
   const options = [];
   for (let t = start; t + duration <= end; t += step) {
-    const used = overlapping(intervals, t, t + duration);
-    if (used < slot.capacity) {
+    const remaining = remainingAt(slot, intervals, pool, t, duration, null, job);
+    if (remaining > 0) {
       options.push({
         id: String(slot._id),
         windowId: String(slot._id),
         startTime: toHHMM(t),
         endTime: toHHMM(t + duration),
         available: true,
-        remaining: slot.capacity - used,
+        remaining,
       });
     }
     if (fixed) break;
@@ -133,6 +227,21 @@ const normaliseDuration = (durationMinutes) =>
 const CACHE_MS = 15_000;
 const cache = new Map();
 export const bumpAvailability = () => cache.clear();
+// Cleaner hours, holidays, pause, documents, skills … changed → recompute now
+userEvents.on("changed", bumpAvailability);
+
+/** Job filter from query/body: { serviceId, extras, postcode, pets } (all optional) */
+export const slotJobFilter = ({ serviceId, extras, postcode, pets } = {}) => {
+  const list = Array.isArray(extras) ? extras : String(extras ?? "").split(",");
+  const job = {
+    serviceId: serviceId ? String(serviceId).slice(0, 40) : null,
+    extras: list.map((e) => String(e).trim()).filter(Boolean).slice(0, 30).sort(),
+    postcode: /^\d{5}$/.test(String(postcode ?? "").trim()) ? String(postcode).trim() : null,
+    pets: pets === true || pets === "true" || pets === "1",
+  };
+  return job.serviceId || job.extras.length || job.postcode || job.pets ? job : null;
+};
+const jobKey = (job) => (job ? `${job.serviceId}|${job.extras.join(",")}|${job.postcode}|${job.pets}` : "-");
 const cached = async (key, fn) => {
   const hit = cache.get(key);
   if (hit && hit.until > Date.now()) return hit.value;
@@ -143,18 +252,18 @@ const cached = async (key, fn) => {
 };
 
 /** Start times for one day that fit a job of `durationMinutes` */
-export const getSlotsForDate = (date, durationMinutes) =>
-  cached(`slots|${date.getTime()}|${normaliseDuration(durationMinutes)}`, () => computeSlotsForDate(date, durationMinutes));
+export const getSlotsForDate = (date, durationMinutes, job = null) =>
+  cached(`slots|${date.getTime()}|${normaliseDuration(durationMinutes)}|${jobKey(job)}`, () => computeSlotsForDate(date, durationMinutes, job));
 
-const computeSlotsForDate = async (date, durationMinutes) => {
+const computeSlotsForDate = async (date, durationMinutes, job = null, excludeId = null) => {
   const duration = normaliseDuration(durationMinutes);
   const windows = await AvailabilitySlot.find({ date, active: true, capacity: { $gt: 0 } }).sort({ startTime: 1 }).lean();
   if (windows.length === 0) return [];
-  const intervals = await activeBookingsOn([date]);
+  const [intervals, pool] = await Promise.all([activeBookingsOn([date], excludeId), loadCleanerPool([date], excludeId)]);
 
   const byTime = new Map();
   for (const w of windows) {
-    for (const option of startOptions(w, intervals, duration)) {
+    for (const option of startOptions(w, intervals, duration, pool, job)) {
       const existing = byTime.get(option.startTime);
       if (!existing || existing.remaining < option.remaining) byTime.set(option.startTime, option);
     }
@@ -163,10 +272,13 @@ const computeSlotsForDate = async (date, durationMinutes) => {
 };
 
 /** Days (YYYY-MM-DD) in [from, to] with at least one start time for the duration */
-export const getAvailableDays = (from, to, durationMinutes) =>
-  cached(`days|${from.getTime()}|${to.getTime()}|${normaliseDuration(durationMinutes)}`, () => computeAvailableDays(from, to, durationMinutes));
+export const getAvailableDays = (from, to, durationMinutes, job = null) =>
+  cached(`days|${from.getTime()}|${to.getTime()}|${normaliseDuration(durationMinutes)}|${jobKey(job)}`, () => computeAvailableDays(from, to, durationMinutes, job));
 
-const computeAvailableDays = async (from, to, durationMinutes) => {
+/** Start times of one day for an EXISTING booking (ignores its own place) – alternatives */
+export const slotsForBooking = (booking, date) => computeSlotsForDate(date, booking.estimate?.durationMinutes ?? 120, jobProfile(booking), booking._id);
+
+const computeAvailableDays = async (from, to, durationMinutes, job = null) => {
   const duration = normaliseDuration(durationMinutes);
   const windows = await AvailabilitySlot.find({
     date: { $gte: from, $lte: to },
@@ -174,11 +286,12 @@ const computeAvailableDays = async (from, to, durationMinutes) => {
     capacity: { $gt: 0 },
   }).lean();
   if (windows.length === 0) return [];
-  const intervals = await activeBookingsOn([...new Set(windows.map((w) => w.date.getTime()))].map((t) => new Date(t)));
+  const dates = [...new Set(windows.map((w) => w.date.getTime()))].map((t) => new Date(t));
+  const [intervals, pool] = await Promise.all([activeBookingsOn(dates), loadCleanerPool(dates)]);
 
   const perDay = new Map();
   for (const w of windows) {
-    const options = startOptions(w, intervals.filter((i) => i.day === dayKey(w.date)), duration);
+    const options = startOptions(w, intervals.filter((i) => i.day === dayKey(w.date)), duration, pool, job);
     if (options.length === 0) continue;
     const key = w.date.toISOString().slice(0, 10);
     perDay.set(key, (perDay.get(key) ?? 0) + options.length);
@@ -204,14 +317,14 @@ export const peakConcurrency = async (slot) => {
 
 const withDayLock = (date, fn) => withLock(`day:${dayKey(date)}`, fn);
 
-const fitsWindow = (slot, start, duration, intervals) => {
+const fitsWindow = (slot, start, duration, intervals, pool = null, excludeId = null, job = null) => {
   if (!slot || !slot.active) return false;
   const { start: ws, end: we, fixed } = windowBounds(slot);
   if (start < ws || start + duration > we) return false;
   if (fixed && start !== ws) return false;
   const step = OPERATIONS.startStepMinutes || 30;
   if (!fixed && (start - ws) % step !== 0) return false;
-  return overlapping(intervals, start, start + duration) < slot.capacity;
+  return remainingAt(slot, intervals, pool, start, duration, excludeId, job) > 0;
 };
 
 /**
@@ -219,7 +332,7 @@ const fitsWindow = (slot, start, duration, intervals) => {
  * `createBooking(slot, { startTime, endTime })` must create and save the booking.
  * Returns the booking, or null if the time is no longer free.
  */
-export const reserveAndCreate = async ({ slotId, date, startTime, durationMinutes }, createBooking) => {
+export const reserveAndCreate = async ({ slotId, date, startTime, durationMinutes, job = null }, createBooking) => {
   if (!mongoose.isValidObjectId(slotId)) return null;
   const window = await AvailabilitySlot.findById(slotId).lean();
   if (!window || (date && window.date.getTime() !== date.getTime())) return null;
@@ -227,8 +340,9 @@ export const reserveAndCreate = async ({ slotId, date, startTime, durationMinute
     const slot = await AvailabilitySlot.findById(slotId).lean();
     if (!slot) return null;
     const start = toMinutes(startTime || slot.startTime);
-    const intervals = await activeBookingsOn([slot.date]);
-    if (!fitsWindow(slot, start, durationMinutes, intervals)) return null;
+    // Final re-check inside the day lock: window capacity AND a free cleaner
+    const [intervals, pool] = await Promise.all([activeBookingsOn([slot.date]), loadCleanerPool([slot.date])]);
+    if (!fitsWindow(slot, start, durationMinutes, intervals, pool, null, job)) return null;
     const booking = await createBooking(slot, { startTime: toHHMM(start), endTime: toHHMM(start + durationMinutes) });
     await AvailabilitySlot.updateOne({ _id: slot._id }, { $inc: { booked: 1 } });
     bumpAvailability();
@@ -250,8 +364,10 @@ export const moveBooking = async (booking, { slotId, date, startTime, durationMi
     const slot = await AvailabilitySlot.findById(slotId).lean();
     if (!slot) return false;
     const start = toMinutes(startTime || slot.startTime);
-    const intervals = await activeBookingsOn([slot.date], booking._id);
-    if (!fitsWindow(slot, start, durationMinutes, intervals)) return false;
+    const [intervals, pool] = await Promise.all([activeBookingsOn([slot.date], booking._id), loadCleanerPool([slot.date], booking._id)]);
+    // A booking that already has its cleaner only needs that cleaner (checked
+    // separately by the schedule lock), not another free one
+    if (!fitsWindow(slot, start, durationMinutes, intervals, booking.assignedWorker ? null : pool, booking._id, jobProfile(booking))) return false;
     const previousSlot = booking.availabilitySlot;
     const hadPlace = previousSlot && !booking.slotReleased;
     if (hadPlace && String(previousSlot) !== String(slot._id)) {
@@ -288,9 +404,9 @@ export const reclaimSlot = async (booking) => {
   const slot = await AvailabilitySlot.findById(booking.availabilitySlot).lean();
   if (!slot) return false;
   return withDayLock(slot.date, async () => {
-    const intervals = await activeBookingsOn([slot.date], booking._id);
+    const [intervals, pool] = await Promise.all([activeBookingsOn([slot.date], booking._id), loadCleanerPool([slot.date], booking._id)]);
     const { start, end } = bookingInterval(booking);
-    if (overlapping(intervals, start, end) >= slot.capacity) return false;
+    if (remainingAt(slot, intervals, booking.assignedWorker ? null : pool, start, end - start, booking._id, jobProfile(booking)) <= 0) return false;
     await AvailabilitySlot.updateOne({ _id: slot._id }, { $inc: { booked: 1 } });
     booking.slotReleased = false;
     bumpAvailability();

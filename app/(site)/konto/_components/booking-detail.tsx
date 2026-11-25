@@ -362,7 +362,16 @@ export function BookingDetail({ id }: { id: string }) {
           {worker && ['confirmed', 'in_progress', 'completed'].includes(booking.status) && (
             <AssignedCleanerCard booking={booking} name={firstName(worker.name)} cleaner={detail.cleaner} />
           )}
-          {!worker && booking.status === 'confirmed' && (
+          {!worker && booking.status === 'confirmed' && booking.assignment?.state === 'needs_attention' && (
+            <section role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm leading-relaxed text-amber-900">
+              <p className="m-0 font-bold">{t.cleaner.needsAttentionTitle}</p>
+              <p className="mb-3 mt-1">{t.cleaner.needsAttentionText}</p>
+              <Link href={`/konto/buchungen/${encodeURIComponent(String(booking._id))}/termin-waehlen`} className="button button-small">
+                {t.cleaner.needsAttentionCta}
+              </Link>
+            </section>
+          )}
+          {!worker && booking.status === 'confirmed' && booking.assignment?.state !== 'needs_attention' && (
             <section
               role="status"
               className="flex items-start gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-5 text-sm leading-relaxed text-sky-900"
@@ -700,7 +709,7 @@ function CancelBooking({ booking, onDone }: { booking: Booking; onDone: (b: Book
   if (booking.status === 'payment_pending') lines.push(t.pending);
   else if (preview) {
     if (preview.tier === 'free') {
-      lines.push(t.freeUntil(f.dateTime(preview.cutoffs.freeUntil)));
+      // "Free until <date, time>" is shown in the fee banner above
       if (paid) lines.push(t.refundAmount(f.euro(preview.refundCents)));
     } else {
       lines.push(t.feeApplies(preview.feePct, f.euro(preview.feeCents)));
@@ -819,11 +828,31 @@ function CancelBooking({ booking, onDone }: { booking: Booking; onDone: (b: Book
                       <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> {t.loadingPreview}
                     </p>
                   ) : (
-                    lines.map((line, i) => (
+                    <>
+                    {preview && booking.status !== 'payment_pending' && (
+                      <div
+                        data-testid="cancel-fee-banner"
+                        className={cn(
+                          'mb-2 rounded-xl border-2 px-4 py-3',
+                          preview.tier === 'free' ? 'border-pine bg-mint text-pine-dark' : 'border-red-300 bg-red-50 text-red-800'
+                        )}
+                      >
+                        <p className="m-0 text-lg font-extrabold">
+                          {preview.tier === 'free' ? t.feeBannerFree : t.feeBanner(f.euro(preview.feeCents), preview.feePct)}
+                        </p>
+                        <p className="m-0 mt-1 text-sm font-semibold">
+                          {preview.tier === 'free'
+                            ? t.freeUntilExact(f.dateTime(preview.cutoffs.freeUntil))
+                            : t.freeEnded(f.dateTime(preview.cutoffs.freeUntil))}
+                        </p>
+                      </div>
+                    )}
+                    {lines.map((line, i) => (
                       <p key={i} className={cn('m-0', i === 0 && feeCents > 0 && 'font-semibold text-red-700')}>
                         {line}
                       </p>
-                    ))
+                    ))}
+                    </>
                   )}
                   <p className="m-0">{t.irreversible}</p>
                 </div>

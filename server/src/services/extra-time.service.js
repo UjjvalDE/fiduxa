@@ -16,7 +16,8 @@
 //             The cleaner is notified; nothing is charged.
 import Booking from "../models/booking.model.js";
 import User from "../models/user.model.js";
-import { PRICING, WORKER_PAY } from "../config/pricing.js";
+import { OPERATIONS, PRICING, WORKER_PAY } from "../config/pricing.js";
+import { findWorkerConflict, saveScheduleChange, workerConflictError } from "./job-dispatch.service.js";
 import { httpError } from "../utils/helpers.js";
 import { addPriceAdjustment, settleAdjustment } from "./money-policies.service.js";
 import {
@@ -84,6 +85,14 @@ export const requestExtraTime = async (booking, worker, { minutes, reason }) => 
   if (open && !expireIfDue(booking, open)) {
     throw httpError(409, "There is already an open extra-time request for this job.");
   }
+  // The longer job must not run into the cleaner's next job (incl. travel buffer)
+  if (OPERATIONS.extraTimeBlockedByNextJob !== false && booking.assignedWorker) {
+    const probe = { _id: booking._id, preferredDate: booking.preferredDate, slot: booking.slot, estimate: { durationMinutes: (booking.estimate?.durationMinutes ?? 0) + minutes } };
+    const conflict = await findWorkerConflict(booking.assignedWorker, probe);
+    if (conflict) {
+      throw workerConflictError(conflict, `Extra time would overlap your next job ${conflict.reference} (incl. ${OPERATIONS.travelBufferMinutes} min travel). Please contact the office.`);
+    }
+  }
   const deltaCents = extraTimePrice(booking, minutes);
   const adjustment = addPriceAdjustment(booking, {
     deltaCents,
@@ -124,6 +133,8 @@ const applyExtraTime = (booking, adjustment) => {
   const estimate = { ...(booking.estimate ?? {}) };
   estimate.durationMinutes = (estimate.durationMinutes ?? 0) + minutes;
   estimate.extraTimeMinutes = (estimate.extraTimeMinutes ?? 0) + minutes;
+  // Extra time is labour: keep the invoice line (hours × rate) in step with the total
+  if (typeof estimate.labourCents === "number") estimate.labourCents += adjustment.deltaCents;
   booking.estimate = estimate;
   booking.markModified("estimate");
   if (adjustment.newSlotEnd) booking.slotEnd = adjustment.newSlotEnd;
@@ -157,7 +168,9 @@ export const decideExtraTime = async (booking, adjustment, decision, { actorId }
     // Positive amount → pay link (existing adjustment checkout) + customer mail
     await settleAdjustment(booking, adjustment, { actorId });
   }
-  await booking.save();
+  // Approved extra time lengthens the job: atomic overlap re-check for the cleaner
+  if (decision !== "decline" && OPERATIONS.extraTimeBlockedByNextJob !== false) await saveScheduleChange(booking);
+  else await booking.save();
   const worker = await User.findById(booking.assignedWorker).select("name email").lean();
   await trySend("Extra time decision", () => sendExtraTimeDecisionEmails({ booking, adjustment, worker, approved: decision === "approve" }));
   return adjustment;

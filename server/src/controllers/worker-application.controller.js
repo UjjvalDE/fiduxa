@@ -16,6 +16,7 @@ import { recordAudit } from "../services/audit.service.js";
 import { sendAdminNotificationEmail, sendApplicationReceivedEmail, trySend } from "../services/email.service.js";
 import { createWorkerInvitation } from "./worker-admin.controller.js";
 import { escapeRegex, getPagination, paginationMeta } from "../utils/helpers.js";
+import { hasBytes, keys, removeStoredKeys, sendStoredFile, storeBytes } from "../services/file-store.service.js";
 
 const CV_MAX_BYTES = 5 * 1024 * 1024;
 const RETENTION_DAYS = 180;
@@ -83,6 +84,7 @@ export const submitApplication = async (req, res, next) => {
     }
 
     let cv;
+    const appId = new mongoose.Types.ObjectId();
     if (data.cv) {
       const decoded = decodeCv(data.cv.dataUrl);
       if (!decoded) {
@@ -91,15 +93,23 @@ export const submitApplication = async (req, res, next) => {
       if (decoded.buffer.length > CV_MAX_BYTES) {
         return res.status(422).json({ success: false, message: "The CV file may be at most 5 MB." });
       }
-      cv = { data: decoded.buffer, name: data.cv.name.replace(/[^\w.\- ()äöüÄÖÜß]/g, "_"), type: decoded.kind.type, size: decoded.buffer.length };
+      const stored = await storeBytes(keys.applicationCv(appId, decoded.kind.type), decoded.buffer, decoded.kind.type);
+      cv = { ...stored, name: data.cv.name.replace(/[^\w.\- ()äöüÄÖÜß]/g, "_"), type: decoded.kind.type };
     }
 
-    const application = await WorkerApplication.create({
-      ...data,
-      email,
-      cv,
-      privacyAcceptedAt: new Date(),
-    });
+    let application;
+    try {
+      application = await WorkerApplication.create({
+        _id: appId,
+        ...data,
+        email,
+        cv,
+        privacyAcceptedAt: new Date(),
+      });
+    } catch (error) {
+      await removeStoredKeys([cv?.storageKey], "application.create-failed");
+      throw error;
+    }
 
     await trySend("Application received", () => sendApplicationReceivedEmail({ to: email, name: data.name, locale: data.locale }));
     await trySend("Admin notification", () =>
@@ -189,13 +199,16 @@ export const getApplication = async (req, res, next) => {
 export const downloadApplicationCv = async (req, res, next) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid application ID." });
-    const a = await WorkerApplication.findById(req.params.id).select("+cv.data cv.name cv.type");
-    if (!a?.cv?.data) return res.status(404).json({ success: false, message: "No CV uploaded." });
+    const a = await WorkerApplication.findById(req.params.id).select("+cv.data cv.name cv.type cv.storageKey");
+    if (!hasBytes(a?.cv)) return res.status(404).json({ success: false, message: "No CV uploaded." });
     res.setHeader("Content-Type", a.cv.type);
     res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(a.cv.name)}"`);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cache-Control", "private, no-store");
-    return res.send(a.cv.data);
+    if (await sendStoredFile(res, a.cv)) return;
+    res.removeHeader("Content-Disposition");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    return res.status(404).json({ success: false, message: "No CV uploaded." });
   } catch (error) {
     next(error);
   }
@@ -256,9 +269,12 @@ export const inviteApplicant = async (req, res, next) => {
 /** Daily GDPR cleanup: drop old applications; invited ones keep no CV. */
 export const purgeOldApplications = async () => {
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 86400e3);
+  // Collect the stored CV keys first: the files go with the records
+  const withFiles = await WorkerApplication.find({ createdAt: { $lt: cutoff }, "cv.storageKey": { $exists: true, $ne: null } }).select("status cv.storageKey").lean();
   const removed = await WorkerApplication.deleteMany({ status: { $ne: "invited" }, createdAt: { $lt: cutoff } });
   const stripped = await WorkerApplication.updateMany({ status: "invited", createdAt: { $lt: cutoff }, "cv.size": { $gt: 0 } }, { $unset: { cv: 1 } });
-  return { removed: removed.deletedCount, stripped: stripped.modifiedCount };
+  const files = await removeStoredKeys(withFiles.map((a) => a.cv?.storageKey), "application.retention");
+  return { removed: removed.deletedCount, stripped: stripped.modifiedCount, filesDeleted: files.deleted, filesQueued: files.queued };
 };
 
 // ---------------------------------------------------------------------------

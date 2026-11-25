@@ -323,6 +323,54 @@ const bookingSchema = new mongoose.Schema(
 
     // Cleaner pay for this job (created when the job is completed).
     // Paid out by the office after WORKER_PAY.payoutDelayDays.
+    // Automatic assignment (round 3, services/auto-assign.service.js)
+    //   state: assigned | needs_attention (no suitable cleaner – admin informed,
+    //   customer offered alternatives) | null (not handled yet / board mode)
+    assignment: {
+      state: { type: String, enum: ["assigned", "needs_attention", null], default: null },
+      reason: { type: String, default: "" }, // why nobody could be assigned (e.g. "skills", "location")
+      reasons: { type: mongoose.Schema.Types.Mixed, default: undefined }, // { code: count }
+      score: Number, // score of the assigned cleaner
+      attempts: { type: Number, default: 0 },
+      lastAttemptAt: Date,
+      needsAttentionAt: Date,
+      adminNotifiedAt: Date,
+      escalatedAt: Date,
+      excluded: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], // never again for this booking
+      alternatives: {
+        type: [new mongoose.Schema({ date: String, slotId: String, startTime: String, endTime: String }, { _id: false })],
+        default: undefined,
+      },
+      alternativesSentAt: Date,
+      customerChoice: { type: String, enum: ["wait", "rescheduled", "cancelled", null], default: null },
+      customerChoiceAt: Date,
+      workerSeenAt: Date, // in-dashboard "new job" notice read
+    },
+    // Audit trail of every assignment change (also in the audit log)
+    assignmentHistory: {
+      type: [
+        new mongoose.Schema(
+          {
+            at: { type: Date, default: Date.now },
+            action: {
+              type: String,
+              enum: ["assigned", "notified", "reassigned", "unassigned", "emergency", "removed", "needs_attention", "customer_choice"],
+              required: true,
+            },
+            worker: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+            previousWorker: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+            by: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }, // null = system
+            byRole: { type: String, default: "system" },
+            reason: { type: String, maxlength: 500, default: "" },
+            score: Number,
+            details: { type: mongoose.Schema.Types.Mixed, default: undefined },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
+
     workerPayout: {
       amountCents: Number, // cleaner pay for the job
       rateCents: Number,
@@ -395,6 +443,10 @@ const bookingSchema = new mongoose.Schema(
       number: { type: String, default: undefined },
       issuedAt: Date,
       pdf: { type: Buffer, select: false },
+      // Object storage (R2): invoices/<year>/<number>.pdf (pdf then unset)
+      storageKey: { type: String, default: undefined },
+      sha256: { type: String, default: undefined },
+      size: Number,
       locale: { type: String, enum: ["de", "en", "pl"] },
       totalCents: Number,
       netCents: Number,
@@ -424,6 +476,8 @@ bookingSchema.index({ customer: 1, createdAt: -1 });
 bookingSchema.index({ status: 1, holdExpiresAt: 1 });
 // Open-job board and cleaner calendars
 bookingSchema.index({ status: 1, assignedWorker: 1, preferredDate: 1 });
+// Dispatch: unassigned / needs-attention bookings
+bookingSchema.index({ "assignment.state": 1, preferredDate: 1 });
 // "First booking" checks for the welcome offer
 bookingSchema.index({ customer: 1, status: 1 });
 // Analytics by creation date

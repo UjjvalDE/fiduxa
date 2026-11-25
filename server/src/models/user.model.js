@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { userEvents } from "../utils/events.js";
 import { testDataPlugin } from "./plugins/test-data.plugin.js";
 
 const userSchema = new mongoose.Schema(
@@ -164,10 +165,19 @@ const userSchema = new mongoose.Schema(
       petsOk: { type: Boolean, default: false },
       bringsSupplies: { type: Boolean, default: false },
       publicVisible: { type: Boolean, default: true },
+      // Location model (round 3): home postcode + maximum travel distance.
+      // Empty homePostcode → the postcode in `address` is used.
+      homePostcode: { type: String, trim: true, maxlength: 5, default: "" },
+      maxTravelKm: { type: Number, min: 1, max: 40, default: 10 },
+      // Skills: services / extras the cleaner does NOT do (empty = does all)
+      excludedServices: { type: [String], default: [] },
+      excludedExtras: { type: [String], default: [] },
     },
 
     // Profile photo (small JPEG/PNG/WebP, resized in the browser)
     avatarData: { type: Buffer, select: false },
+    // Object storage key (R2) – replaces avatarData when storage is configured
+    avatarKey: { type: String, default: "" },
     avatarType: { type: String, default: "" },
     avatarUpdatedAt: { type: Date, default: null },
 
@@ -180,11 +190,40 @@ const userSchema = new mongoose.Schema(
             weekday: { type: Number, min: 1, max: 7, required: true },
             start: { type: String, required: true },
             end: { type: String, required: true },
+            // Alternating weeks: "all" = every week, "A"/"B" = every 2 weeks
+            // (week A/B as in services/matching.service.js weekParity)
+            weeks: { type: String, enum: ["all", "A", "B"], default: "all" },
           },
           { _id: false }
         ),
       ],
       default: [],
+    },
+
+    // Monthly calendar: single-day overrides of the weekly pattern.
+    // kind "off" = not available that day; "extra" = available start–end
+    availabilityOverrides: {
+      type: [
+        new mongoose.Schema(
+          {
+            date: { type: Date, required: true },
+            kind: { type: String, enum: ["off", "extra"], required: true },
+            start: { type: String, default: "" },
+            end: { type: String, default: "" },
+            note: { type: String, trim: true, maxlength: 200, default: "" },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
+
+    // Maximum workload (null = no limit)
+    workload: {
+      maxJobsPerDay: { type: Number, min: 1, max: 10, default: null },
+      maxHoursPerDay: { type: Number, min: 1, max: 14, default: null },
+      maxJobsPerWeek: { type: Number, min: 1, max: 50, default: null },
+      maxHoursPerWeek: { type: Number, min: 1, max: 70, default: null },
     },
 
     // Days off (inclusive calendar days, stored as UTC midnight)
@@ -293,6 +332,9 @@ const userSchema = new mongoose.Schema(
           type: { type: String, required: true },
           size: { type: Number, min: 0, required: true },
           data: { type: Buffer, select: false },
+          // Object storage (R2): bytes live in the bucket, not in MongoDB
+          storageKey: { type: String, default: undefined },
+          sha256: { type: String, default: undefined },
           uploadedAt: { type: Date, default: Date.now },
           status: { type: String, enum: ["pending", "verified", "rejected"], default: "pending" },
           note: { type: String, trim: true, maxlength: 500, default: "" },
@@ -384,6 +426,12 @@ userSchema.index({ "oauth.googleSub": 1 }, { unique: true, partialFilterExpressi
 userSchema.index({ "oauth.appleSub": 1 }, { unique: true, partialFilterExpression: { "oauth.appleSub": { $type: "string" } } });
 
 userSchema.plugin(testDataPlugin);
+
+// Any write to a user may change cleaner availability (hours, holidays, pause,
+// documents, status) → listeners (availability cache) are told at once.
+const changed = () => userEvents.emit("changed");
+userSchema.post("save", changed);
+for (const op of ["findOneAndUpdate", "updateOne", "updateMany", "deleteOne", "deleteMany"]) userSchema.post(op, changed);
 
 const User = mongoose.model("User", userSchema);
 

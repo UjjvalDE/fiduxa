@@ -2,8 +2,12 @@
 // with upcoming-booking rules + retained payout records, and cleaner work
 // eligibility: ID / work permit documents with expiry, EU skip, job gate on
 // the JOB date, expiry reminders and document access control.
-import { ROOT, apiClient, createChecker, prepareEnv } from "../helpers/harness.mjs";
+import { ROOT, apiClient, createChecker, prepareEnv, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 prepareEnv("fiduxa_e2e_account_docs");
+// Legacy job board (assignmentMode "board"): this suite tests cleaners accepting /
+// handing back jobs from the open-job board. Automatic assignment is covered by
+// auto-assignment.e2e.mjs; the board stays reachable for a rollback.
+process.env.ASSIGNMENT_MODE = "board";
 process.env.EMAIL_TRANSPORT = "json";
 process.env.DISABLE_RATE_LIMIT = "1";
 process.env.ADMIN_NOTIFICATION_EMAIL = "office@t.local";
@@ -45,8 +49,8 @@ const pw = await bcrypt.hash("Password12345", 10);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const mkWorker = (name, email, extra = {}) =>
   User.create({
-    name, email, password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-    workerProfile: { address: "Invalidenstr. 5, 10115 Berlin", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: name, ...extra,
+    name, email, password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+    workerProfile: { ...BERLIN_WIDE, address: "Invalidenstr. 5, 10115 Berlin", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: name, ...extra,
   });
 const tara = await mkWorker("Tara Third", "tara@t.local"); // non-EU, needs permit
 const eva = await mkWorker("Eva EU", "eva@t.local"); // EU citizen, no permit

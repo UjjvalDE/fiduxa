@@ -66,6 +66,7 @@ export const applySettings = (doc) => {
       const known = Object.keys(policies.defaults[section]);
       const stored = Object.fromEntries(Object.entries(defined(s.policies?.[section])).filter(([k]) => known.includes(k)));
       Object.assign(policies[section], clone(policies.defaults[section]), stored);
+      if (section === "assignment") policies.assignment.weights = { ...clone(policies.defaults.assignment.weights), ...defined(s.policies?.assignment?.weights) };
     }
   }
   // [slot-D-settings-apply]
@@ -127,6 +128,7 @@ export const settingsView = () => ({
     maxBookingDaysAhead: OPERATIONS.maxBookingDaysAhead,
     cancellationCutoffHours: OPERATIONS.cancellationCutoffHours,
     teamBufferMinutes: OPERATIONS.teamBufferMinutes,
+    travelBufferMinutes: OPERATIONS.travelBufferMinutes,
   },
   payments: {
     cashEnabled: PAYMENT_OPTIONS.cashEnabled,
@@ -166,6 +168,8 @@ export const saveSettings = async (data, adminId) => {
   }
   // Older admin clients send the policies without paymentMethods: keep the current choice
   if (set.policies && !set.policies.paymentMethods) set.policies = { ...set.policies, paymentMethods: clone(OPERATIONS.policies.paymentMethods) };
+  // …and the assignment rules (round 3)
+  if (set.policies && !set.policies.assignment) set.policies = { ...set.policies, assignment: clone(OPERATIONS.policies.assignment) };
   const doc = await Settings.findOneAndUpdate(
     { key: "platform" },
     { $set: set },

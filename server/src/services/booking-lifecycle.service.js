@@ -12,7 +12,7 @@ import {
   trySend,
 } from "./email.service.js";
 import { formatGermanDate, slotLabel } from "../utils/helpers.js";
-import { offerJob } from "./job-dispatch.service.js";
+import { assignAfterConfirmation } from "./auto-assign.service.js";
 import { finalizeBookingDiscounts, releaseBookingDiscounts } from "./booking-discounts.service.js";
 import { ensureSeriesForBooking } from "./recurring-series.service.js";
 import { invoiceAttachment, issueInvoiceForBooking } from "./invoice.service.js";
@@ -37,8 +37,8 @@ export const confirmBooking = async (booking, { actorId, note, paid }) => {
   let attachments;
   if (paid) {
     try {
-      const { invoice, pdf } = await issueInvoiceForBooking(booking);
-      if (pdf) attachments = [invoiceAttachment(invoice.number, pdf)];
+      const { invoice, pdf, storageKey } = await issueInvoiceForBooking(booking);
+      if (pdf) attachments = [invoiceAttachment(invoice.number, pdf, storageKey)];
     } catch (error) {
       console.error(`Invoice creation failed for ${booking.reference}:`, error.message);
     }
@@ -56,11 +56,19 @@ export const confirmBooking = async (booking, { actorId, note, paid }) => {
     })
   );
 
-  // Offer the job to free cleaners (open-job marketplace)
+  // Auto mode: assign the best suitable cleaner now (no accept step);
+  // board mode: offer the job to free cleaners (legacy open-job marketplace)
   if (!booking.assignedWorker) {
-    await offerJob(booking);
-    await booking.save();
+    const result = await assignAfterConfirmation(booking, { by: actorId ?? null, byRole: actorId ? "user" : "system", reason: note || "booking confirmed" });
+    // Keep the caller's document in step (it may be returned / saved again)
+    if (result?.booking) {
+      booking.assignedWorker = result.booking.assignedWorker;
+      booking.assignedAt = result.booking.assignedAt;
+      booking.set("assignment", result.booking.assignment?.toObject?.() ?? result.booking.assignment);
+    }
+    return { assignment: result };
   }
+  return { assignment: { state: "already_assigned" } };
 };
 
 /**
@@ -72,6 +80,8 @@ export const confirmBooking = async (booking, { actorId, note, paid }) => {
  * (partial refund), an unpaid fee is recorded on the customer, and the
  * assigned cleaner gets their share as an earning.
  */
+const giftCardOnly = (booking) => booking.payment?.method === "gift_card";
+
 export const cancelBooking = async (booking, { actorId, reason = "", note, autoRefund, fee = null }) => {
   await releaseSlot(booking);
   await expireOpenCheckouts(booking._id);
@@ -81,13 +91,22 @@ export const cancelBooking = async (booking, { actorId, reason = "", note, autoR
   const withFee = Boolean(fee && fee.feeCents > 0);
   if (withFee) {
     ({ refunded, refundPending } = await applyCancellationFee(booking, fee, { actorId, reason }));
-  } else if (booking.payment?.status === "paid") {
+  } else if (booking.payment?.status === "paid" && !giftCardOnly(booking)) {
     refunded = autoRefund ? await refundBookingPayment(booking) : false;
     if (!refunded) booking.set("payment.status", "refund_pending");
   }
 
   // Promotion can be used again, gift card amounts go back onto the cards
   await releaseBookingDiscounts(booking, { actor: actorId, note: `Booking ${booking.reference} cancelled` });
+
+  // Paid entirely by gift card (no online payment): the balance is back on the
+  // card(s) right now, so the booking is refunded – never "refund pending"
+  // (QA open issue 3). A late fee is then recorded as outstanding.
+  if (giftCardOnly(booking) && ["paid", "refund_pending"].includes(booking.payment?.status)) {
+    booking.set("payment.status", "refunded");
+    booking.set("payment.refundedAt", new Date());
+    refunded = true;
+  }
 
   booking.setStatus("cancelled", actorId, note ?? reason);
   booking.holdExpiresAt = null;

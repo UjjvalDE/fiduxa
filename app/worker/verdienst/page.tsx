@@ -163,7 +163,17 @@ function Earnings() {
           label={t.nextPayout}
           value={summary.nextDueAt ? date(summary.nextDueAt) : '–'}
         />
-        <StatTile icon={BadgeEuro} label={t.rate} value={t.perHour(f.euro(summary.rateCents))} />
+        {summary.payModel?.basis === 'commission' && summary.payModel.sharePct != null && summary.payModel.commissionPct != null ? (
+          // Commission model (QA open issue 5): show what the cleaner really earns, not the legacy hourly rate
+          <StatTile
+            icon={BadgeEuro}
+            label={t.payTitle}
+            value={t.payShare(summary.payModel.sharePct, summary.payModel.commissionPct)}
+            hint={t.payPerHour(f.euro(summary.payModel.perHourCents), f.euro(summary.payModel.customerHourlyCents))}
+          />
+        ) : (
+          <StatTile icon={BadgeEuro} label={t.rate} value={t.perHour(f.euro(summary.rateCents))} />
+        )}
       </div>
 
       {hasCash && (
@@ -198,7 +208,13 @@ function Earnings() {
                         {f.dateShort(j.date)} · {jobTime(j.slot, j.slotEnd, j.slotEnd ? null : j.minutes)} ·{' '}
                         <span className="font-mono text-xs">{j.reference}</span>
                       </p>
-                      <p className="text-xs text-muted-grey">{t.calc(f.hours(j.minutes), f.euro(j.rateCents))}</p>
+                      <p className="text-xs text-muted-grey">
+                        {j.basis === 'commission' && j.grossCents != null && j.commissionPct != null
+                          ? t.calcCommission(f.euro(j.grossCents), j.commissionPct, f.euro(j.commissionCents ?? j.grossCents - j.amountCents))
+                          : j.basis === 'cancellation'
+                            ? null
+                            : t.calc(f.hours(j.minutes), f.euro(j.rateCents))}
+                      </p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <span className={cn('text-base font-bold', net < 0 ? 'text-red-700' : 'text-pine-dark')}>

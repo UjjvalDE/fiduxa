@@ -3,6 +3,8 @@ import { protect, requireCompleteProfile } from "../middleware/auth.middleware.j
 
 import {
   cancelMyBooking,
+  chooseMyAlternative,
+  getMyAlternatives,
   decideMyAdjustment,
   editOwnBooking,
   getCancelPreview,
@@ -27,6 +29,9 @@ customerBookingRouter.get("/:id", getMyBooking);
 customerBookingRouter.post("/:id/feedback/dismiss", dismissMyFeedback);
 customerBookingRouter.get("/:id/cancel-preview", getCancelPreview);
 customerBookingRouter.post("/:id/cancel", cancelMyBooking);
+// No cleaner available: pick an alternative time / wait / cancel free
+customerBookingRouter.get("/:id/alternatives", getMyAlternatives);
+customerBookingRouter.post("/:id/alternatives", chooseMyAlternative);
 // Price adjustments (duration review / edits of paid bookings): customer decides, pays
 customerBookingRouter.post("/:id/adjustments/:adjId", decideMyAdjustment);
 customerBookingRouter.post("/:id/adjustments/:adjId/pay", requireCompleteProfile, payMyAdjustment);

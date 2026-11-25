@@ -1,6 +1,15 @@
 // E2E: admin price settings, duration-based start times, concurrency, cash, forgot password, admin team
-import { ROOT, prepareEnv } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 prepareEnv("fiduxa_e2e5");
+// Legacy job board (assignmentMode "board"): this suite tests cleaners accepting /
+// handing back jobs from the open-job board. Automatic assignment is covered by
+// auto-assignment.e2e.mjs; the board stays reachable for a rollback.
+process.env.ASSIGNMENT_MODE = "board";
+// Admin window capacity only: these checks are about window capacity / pricing, not the
+// cleaner pool (cleaner-aware slots are covered in slot-capacity-overlap.e2e.mjs)
+process.env.SLOT_CAPACITY_MODE = "window";
+// Common production format "Name <address>" must not break the settings form
+process.env.SMTP_FROM = "Fiduxa <office@t.local>";
 
 const { createRequire } = await import("node:module");
 const require = createRequire(ROOT + "/package.json");
@@ -50,8 +59,8 @@ const day = (n) => new Date(todayInBerlin().getTime() + n * DAY_MS).toISOString(
 const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin One", email: "admin@t.local", password: pw, role: "admin" });
 const anna = await User.create({
-  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-  workerProfile: { address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
+  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+  workerProfile: { ...BERLIN_WIDE, address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
 });
 const adminT = (await login("admin@t.local")).body.token;
 const annaT = (await login("anna@t.local")).body.token;
@@ -69,6 +78,9 @@ check("extra adds time (60 m² = 2 h + oven 40 min → 3 h)", r.body.data?.recom
 r = await call("GET", "/admin/settings", null, adminT);
 const settings = r.body.settings;
 check("admin reads settings", settings?.pricing?.hourlyRateCents === 2500 && settings.extras.length > 10 && settings.payments.cashEnabled === true, settings?.pricing);
+check("invoicing email defaults to the bare SMTP_FROM address", settings?.invoicing?.email === "office@t.local", settings?.invoicing);
+r = await call("PUT", "/admin/settings", settings, adminT);
+check("saving the settings page unchanged works (Richtlinien)", r.status === 200, r.body);
 r = await call("PUT", "/admin/settings", {
   pricing: { ...settings.pricing, hourlyRateCents: 2800 },
   extras: settings.extras.map((e) => ({ id: e.id, minutes: e.id === "inside-oven" ? 60 : e.minutes, priceCents: e.id === "ironing" ? 500 : e.priceCents, active: e.id !== "carpet-vacuum" })),

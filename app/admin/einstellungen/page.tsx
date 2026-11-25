@@ -20,6 +20,7 @@ import { centsToInput, parseEuroToCents } from '../_components/labels';
 import { DetailSkeleton, ErrorState, NativeSelect, PageHeader, SectionCard } from '../_components/states';
 import { apiMessage, useApi, useErrorText } from '../_components/use-api';
 import settingsMessages, { type SettingsMessages } from './_messages';
+import dispatchMessages from '../_dispatch-messages';
 import common from '@/lib/i18n/messages/common';
 
 type SectionKey = 'pricing' | 'extras' | 'booking' | 'payments' | 'workerPay' | 'giftCards' | 'policies';
@@ -1393,6 +1394,28 @@ const DEFAULT_POLICIES: PoliciesSettings = {
   payouts: { payoutDayOfMonth: 5 },
   paymentMethods: { enabled: ['paypal'] },
 };
+// Automatic assignment rules (round 3) – stored in policies.assignment
+const WEIGHT_KEYS = ['distance', 'skills', 'rating', 'reliability', 'preference', 'workload'] as const;
+type WeightKey = (typeof WEIGHT_KEYS)[number];
+interface AssignmentRules {
+  mode: 'auto' | 'board';
+  weights: Record<WeightKey, number>;
+  emergencyNoStrikeHours: number;
+  emergencyStrike: boolean;
+  alternativesCount: number;
+  retryMinutes: number;
+  escalateHours: number;
+}
+type PoliciesWithAssignment = PoliciesSettings & { assignment?: AssignmentRules };
+const DEFAULT_ASSIGNMENT: AssignmentRules = {
+  mode: 'auto',
+  weights: { distance: 25, skills: 10, rating: 20, reliability: 20, preference: 15, workload: 10 },
+  emergencyNoStrikeHours: 24,
+  emergencyStrike: true,
+  alternativesCount: 5,
+  retryMinutes: 10,
+  escalateHours: 24,
+};
 const PAYMENT_METHOD_KEYS: PaymentMethodKey[] = ['paypal', 'stripe', 'cash'];
 
 type PoliciesDraft = {
@@ -1404,13 +1427,29 @@ type PoliciesDraft = {
   suspendBelow: string;
   payoutDayOfMonth: string;
   methods: PaymentMethodKey[];
+  aMode: 'auto' | 'board';
+  aStrike: boolean;
+  aWeights: Record<WeightKey, string>;
+  aNoStrikeHours: string;
+  aAlternatives: string;
+  aRetry: string;
+  aEscalate: string;
 };
 
 function PoliciesSection({ settings, onSaved }: { settings: PlatformSettings; onSaved: (s: PlatformSettings) => void }) {
   const t = useMessages(settingsMessages);
   const f = useFormat();
-  const saved = (settings as PlatformSettings & { policies?: PoliciesSettings }).policies ?? DEFAULT_POLICIES;
+  const td = useMessages(dispatchMessages).settings;
+  const saved: PoliciesWithAssignment = (settings as PlatformSettings & { policies?: PoliciesWithAssignment }).policies ?? DEFAULT_POLICIES;
+  const savedAssignment = saved.assignment ?? DEFAULT_ASSIGNMENT;
   const toDraft = (): PoliciesDraft => ({
+    aMode: savedAssignment.mode,
+    aStrike: savedAssignment.emergencyStrike,
+    aWeights: Object.fromEntries(WEIGHT_KEYS.map((k) => [k, String(savedAssignment.weights[k] ?? 0)])) as Record<WeightKey, string>,
+    aNoStrikeHours: String(savedAssignment.emergencyNoStrikeHours),
+    aAlternatives: String(savedAssignment.alternativesCount),
+    aRetry: String(savedAssignment.retryMinutes),
+    aEscalate: String(savedAssignment.escalateHours),
     freeHours: String(saved.cancellation.freeHours),
     lateFeePct: String(saved.cancellation.lateFeePct),
     cleanerSharePct: String(saved.cancellation.cleanerSharePct),
@@ -1432,8 +1471,14 @@ function PoliciesSection({ settings, onSaved }: { settings: PlatformSettings; on
     const suspendAbs = v.cents('cash.suspendBelowCents', draft.suspendBelow, 0, 1_000_000);
     const payoutDayOfMonth = v.num('payouts.payoutDayOfMonth', draft.payoutDayOfMonth, 1, 28, { integer: true });
     if (draft.methods.length === 0) v.errors['paymentMethods.enabled'] = t.policies.methodsError;
+    const weights = Object.fromEntries(WEIGHT_KEYS.map((k) => [k, v.num(`assignment.weights.${k}`, draft.aWeights[k], 0, 100, { integer: true })])) as Record<WeightKey, number>;
+    if (WEIGHT_KEYS.every((k) => weights[k] === 0)) v.errors['assignment.weights'] = td.weightsError;
+    const noStrike = v.num('assignment.emergencyNoStrikeHours', draft.aNoStrikeHours, 0, 336, { integer: true });
+    const alternativesCount = v.num('assignment.alternativesCount', draft.aAlternatives, 1, 10, { integer: true });
+    const retryMinutes = v.num('assignment.retryMinutes', draft.aRetry, 1, 120, { integer: true });
+    const escalateHours = v.num('assignment.escalateHours', draft.aEscalate, 1, 168, { integer: true });
     if (Object.keys(v.errors).length > 0) return { errors: v.errors, value: null };
-    const value: PoliciesSettings = {
+    const value: PoliciesWithAssignment = {
       cancellation: {
         freeHours: freeHours as number,
         lateFeePct: lateFeePct as number,
@@ -1442,14 +1487,23 @@ function PoliciesSection({ settings, onSaved }: { settings: PlatformSettings; on
       cash: { maxTotalCents: maxTotalCents as number, minTier: draft.minTier, suspendBelowCents: -(suspendAbs as number) },
       payouts: { payoutDayOfMonth: payoutDayOfMonth as number },
       paymentMethods: { enabled: PAYMENT_METHOD_KEYS.filter((k) => draft.methods.includes(k)) },
+      assignment: {
+        mode: draft.aMode,
+        weights,
+        emergencyNoStrikeHours: noStrike as number,
+        emergencyStrike: draft.aStrike,
+        alternativesCount: alternativesCount as number,
+        retryMinutes: retryMinutes as number,
+        escalateHours: escalateHours as number,
+      },
     };
     return { errors: v.errors, value };
-  }, [draft, t, f]);
+  }, [draft, t, f, td]);
 
-  const dirty = !build.value || JSON.stringify(build.value) !== JSON.stringify({ ...saved, paymentMethods: saved.paymentMethods ?? DEFAULT_POLICIES.paymentMethods });
+  const dirty = !build.value || JSON.stringify(build.value) !== JSON.stringify({ ...saved, paymentMethods: saved.paymentMethods ?? DEFAULT_POLICIES.paymentMethods, assignment: savedAssignment });
   const toggleMethod = (key: PaymentMethodKey) =>
     setDraft((d) => ({ ...d, methods: d.methods.includes(key) ? d.methods.filter((m) => m !== key) : [...d.methods, key] }));
-  const set = (key: Exclude<keyof PoliciesDraft, 'methods'>) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+  const set = (key: 'freeHours' | 'lateFeePct' | 'cleanerSharePct' | 'maxTotal' | 'minTier' | 'suspendBelow' | 'payoutDayOfMonth' | 'aNoStrikeHours' | 'aAlternatives' | 'aRetry' | 'aEscalate') => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setDraft((d) => ({ ...d, [key]: e.target.value }));
 
   const submit = async () => {
@@ -1470,7 +1524,7 @@ function PoliciesSection({ settings, onSaved }: { settings: PlatformSettings; on
     }
   };
 
-  const numField = (key: Exclude<keyof PoliciesDraft, 'methods' | 'minTier'>, label: string, hint?: string, path?: string) => (
+  const numField = (key: 'freeHours' | 'lateFeePct' | 'cleanerSharePct' | 'maxTotal' | 'suspendBelow' | 'payoutDayOfMonth' | 'aNoStrikeHours' | 'aAlternatives' | 'aRetry' | 'aEscalate', label: string, hint?: string, path?: string) => (
     <Field label={label} hint={hint} error={errors[path ?? key]}>
       {(p) => <Input {...p} inputMode="decimal" value={draft[key]} onChange={set(key)} disabled={saving} />}
     </Field>
@@ -1541,6 +1595,47 @@ function PoliciesSection({ settings, onSaved }: { settings: PlatformSettings; on
           {numField('payoutDayOfMonth', t.policies.payoutDayOfMonth, t.policies.payoutDayHint, 'payouts.payoutDayOfMonth')}
         </div>
       </fieldset>
+      <fieldset className="m-0 mt-6 min-w-0 border-0 p-0">
+        <legend className="mb-1 text-sm font-semibold text-pine-dark">{td.legend}</legend>
+        <p className="mb-3 text-xs text-muted-grey">{td.hint}</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={td.mode}>
+            {(p) => (
+              <NativeSelect {...p} value={draft.aMode} onChange={(e) => setDraft((d) => ({ ...d, aMode: e.target.value === 'board' ? 'board' : 'auto' }))} disabled={saving}>
+                <option value="auto">{td.modeAuto}</option>
+                <option value="board">{td.modeBoard}</option>
+              </NativeSelect>
+            )}
+          </Field>
+          <div className="flex items-center gap-3 pt-6">
+            <Switch id="assignment-strike" checked={draft.aStrike} onCheckedChange={(v) => setDraft((d) => ({ ...d, aStrike: v }))} disabled={saving} />
+            <Label htmlFor="assignment-strike">{td.strike}</Label>
+          </div>
+        </div>
+        {draft.aMode === 'board' && (
+          <p role="alert" className="mt-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            {td.boardWarning}
+          </p>
+        )}
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          {WEIGHT_KEYS.map((k) => (
+            <Field key={k} label={td.weights[k]} error={errors[`assignment.weights.${k}`]}>
+              {(p) => (
+                <Input {...p} inputMode="numeric" value={draft.aWeights[k]} disabled={saving}
+                  onChange={(e) => setDraft((d) => ({ ...d, aWeights: { ...d.aWeights, [k]: e.target.value } }))} />
+              )}
+            </Field>
+          ))}
+        </div>
+        {errors['assignment.weights'] && <p className="mt-1 text-sm text-red-700">{errors['assignment.weights']}</p>}
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {numField('aNoStrikeHours', td.noStrikeHours, undefined, 'assignment.emergencyNoStrikeHours')}
+          {numField('aAlternatives', td.alternatives, undefined, 'assignment.alternativesCount')}
+          {numField('aRetry', td.retry, undefined, 'assignment.retryMinutes')}
+          {numField('aEscalate', td.escalate, undefined, 'assignment.escalateHours')}
+        </div>
+      </fieldset>
     </SectionForm>
   );
 }
@@ -1549,6 +1644,19 @@ export default function AdminSettingsPage() {
   const t = useMessages(settingsMessages);
   const { data, error, reload, setData } = useApi<{ settings: PlatformSettings }>('/admin/settings');
   const onSaved = (settings: PlatformSettings) => setData({ settings });
+
+  // Deep links from the admin menu search (e.g. #richtlinien): scroll once the sections exist
+  const loaded = Boolean(data);
+  useEffect(() => {
+    if (!loaded) return;
+    const scroll = () => {
+      const id = window.location.hash.slice(1);
+      if (id) document.getElementById(id === 'provision' ? 'provision-stufen' : id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    scroll();
+    window.addEventListener('hashchange', scroll);
+    return () => window.removeEventListener('hashchange', scroll);
+  }, [loaded]);
 
   const sections: [string, string][] = [
     ['preise', t.pricing.title],

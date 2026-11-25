@@ -25,7 +25,7 @@ const de = {
       title: 'Sicher online bezahlen',
       text: (holdMinutes: number) =>
         `Sobald du buchst, wird deine Buchung angelegt und der Termin ${holdMinutes} Minuten für dich reserviert. Du bezahlst sicher mit PayPal.`,
-      detail: 'Nach erfolgreicher Zahlung ist dein Termin automatisch bestätigt – die Bestätigung erhältst du per E-Mail.',
+      detail: 'Nach erfolgreicher Zahlung ist dein Termin automatisch bestätigt – die Bestätigung erhältst du per E-Mail. Direkt danach teilen wir dir automatisch eine passende, freie Reinigungskraft zu und zeigen sie in deinem Konto.',
     },
     clean: {
       title: 'Reinigung',
@@ -86,7 +86,7 @@ const en: Messages = {
       title: 'Pay securely online',
       text: (holdMinutes) =>
         `As soon as you book, your booking is created and the slot is reserved for you for ${holdMinutes} minutes. You pay securely with PayPal.`,
-      detail: 'Once the payment has gone through, your booking is confirmed automatically – you receive the confirmation by email.',
+      detail: 'Once the payment has gone through, your booking is confirmed automatically – you receive the confirmation by email. Right after that we automatically assign a suitable, available cleaner and show them in your account.',
     },
     clean: {
       title: 'Cleaning',
@@ -144,7 +144,7 @@ const pl: Messages = {
       title: 'Zapłać bezpiecznie online',
       text: (holdMinutes) =>
         `Gdy tylko zarezerwujesz, tworzymy Twoją rezerwację, a termin jest zarezerwowany dla Ciebie przez ${holdMinutes} minut. Płacisz bezpiecznie przez PayPal.`,
-      detail: 'Po udanej płatności Twój termin zostaje automatycznie potwierdzony – potwierdzenie otrzymasz e-mailem.',
+      detail: 'Po udanej płatności Twój termin zostaje automatycznie potwierdzony – potwierdzenie otrzymasz e-mailem. Zaraz potem automatycznie przydzielamy odpowiednią, wolną osobę sprzątającą i pokazujemy ją na Twoim koncie.',
     },
     clean: {
       title: 'Sprzątanie',

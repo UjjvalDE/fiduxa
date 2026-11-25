@@ -88,18 +88,26 @@ export const startGiftCardPayment = async (card, user, method) => {
     }));
   }
 
-  await Payment.create({
-    purpose: "gift_card",
-    giftCard: card._id,
-    customer: user._id,
-    provider: chosen,
-    checkoutSessionId: sessionId,
-    amountCents: card.initialCents,
-    currency: "EUR",
-    status: "created",
-    checkoutUrl: url,
-    expiresAt,
-  });
+  // Upsert: a retry within the same minute gets the same provider order back
+  // (idempotency key) – reuse it instead of failing on the unique session id.
+  await Payment.updateOne(
+    { checkoutSessionId: sessionId },
+    {
+      $setOnInsert: {
+        purpose: "gift_card",
+        giftCard: card._id,
+        customer: user._id,
+        provider: chosen,
+        checkoutSessionId: sessionId,
+        amountCents: card.initialCents,
+        currency: "EUR",
+        status: "created",
+        checkoutUrl: url,
+        expiresAt,
+      },
+    },
+    { upsert: true }
+  );
   card.set("payment.method", chosen);
   card.set("payment.checkoutSessionId", sessionId);
   card.pendingExpiresAt = new Date(Date.now() + PENDING_MINUTES * 60 * 1000);

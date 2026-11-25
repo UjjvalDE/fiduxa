@@ -3,6 +3,7 @@ import { escapeHtml, slotLabel } from "../utils/helpers.js";
 import { getSiteUrl } from "../utils/site-url.js";
 import EmailMessage from "../models/email.model.js";
 import { logger } from "../utils/logger.js";
+import { loadBytes } from "./file-store.service.js";
 
 // ---------------------------------------------------------------------------
 // Transport
@@ -25,6 +26,12 @@ const createTransporter = () => {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT),
     secure: process.env.SMTP_SECURE === "true",
+    // Mails are delivered by the outbox job (background); the timeouts keep one
+    // slow SMTP server from blocking the job for minutes (nodemailer defaults:
+    // 2 min / 30 s / 10 min). A timeout leaves the mail queued for a retry.
+    connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS) || 10_000,
+    greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS) || 10_000,
+    socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS) || 20_000,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -52,6 +59,13 @@ export const deliverEmail = async (record) => {
   if (!claimed) return "skipped";
 
   try {
+    // Attachments kept in object storage are fetched at send time
+    const attachments = [];
+    for (const a of claimed.attachments ?? []) {
+      const content = a.storageKey ? await loadBytes({ storageKey: a.storageKey }) : a.content;
+      if (!content) throw new Error(`Attachment ${a.filename} is missing in object storage`);
+      attachments.push({ filename: a.filename, contentType: a.contentType, content });
+    }
     const transporter = createTransporter();
     const info = await transporter.sendMail({
       from: process.env.SMTP_FROM,
@@ -59,9 +73,7 @@ export const deliverEmail = async (record) => {
       subject: claimed.subject,
       text: claimed.text,
       html: claimed.html,
-      ...(claimed.attachments?.length && {
-        attachments: claimed.attachments.map((a) => ({ filename: a.filename, contentType: a.contentType, content: a.content })),
-      }),
+      ...(attachments.length && { attachments }),
     });
     claimed.status = "sent";
     claimed.sentAt = new Date();
@@ -106,8 +118,36 @@ const send = async ({ to, subject, text, html, template = "", bookingRef = "", a
     // Optional [{ filename, contentType, content: Buffer }] (e.g. invoice PDF)
     ...(attachments?.length && { attachments }),
   });
-  const status = await deliverEmail(record);
-  return { id: record._id, status };
+  if (emailDeliveryMode() === "inline") {
+    const status = await deliverEmail(record);
+    return { id: record._id, status };
+  }
+  // Background (default): the request never waits for SMTP. The outbox job
+  // (API scheduler or worker.js) delivers it; a process that runs the
+  // scheduler also gets an immediate, non-blocking kick.
+  kickOutbox();
+  return { id: record._id, status: "queued" };
+};
+
+/**
+ * EMAIL_DELIVERY=inline sends inside the request (legacy behaviour);
+ * anything else ("background", the default) only enqueues.
+ */
+export const emailDeliveryMode = () => (process.env.EMAIL_DELIVERY === "inline" ? "inline" : "background");
+
+// Set by the scheduler when this process runs the emailOutbox job.
+let outboxKickEnabled = false;
+let kickPending = false;
+export const enableOutboxKick = (on = true) => {
+  outboxKickEnabled = on;
+};
+const kickOutbox = () => {
+  if (!outboxKickEnabled || kickPending) return;
+  kickPending = true;
+  setTimeout(() => {
+    kickPending = false;
+    processEmailOutbox().catch((error) => logger.warn({ err: error }, "Outbox kick failed"));
+  }, 250).unref?.();
 };
 
 /** Outbox job: deliver every due queued mail (oldest first). */
@@ -424,6 +464,7 @@ export const sendBookingConfirmedEmail = async ({ booking, paid, attachments }) 
 
   return send({
     template: "bookingConfirmed",
+    bookingRef: booking.reference,
     attachments,
     to: booking.customerDetails.email,
     subject: t.confirmedSubject(booking.reference),
@@ -464,6 +505,7 @@ export const sendBookingStatusEmail = async ({ booking, status, refund = false }
 
   return send({
     template: "bookingStatus",
+    bookingRef: booking.reference,
     to: booking.customerDetails.email,
     subject: t.statusSubject(booking.reference),
     text: `${t.hello(booking.customerDetails.name)}
@@ -619,6 +661,7 @@ export const sendJobAssignedToWorkerEmail = async ({ worker, booking }) => {
   const url = portalUrl(`/jobs/${booking._id}`);
   return send({
     template: "jobAssignedToWorker",
+    bookingRef: booking.reference,
     to: worker.email,
     subject: t.jobAssignedSubject(booking.reference),
     text: `${t.hello(worker.name)}
@@ -709,6 +752,7 @@ export const sendCleanerAssignedEmail = async ({ booking, workerName }) => {
   const body = t.cleanerAssignedBody(firstName(workerName));
   return send({
     template: "cleanerAssigned",
+    bookingRef: booking.reference,
     to: booking.customerDetails.email,
     subject: t.cleanerAssignedSubject(booking.reference),
     text: `${t.hello(booking.customerDetails.name)}
@@ -783,12 +827,13 @@ ${t.regards}`,
 // ---------------------------------------------------------------------------
 // Internal admin notification (German)
 // ---------------------------------------------------------------------------
-export const sendAdminNotificationEmail = async ({ subject, lines }) => {
+export const sendAdminNotificationEmail = async ({ subject, lines, bookingRef = "" }) => {
   const to = process.env.ADMIN_NOTIFICATION_EMAIL;
   if (!to) return null;
 
   return send({
     template: "adminNotification",
+    bookingRef,
     to,
     subject: `[Fiduxa] ${subject}`,
     text: lines.join("\n"),

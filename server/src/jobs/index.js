@@ -15,6 +15,8 @@ import { processJobConfirmations } from "../services/job-completion.service.js";
 import { expireStaleExtraTimeRequests } from "../services/extra-time.service.js";
 import { processDocumentExpiries } from "../services/work-eligibility.service.js";
 import { purgeSettledPayoutDetails } from "../services/account-privacy.service.js";
+import { retryUnassignedBookings } from "../services/auto-assign.service.js";
+import { processPendingDeletes } from "../services/file-store.service.js";
 import { logger } from "../utils/logger.js";
 
 const MINUTE = 60_000;
@@ -52,7 +54,17 @@ export const JOBS = [
         unassignedAlerts: alertUnassignedJobs,
         // Cleaner extra-time requests nobody answered within 2 h
         extraTimeExpired: () => expireStaleExtraTimeRequests(),
+        // Object-storage deletes that failed earlier (R2 down …)
+        pendingFileDeletes: processPendingDeletes,
       }),
+  },
+  {
+    // Auto assignment: retry confirmed bookings without a cleaner every
+    // POLICIES.assignment.retryMinutes (each booking), urgent admin alert
+    // when still unassigned escalateHours before the start
+    name: "assignmentWatch",
+    everyMs: MINUTE,
+    run: () => retryUnassignedBookings(),
   },
   {
     // Safety net: recompute commission tiers; GDPR purge of old applications
@@ -63,8 +75,9 @@ export const JOBS = [
   },
   {
     // Deliver queued / retry-due transactional e-mails
+    // (all mail is sent from here – requests only enqueue; see email.service.js)
     name: "emailOutbox",
-    everyMs: 30_000,
+    everyMs: 10_000,
     run: () => processEmailOutbox(),
   },
   {

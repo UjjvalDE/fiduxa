@@ -25,6 +25,9 @@ const paymentSchema = new mongoose.Schema(
     },
     provider: { type: String, enum: ["stripe", "paypal", "cash"], default: "stripe" },
     // Stripe: Checkout Session id · PayPal: order id
+    // Dev/test only (PAYPAL_SIMULATE=true): order "approved" via the simulator –
+    // capturePayPalOrder() then completes it without calling PayPal.
+    simulatedApprovalAt: { type: Date, default: null },
     checkoutSessionId: { type: String, required: true, unique: true },
     // Stripe: PaymentIntent id · PayPal: capture id
     paymentIntentId: { type: String, default: null, index: true },

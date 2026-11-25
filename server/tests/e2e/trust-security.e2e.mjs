@@ -1,8 +1,12 @@
 // E2E (package E): cleaner documents + verification gate, reliability strikes
 // (late hand-back, admin no-show, automatic pause, unpause), distance-aware
 // open jobs, sliding sessions (admin 24 h absolute) and admin 2FA (TOTP).
-import { ROOT, apiClient, createChecker, prepareEnv } from "../helpers/harness.mjs";
+import { ROOT, apiClient, createChecker, prepareEnv, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 prepareEnv("fiduxa_e2e_trust");
+// Legacy job board (assignmentMode "board"): this suite tests cleaners accepting /
+// handing back jobs from the open-job board. Automatic assignment is covered by
+// auto-assignment.e2e.mjs; the board stays reachable for a rollback.
+process.env.ASSIGNMENT_MODE = "board";
 process.env.EMAIL_TRANSPORT = "json";
 process.env.DISABLE_RATE_LIMIT = "1";
 
@@ -39,12 +43,12 @@ const decode = (token) => jwt.decode(token);
 const pw = await bcrypt.hash("Password12345", 12);
 const admin = await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const anna = await User.create({
-  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", workerStatus: "pending_review", emailVerified: true,
-  workerProfile: { address: "Invalidenstr. 5, 10115 Berlin", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
+  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "pending_review", emailVerified: true,
+  workerProfile: { ...BERLIN_WIDE, address: "Invalidenstr. 5, 10115 Berlin", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
 });
 const ben = await User.create({
-  name: "Ben Weber", email: "ben@t.local", password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-  workerProfile: { address: "Teltower Damm 1, 14163 Berlin", serviceAreas: ["Zehlendorf"], petsOk: true }, bankAccountLast4: "4321", bankAccountHolder: "Ben",
+  name: "Ben Weber", email: "ben@t.local", password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+  workerProfile: { ...BERLIN_WIDE, address: "Teltower Damm 1, 14163 Berlin", serviceAreas: ["Zehlendorf"], petsOk: true }, bankAccountLast4: "4321", bankAccountHolder: "Ben",
 });
 const login = async (email) => (await call("POST", "/auth/login", { email, password: "Password12345" })).body;
 let adminT = (await login("admin@t.local")).token;
@@ -69,7 +73,9 @@ r = await call("PATCH", `/admin/workers/${anna._id}/review`, { status: "approved
 check("approval refused while required documents are not verified → 409", r.status === 409 && Array.isArray(r.body.missingDocuments), r.body);
 
 r = await call("PATCH", `/admin/workers/${anna._id}/documents/${idDocId}`, { status: "verified" }, adminT);
-check("admin verifies the ID document", r.status === 200 && r.body.document?.status === "verified" && r.body.missing?.join() === "permit", r.body);
+check("verifying an ID without an expiry date → 422 EXPIRY_DATE_REQUIRED (stays pending)", r.status === 422 && r.body.code === "EXPIRY_DATE_REQUIRED", r.body);
+r = await call("PATCH", `/admin/workers/${anna._id}/documents/${idDocId}`, { status: "verified", expiresAt: "2030-06-30" }, adminT);
+check("admin verifies the ID document (with expiry date)", r.status === 200 && r.body.document?.status === "verified" && r.body.missing?.join() === "permit", r.body);
 r = await call("POST", "/worker/documents", { kind: "permit", name: "Aufenthaltstitel.png", dataUrl: png() }, annaT);
 const permitDocId = r.body.document?.id;
 check("PNG permit upload accepted", r.status === 201 && r.body.document?.type === "image/png", r.body);
@@ -82,6 +88,8 @@ check("verified document cannot be deleted by the cleaner → 409", r.status ===
 r = await call("PATCH", `/admin/workers/${anna._id}/documents/${permitDocId}`, { status: "rejected" }, adminT);
 check("rejecting without a note → 422", r.status === 422, r.body);
 r = await call("PATCH", `/admin/workers/${anna._id}/documents/${permitDocId}`, { status: "verified", note: "gültig bis 2030" }, adminT);
+check("permit without expiry → 422", r.status === 422 && r.body.code === "EXPIRY_DATE_REQUIRED", r.body);
+r = await call("PATCH", `/admin/workers/${anna._id}/documents/${permitDocId}`, { status: "verified", note: "gültig bis 2030", expiresAt: "2030-06-30" }, adminT);
 check("permit verified → all required documents verified", r.body.verified === true, r.body);
 r = await call("GET", "/worker/me", null, annaT);
 check("checklist.documentsVerified true", r.body.checklist?.documentsVerified === true, r.body.checklist);

@@ -92,7 +92,7 @@ const de = {
     checkingText: 'Einen Moment bitte, wir warten auf die Bestätigung des Zahlungsanbieters.',
     paidTitle: 'Vielen Dank – Zahlung erhalten!',
     paidText: (amount: string | null, reference: string | null) =>
-      `${amount ? `${amount} wurden bezahlt. ` : ''}Dein Termin${reference ? ` (${reference})` : ''} ist bestätigt. Eine Bestätigung ist per E-Mail unterwegs.`,
+      `${amount ? `${amount} wurden bezahlt. ` : ''}Dein Termin${reference ? ` (${reference})` : ''} ist bestätigt. Eine Bestätigung ist per E-Mail unterwegs. Deine Reinigungskraft teilen wir automatisch zu – du siehst sie gleich in deinem Konto.`,
     processingTitle: 'Zahlung in Bearbeitung',
     processingText: 'Deine Zahlung wurde übermittelt und wird von der Bank bestätigt. Das kann je nach Zahlungsart etwas dauern.',
     slowText:
@@ -193,7 +193,7 @@ const en: PaymentMessages = {
     checkingText: 'One moment please, we are waiting for confirmation from the payment provider.',
     paidTitle: 'Thank you – payment received!',
     paidText: (amount, reference) =>
-      `${amount ? `${amount} has been paid. ` : ''}Your appointment${reference ? ` (${reference})` : ''} is confirmed. A confirmation is on its way by email.`,
+      `${amount ? `${amount} has been paid. ` : ''}Your appointment${reference ? ` (${reference})` : ''} is confirmed. A confirmation is on its way by email. We assign your cleaner automatically – you will see them in your account shortly.`,
     processingTitle: 'Payment processing',
     processingText: 'Your payment has been submitted and is being confirmed by the bank. Depending on the payment method this can take a while.',
     slowText:
@@ -295,7 +295,7 @@ const pl: PaymentMessages = {
     checkingText: 'Chwileczkę, czekamy na potwierdzenie od operatora płatności.',
     paidTitle: 'Dziękujemy – płatność otrzymana!',
     paidText: (amount, reference) =>
-      `${amount ? `Zapłacono ${amount}. ` : ''}Twój termin${reference ? ` (${reference})` : ''} jest potwierdzony. Potwierdzenie jest w drodze e-mailem.`,
+      `${amount ? `Zapłacono ${amount}. ` : ''}Twój termin${reference ? ` (${reference})` : ''} jest potwierdzony. Potwierdzenie jest w drodze e-mailem. Osobę sprzątającą przydzielamy automatycznie – zobaczysz ją zaraz na swoim koncie.`,
     processingTitle: 'Płatność w toku',
     processingText: 'Twoja płatność została przekazana i jest potwierdzana przez bank. W zależności od metody płatności może to chwilę potrwać.',
     slowText:

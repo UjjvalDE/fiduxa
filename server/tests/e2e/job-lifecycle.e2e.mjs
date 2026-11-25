@@ -3,7 +3,7 @@
 // validation, invoice + feedback exactly once, idempotent), "did not happen"
 // report + admin decision, evening reminder / admin alert watch, admin
 // override with reason + audit. PayPal is a local mock, separate test DB.
-import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 
 prepareEnv("fiduxa_e2e_job_lifecycle");
 const paypal = await startPayPalMock();
@@ -40,8 +40,8 @@ const dateOf = (n) => new Date(todayInBerlin().getTime() + n * DAY_MS);
 const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 await User.create({
-  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-  workerProfile: { address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
+  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+  workerProfile: { ...BERLIN_WIDE, address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
 });
 const login = async (email) => (await call("POST", "/auth/login", { email, password: "Password12345" })).body.token;
 const adminT = await login("admin@t.local");
@@ -62,8 +62,9 @@ const job = async (offset) => {
   const id = res.body.booking.id;
   const orderId = new URL(res.body.checkoutUrl).searchParams.get("token");
   await call("POST", "/payments/paypal/capture", { bookingId: id, orderId }, custT);
-  const acc = await call("POST", `/worker/jobs/${id}/accept`, null, annaT);
-  if (acc.status !== 200) console.log("accept failed", acc.body);
+  // Auto mode: the capture assigns Anna (the only suitable cleaner) – no accept step
+  const assigned = await Booking.findById(id);
+  if (!assigned.assignedWorker) console.log("auto-assignment failed", assigned.assignment);
   await Booking.updateOne({ _id: id }, { preferredDate: dateOf(offset) });
   return id;
 };
@@ -109,7 +110,7 @@ check("8 days after the date → 409 LATE_CONFIRM_WINDOW_CLOSED", r.status === 4
 const edge = await job(-7);
 r = await call("GET", `/worker/jobs/${edge}`, null, annaT);
 check("7 days after the date still confirmable", r.body.job?.confirmation?.possible === true, r.body.job?.confirmation);
-const otherWorker = await User.create({ name: "Bob", email: "bob@t.local", password: pw, role: "worker", workerStatus: "approved", emailVerified: true, workerProfile: { address: "x" } });
+const otherWorker = await User.create({ name: "Bob", email: "bob@t.local", password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true, workerProfile: { ...BERLIN_WIDE, address: "x" } });
 const bobT = await login("bob@t.local");
 r = await call("POST", `/worker/jobs/${yesterday}/confirm-late`, {}, bobT);
 check("other cleaner cannot confirm → 404", r.status === 404 && otherWorker, r.status);

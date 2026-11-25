@@ -3,6 +3,7 @@
 // job concurrently: whoever does not get the lock skips this tick.
 import { tryWithLock } from "../utils/lock.js";
 import { logger } from "../utils/logger.js";
+import { enableOutboxKick } from "../services/email.service.js";
 
 /** Run one job once, guarded by its lock. Returns { ran, result }. */
 export const runJob = async (job) => {
@@ -28,6 +29,8 @@ export const runJob = async (job) => {
 export const startScheduler = (jobs, { label = "api" } = {}) => {
   const timers = [];
   let stopped = false;
+  // This process delivers the e-mail outbox → new mails get an immediate kick
+  if (jobs.some((job) => job.name === "emailOutbox")) enableOutboxKick(true);
   for (const job of jobs) {
     const tick = () => {
       if (!stopped) runJob(job);
@@ -44,6 +47,7 @@ export const startScheduler = (jobs, { label = "api" } = {}) => {
   logger.info({ jobs: jobs.map((j) => `${j.name}@${j.everyMs / 1000}s`), process: label }, "Scheduler started");
   return () => {
     stopped = true;
+    enableOutboxKick(false);
     for (const timer of timers) clearTimeout(timer);
   };
 };

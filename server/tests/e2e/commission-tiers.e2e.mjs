@@ -2,7 +2,7 @@
 // trust score, commission-based pay on completion, historical immutability,
 // admin override with reason, review disputes, duplicate/concurrent safety,
 // config validation, permissions. Spec scenarios 1–18.
-import { ROOT, prepareEnv, createChecker, apiClient } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, createChecker, apiClient, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 import { Types } from "mongoose";
 
 prepareEnv("fiduxa_e2e_commission");
@@ -38,8 +38,8 @@ const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const mkWorker = (name, email) =>
   User.create({
-    name, email, password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-    workerProfile: { address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: name,
+    name, email, password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+    workerProfile: { ...BERLIN_WIDE, address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: name,
   });
 const anna = await mkWorker("Anna Nowak", "anna@t.local");
 const login = async (email) => (await call("POST", "/auth/login", { email, password: "Password12345" })).body.token;

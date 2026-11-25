@@ -2,7 +2,7 @@
 // Uses a throwaway MongoDB (27999) and a fake Stripe API (local HTTP server).
 import http from "node:http";
 
-import { ROOT, prepareEnv } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 prepareEnv("fiduxa_e2e_booking");
 process.env.HOURLY_RATE_CENTS = "3000"; // expectations below use €30/h
 process.env.WORKER_INVITATION_URL = "http://localhost:3000/worker/einladung";
@@ -85,9 +85,9 @@ const day = (n) => new Date(todayInBerlin().getTime() + n * DAY_MS).toISOString(
 const pw = await bcrypt.hash("AdminPassword123", 12);
 await User.create({ name: "Admin", email: "admin@test.local", password: pw, role: "admin" });
 const worker = await User.create({
-  name: "Worker One", email: "w1@test.local", password: pw, role: "worker",
+  name: "Worker One", email: "w1@test.local", password: pw, role: "worker", availability: ALWAYS_AVAILABLE,
   workerStatus: "approved", emailVerified: true,
-  workerProfile: { address: "Teststr 1", serviceAreas: ["Mitte"] },
+  workerProfile: { ...BERLIN_WIDE, address: "Teststr 1", serviceAreas: ["Mitte"] },
   bankAccountLast4: "1234", bankAccountHolder: "Worker One",
 });
 const adminToken = await login("admin@test.local", "AdminPassword123");

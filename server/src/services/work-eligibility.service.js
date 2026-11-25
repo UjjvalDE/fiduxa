@@ -234,6 +234,14 @@ export const processDocumentExpiries = async () => {
         changed = true;
         const flagged = await findJobsBeyondExpiry({ workerIds: [worker._id] });
         const refs = flagged[0]?.jobs.map((j) => `${j.reference} (${formatGermanDate(j.preferredDate)})`) ?? [];
+        // Jobs after the expiry: automatic replacement (auto mode) instead of a manual list
+        const { replaceAssignment } = await import("./auto-assign.service.js");
+        const { isAutoMode } = await import("./assignment-mode.js");
+        const replacedRefs = [];
+        for (const j of isAutoMode() ? flagged[0]?.jobs ?? [] : []) {
+          const r = await replaceAssignment(j._id ?? j.id, { workerId: worker._id, kind: "documents", reason: `${KIND_LABEL[kind]} abgelaufen` });
+          if (r.state === "assigned") replacedRefs.push(j.reference);
+        }
         await trySend("Admin notification", () =>
           sendAdminNotificationEmail({
             subject: `Dokument abgelaufen: ${worker.name}`,
@@ -241,7 +249,8 @@ export const processDocumentExpiries = async () => {
               `Reinigungskraft: ${worker.name} (${worker.email})`,
               `Dokument: ${KIND_LABEL[kind]} – abgelaufen am ${formatGermanDate(doc.expiresAt)}`,
               "Keine neuen Aufträge mehr möglich, bis ein gültiges Dokument geprüft ist.",
-              refs.length ? `Bitte neu zuweisen: ${refs.join(", ")}` : "Keine zugewiesenen Aufträge nach dem Ablaufdatum.",
+              refs.length ? `Betroffene Aufträge: ${refs.join(", ")}` : "Keine zugewiesenen Aufträge nach dem Ablaufdatum.",
+              ...(refs.length ? [replacedRefs.length ? `Automatisch neu vergeben: ${replacedRefs.join(", ")}` : "Bitte unter Admin → Disposition prüfen."] : []),
             ],
           })
         );

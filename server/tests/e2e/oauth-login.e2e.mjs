@@ -1,7 +1,7 @@
 // E2E: social login (Google OIDC + Sign in with Apple) for customers.
 // Provider token/JWKS endpoints are LOCAL mocks with keys generated here –
 // no network calls to Google or Apple.
-import { ROOT, prepareEnv, createChecker } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, createChecker, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 prepareEnv("fiduxa_e2e_oauth");
 process.env.DISABLE_RATE_LIMIT = "1"; // many round trips from one IP (test-only bypass)
 
@@ -272,7 +272,7 @@ g = await googleLogin({ sub: "g-klara-2", email: "klara@t.local", email_verified
 check("second Google identity for an already linked account refused", errorOf(g.location) === "already_linked" && (await User.findById(klara._id)).oauth.googleSub === "g-klara");
 
 // ---------- Never link cleaners / admins ----------
-const worker = await User.create({ name: "Anna Worker", email: "anna@t.local", password: pw, role: "worker", workerStatus: "approved", emailVerified: true });
+const worker = await User.create({ name: "Anna Worker", email: "anna@t.local", password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerProfile: { ...BERLIN_WIDE }, workerStatus: "approved", emailVerified: true });
 const admin = await User.create({ name: "Admin One", email: "admin@t.local", password: pw, role: "admin" });
 g = await googleLogin({ sub: "g-anna", email: "anna@t.local", email_verified: true });
 check("worker email → role_not_allowed, no session", errorOf(g.location) === "role_not_allowed" && !g.session, g.location);

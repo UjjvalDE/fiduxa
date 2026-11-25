@@ -60,6 +60,8 @@ import { centsToInput, parseEuroToCents, useJobTime } from '../../_components/ca
 import { JobStatusBadge, type WorkerJobWithSlot } from '../../_components/job-card';
 import { ExtraTimePanel, WorkerFeedbackDialog } from '../../_components/job-feedback';
 import { ConfirmLatePanel } from '../../_components/job-confirmation';
+import { EmergencyPanel, isAutoMode } from '../../_components/auto-assign';
+import { useWorkerOverview } from '../../_components/worker-context';
 import type { FeedbackPendingItem } from '@/lib/types';
 import { ISSUE_TYPES, type IssueType, mapsUrl } from '../../_components/labels';
 import {
@@ -813,6 +815,7 @@ function JobDetail({ id }: { id: string }) {
   const actionRef = useRef(false);
   const [completeOpen, setCompleteOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
+  const auto = isAutoMode(useWorkerOverview().data);
   const [issueOpen, setIssueOpen] = useState(false);
   const [feedbackItem, setFeedbackItem] = useState<FeedbackPendingItem | null>(null);
 
@@ -1067,6 +1070,10 @@ function JobDetail({ id }: { id: string }) {
           {startButton(true)}
         </div>
       )}
+      {/* Same day, before the start: "I can't make it" stays possible (auto mode) */}
+      {auto && job.status === 'confirmed' && isToday && job.canReportEmergency && (
+        <EmergencyPanel jobId={job._id} noStrikeHours={job.emergencyNoStrikeHours ?? 24} onDone={() => router.push('/worker')} />
+      )}
       {job.status === 'confirmed' && !isToday && (
         <div className="space-y-3">
           {isFuture && (
@@ -1075,7 +1082,9 @@ function JobDetail({ id }: { id: string }) {
               {t.startOn(f.dateLong(job.preferredDate))}
             </p>
           )}
-          {releasable ? (
+          {auto ? (
+            job.canReportEmergency && <EmergencyPanel jobId={job._id} noStrikeHours={job.emergencyNoStrikeHours ?? 24} onDone={() => router.push('/worker')} />
+          ) : releasable ? (
             <div className="space-y-1">
               <Button type="button" variant="outline" onClick={() => setReleaseOpen(true)} className="h-12 w-full text-base">
                 <Undo2 className="mr-2 h-5 w-5" aria-hidden="true" />

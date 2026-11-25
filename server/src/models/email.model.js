@@ -30,7 +30,9 @@ const emailSchema = new mongoose.Schema(
           {
             filename: { type: String, required: true, maxlength: 200 },
             contentType: { type: String, default: "application/octet-stream" },
-            content: { type: Buffer, required: true },
+            // Inline bytes OR a reference to object storage (e.g. the invoice PDF)
+            content: { type: Buffer },
+            storageKey: { type: String, default: undefined },
           },
           { _id: false }
         ),

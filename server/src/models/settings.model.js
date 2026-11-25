@@ -46,6 +46,8 @@ const settingsSchema = new mongoose.Schema(
       cancellationCutoffHours: { type: Number, min: 0, max: 168 },
       // Minutes kept free between two jobs of the same team (counts for capacity)
       teamBufferMinutes: { type: Number, min: 0, max: 120 },
+      // Gap between two jobs of the same cleaner (dispatch, slot list, overlap check)
+      travelBufferMinutes: { type: Number, min: 0, max: 180 },
     },
 
     payments: {
@@ -122,6 +124,23 @@ const settingsSchema = new mongoose.Schema(
       // Selectable customer payment methods (POLICIES.paymentMethods)
       paymentMethods: {
         enabled: { type: [String], enum: ["paypal", "stripe", "cash"], default: undefined },
+      },
+      // Automatic cleaner assignment (round 3)
+      assignment: {
+        mode: { type: String, enum: ["auto", "board"] },
+        weights: {
+          distance: { type: Number, min: 0, max: 100 },
+          skills: { type: Number, min: 0, max: 100 },
+          rating: { type: Number, min: 0, max: 100 },
+          reliability: { type: Number, min: 0, max: 100 },
+          preference: { type: Number, min: 0, max: 100 },
+          workload: { type: Number, min: 0, max: 100 },
+        },
+        emergencyNoStrikeHours: { type: Number, min: 0, max: 336 },
+        emergencyStrike: { type: Boolean },
+        alternativesCount: { type: Number, min: 1, max: 10 },
+        retryMinutes: { type: Number, min: 1, max: 120 },
+        escalateHours: { type: Number, min: 1, max: 168 },
       },
     },
     // [slot-D-settings-model]

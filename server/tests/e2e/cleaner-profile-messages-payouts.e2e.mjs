@@ -1,6 +1,10 @@
 // E2E: cleaner profile, availability/holidays/pets, messages, reviews, earnings/payouts, PayPal
-import { ROOT, prepareEnv, startPayPalMock } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, startPayPalMock, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 prepareEnv("fiduxa_e2e4");
+// Legacy job board (assignmentMode "board"): this suite tests cleaners accepting /
+// handing back jobs from the open-job board. Automatic assignment is covered by
+// auto-assignment.e2e.mjs; the board stays reachable for a rollback.
+process.env.ASSIGNMENT_MODE = "board";
 
 const { createRequire } = await import("node:module");
 const require = createRequire(ROOT + "/package.json");
@@ -48,8 +52,8 @@ const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const mkWorker = (name, email, extra = {}) =>
   User.create({
-    name, email, password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-    workerProfile: { address: "Str 1", serviceAreas: ["Mitte"] }, bankAccountLast4: "1234", bankAccountHolder: name, ...extra,
+    name, email, password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+    workerProfile: { ...BERLIN_WIDE, address: "Str 1", serviceAreas: ["Mitte"] }, bankAccountLast4: "1234", bankAccountHolder: name, ...extra,
   });
 const anna = await mkWorker("Anna Nowak", "anna@t.local");
 const ben = await mkWorker("Ben Weber", "ben@t.local");
@@ -224,6 +228,39 @@ check("booking still payment_pending", b.status === "payment_pending" && b.payme
 r = await call("POST", `/customer/bookings/${jPay}/cancel`, {}, custT);
 r = await call("POST", "/payments/paypal/capture", { bookingId: jPay, orderId }, custT);
 check("capture after cancel refused (409)", r.status === 409, r.body);
+
+// ---------- Dev/test PayPal approval simulator ----------
+delete process.env.PAYPAL_SIMULATE;
+res = await book(day(5), "13:00", { paymentMethod: "paypal" });
+const jSim = res.booking?.id;
+const simOrder = res.checkoutUrl ? new URL(res.checkoutUrl).searchParams.get("token") : null;
+r = await call("POST", "/payments/paypal/simulate-approval", { orderId: simOrder }, custT);
+check("simulator refused without PAYPAL_SIMULATE=true → 403 PAYPAL_SIMULATION_DISABLED", r.status === 403 && r.body.code === "PAYPAL_SIMULATION_DISABLED", r.body);
+r = await call("GET", "/payments/config");
+check("payment config hides the simulator without the flag", r.body.paypalSimulation === false, r.body);
+process.env.PAYPAL_SIMULATE = "true";
+for (const env of ["production", "staging"]) {
+  process.env.NODE_ENV = env;
+  r = await call("POST", "/payments/paypal/simulate-approval", { orderId: simOrder }, custT);
+  check(`simulator refused when NODE_ENV=${env} even with the flag → 403`, r.status === 403 && r.body.code === "PAYPAL_SIMULATION_DISABLED", r.body);
+}
+process.env.NODE_ENV = "test";
+process.env.DEPLOY_ENV = "staging";
+r = await call("POST", "/payments/paypal/simulate-approval", { orderId: simOrder }, custT);
+check("simulator refused when DEPLOY_ENV=staging → 403", r.status === 403, r.body);
+delete process.env.DEPLOY_ENV;
+r = await call("GET", "/payments/config");
+check("payment config offers the simulator in test + flag", r.body.paypalSimulation === true, r.body);
+r = await call("POST", "/payments/paypal/simulate-approval", { orderId: simOrder }, annaT);
+check("simulator: someone else's order → 404", r.status === 404, r.body);
+const capturesBefore = paypal.captures;
+r = await call("POST", "/payments/paypal/simulate-approval", { orderId: simOrder }, custT);
+check("simulator marks the own order as approved", r.status === 200 && r.body.simulated === true && r.body.bookingId === jSim, r.body);
+r = await call("POST", "/payments/paypal/capture", { bookingId: jSim, orderId: simOrder }, custT);
+b = await Booking.findById(jSim);
+check("normal capture then completes the simulated order (paid, no PayPal capture call)",
+  r.status === 200 && b.payment.status === "paid" && paypal.captures === capturesBefore, { s: r.status, p: b.payment.status, body: r.body });
+delete process.env.PAYPAL_SIMULATE;
 
 console.log(`\n${failures === 0 ? "ALL PASSED" : failures + " FAILED"}`);
 await User.db.dropDatabase();

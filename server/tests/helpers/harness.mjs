@@ -26,6 +26,8 @@ export const prepareEnv = (dbName) => {
     "PAYPAL_MODE", "PAYPAL_CLIENT_ID", "PAYPAL_SECRET_KEY",
     // social login: suites configure local mocks explicitly
     "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "APPLE_CLIENT_ID", "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY",
+    // object storage: never the real R2 bucket (suites opt into STORAGE_DRIVER=memory)
+    "S3_ENDPOINT", "ACCESS_KEY_ID_S3", "ACCESS_SECRET_KEY_S3", "R2_BUCKET_NAME", "STORAGE_DRIVER",
     "OAUTH_CALLBACK_BASE_URL", "GOOGLE_AUTH_URL", "GOOGLE_TOKEN_URL", "GOOGLE_JWKS_URL", "APPLE_AUTH_URL", "APPLE_TOKEN_URL", "APPLE_JWKS_URL",
   ]) delete process.env[k];
 };
@@ -81,6 +83,10 @@ export const startPayPalMock = async () => {
       return send(200, { verification_status: status });
     }
     if (req.method === "POST" && req.url === "/v2/checkout/orders") {
+      // Opt-in (mock.idempotent = true): like real PayPal, the same PayPal-Request-Id returns the same order
+      const rid = req.headers["paypal-request-id"];
+      const same = mock.idempotent && rid && [...orders.values()].find((o) => o.requestId === rid);
+      if (same) return send(200, { id: same.id, status: "PAYER_ACTION_REQUIRED", links: [{ rel: "payer-action", href: `https://www.sandbox.paypal.com/checkoutnow?token=${same.id}` }] });
       const id = `MOCK${String(++seq).padStart(6, "0")}`;
       const unit = body.purchase_units[0];
       orders.set(id, { id, amount: unit.amount, status: "CREATED", requestId: req.headers["paypal-request-id"] });
@@ -159,3 +165,19 @@ export const startPayPalMock = async () => {
   mock.close = () => server.close();
   return mock;
 };
+
+/**
+ * E-mails are only ENQUEUED during requests (EMAIL_DELIVERY=background, the
+ * default); the outbox job delivers them. Suites that assert delivery
+ * (status "sent") call this to run the outbox once, like the worker would.
+ */
+export const flushEmails = async () => {
+  const { processEmailOutbox } = await import(ROOT + "/src/services/email.service.js");
+  return processEmailOutbox({ limit: 1000 });
+};
+
+// Automatic assignment (round 3): a cleaner needs a weekly pattern and a home
+// postcode to be suitable. Test cleaners work every day 00:00–23:59 and cover
+// all of Berlin (40 km from Mitte) unless a suite sets something else.
+export const ALWAYS_AVAILABLE = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, start: "00:00", end: "23:59" }));
+export const BERLIN_WIDE = { homePostcode: "10115", maxTravelKm: 40 };

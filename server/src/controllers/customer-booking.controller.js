@@ -30,10 +30,12 @@ import User from "../models/user.model.js";
 import { getWorkerStats, publicWorkerCard, PUBLIC_WORKER_FIELDS } from "../services/worker-profile.service.js";
 import { unreadCounts } from "../services/booking-message.service.js";
 import { reviewWindowOpen } from "../controllers/review.controller.js";
+import { saveScheduleChange } from "../services/job-dispatch.service.js";
 import { decideExtraTime, isCleanerRequest } from "../services/extra-time.service.js";
+import { computeAlternatives, customerKeepWaiting, customerPickAlternative } from "../services/auto-assign.service.js";
 
 const CUSTOMER_HIDDEN_FIELDS =
-  "-adminNotes -statusHistory.changedBy -quotation.sentBy -quotationHistory -assignedBy -jobOffer -job.issueReported";
+  "-adminNotes -statusHistory.changedBy -quotation.sentBy -quotationHistory -assignedBy -jobOffer -job.issueReported -workerPayout -assignmentHistory -assignment.excluded -assignment.reasons -assignment.score -assignment.workerSeenAt -assignment.attempts";
 
 const findOwnBooking = async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) {
@@ -358,7 +360,8 @@ export const editOwnBooking = async (req, res, next) => {
     if (changes.length === 0) {
       return res.json({ success: true, message: "Nothing changed." });
     }
-    await booking.save();
+    // Longer job / new time: the assigned cleaner must still be free (atomic check)
+    await saveScheduleChange(booking);
 
     await trySend("Booking updated", () => sendBookingUpdatedEmail({ booking, changes, priceDeltaCents }));
     if (booking.assignedWorker && changes.some((c) => ["preferredDate", "slot", "durationMinutes"].includes(c.field))) {
@@ -392,6 +395,92 @@ export const editOwnBooking = async (req, res, next) => {
         payment: booking.payment,
         status: booking.status,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// No cleaner available (auto assignment): choose a new time, wait, or cancel
+// free of charge with a full refund. Page: /konto/buchungen/:id/termin-waehlen
+// ---------------------------------------------------------------------------
+const alternativesView = (booking) => ({
+  state: booking.assignment?.state ?? null,
+  needsChoice: booking.status === "confirmed" && !booking.assignedWorker && booking.assignment?.state === "needs_attention",
+  customerChoice: booking.assignment?.customerChoice ?? null,
+  alternatives: booking.assignment?.alternatives ?? [],
+  booking: { id: booking._id, reference: booking.reference, status: booking.status, preferredDate: booking.preferredDate, slot: booking.slot, slotEnd: booking.slotEnd, payment: { status: booking.payment?.status, method: booking.payment?.method } },
+});
+
+// GET /api/v1/customer/bookings/:id/alternatives – refreshed free times
+export const getMyAlternatives = async (req, res, next) => {
+  try {
+    const booking = await findOwnBooking(req, res);
+    if (!booking) return;
+    const view = alternativesView(booking);
+    if (view.needsChoice) {
+      view.alternatives = await computeAlternatives(booking);
+      await Booking.updateOne({ _id: booking._id }, { $set: { "assignment.alternatives": view.alternatives } });
+    }
+    return res.json({ success: true, ...view });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/v1/customer/bookings/:id/alternatives  { action: "pick" | "wait" | "cancel", slotId?, startTime? }
+export const chooseMyAlternative = async (req, res, next) => {
+  try {
+    const data = z
+      .object({
+        action: z.enum(["pick", "wait", "cancel"]),
+        slotId: z.string().optional(),
+        startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+      })
+      .parse(req.body ?? {});
+    const booking = await findOwnBooking(req, res);
+    if (!booking) return;
+    if (booking.status !== "confirmed" || booking.assignedWorker || booking.assignment?.state !== "needs_attention") {
+      return res.status(409).json({ success: false, code: "NO_ALTERNATIVE_NEEDED", message: "This booking does not need a new time any more." });
+    }
+    if (data.action === "wait") {
+      await customerKeepWaiting(booking, { actor: req.user._id });
+      return res.json({ success: true, message: "We keep looking for a cleaner and let you know." });
+    }
+    if (data.action === "cancel") {
+      // Free cancellation with a full refund – the problem is on our side
+      const result = await cancelBooking(booking, {
+        actorId: req.user._id,
+        reason: "No cleaner available – free cancellation",
+        note: "Cancelled by customer (no cleaner available – free, full refund)",
+        autoRefund: true,
+        fee: null,
+      });
+      await Booking.updateOne(
+        { _id: booking._id },
+        {
+          $set: { "assignment.customerChoice": "cancelled", "assignment.customerChoiceAt": new Date() },
+          $push: { assignmentHistory: { at: new Date(), action: "customer_choice", by: req.user._id, byRole: "customer", reason: "cancelled free of charge (no cleaner)" } },
+        }
+      );
+      await trySend("Admin notification", () =>
+        sendAdminNotificationEmail({
+          bookingRef: booking.reference,
+          subject: `Kostenlos storniert (keine Reinigungskraft): ${booking.reference}`,
+          lines: [`Referenz: ${booking.reference}`, result.refunded ? "Voller Betrag automatisch erstattet." : result.refundPending ? "ERSTATTUNG OFFEN – bitte manuell erstatten." : "Keine Online-Zahlung."],
+        })
+      );
+      return res.json({ success: true, message: "Booking cancelled free of charge.", status: "cancelled", refunded: result.refunded, refundPending: result.refundPending, payment: booking.payment });
+    }
+    if (!data.slotId || !data.startTime) return res.status(422).json({ success: false, message: "Please choose a time." });
+    const result = await customerPickAlternative(booking, { slotId: data.slotId, startTime: data.startTime, actor: req.user._id });
+    const fresh = await Booking.findById(booking._id).populate("assignedWorker", "name");
+    return res.json({
+      success: true,
+      message: result.state === "assigned" ? "New time booked – your cleaner is confirmed." : "New time booked – we are still looking for a cleaner.",
+      assignment: { state: result.state },
+      booking: { id: fresh._id, preferredDate: fresh.preferredDate, slot: fresh.slot, slotEnd: fresh.slotEnd, status: fresh.status, cleaner: fresh.assignedWorker ? { firstName: String(fresh.assignedWorker.name).split(" ")[0] } : null },
     });
   } catch (error) {
     next(error);

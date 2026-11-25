@@ -184,31 +184,6 @@ export default function AdminDocumentQueuePage() {
       <PageHeader title={t.title} description={t.description} />
       {error && !data && <ErrorState message={error} onRetry={reload} />}
       {loading && !data && <ListSkeleton rows={4} />}
-      {data && data.flagged.length > 0 && (
-        <section className="mb-6 rounded-2xl border border-amber-300 bg-amber-50 p-4">
-          <h2 className="m-0 flex items-center gap-2 text-base font-bold text-amber-900">
-            <AlertTriangle className="h-4 w-4" aria-hidden="true" /> {t.flaggedTitle}
-          </h2>
-          <ul className="m-0 mt-2 grid gap-2 p-0">
-            {data.flagged.map((row) => (
-              <li key={row.worker.id} className="list-none text-sm">
-                <Link href={`/admin/reinigungskraefte/${row.worker.id}`} className="font-semibold text-pine hover:underline">
-                  {row.worker.name}
-                </Link>{' '}
-                – {t.flaggedText(f.date(row.eligibleUntil))}:{' '}
-                {row.jobs.map((j, i) => (
-                  <span key={j.id}>
-                    {i > 0 && ', '}
-                    <Link href={`/admin/buchungen/${j.id}`} className="text-pine hover:underline">
-                      {j.reference} ({f.date(j.preferredDate)})
-                    </Link>
-                  </span>
-                ))}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
       {data && data.items.length === 0 && <EmptyState icon={FileCheck} title={t.empty} description={t.emptyText} />}
       {data && data.items.length > 0 && (
         <ul className="m-0 grid gap-4 p-0">

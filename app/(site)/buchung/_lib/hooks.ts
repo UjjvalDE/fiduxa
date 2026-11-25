@@ -81,14 +81,23 @@ export function useExtras(serviceId: string | null) {
  * Days in [from, to] (YYYY-MM-DD) with at least one start time for a job of
  * `duration` minutes. `duration` null = not known yet (idle).
  */
-export function useAvailableDays(from: string, to: string, duration: number | null) {
-  const res = useGet<{ data: AvailableDay[] }>(duration ? `/bookings/availability/days${qs({ from, to, duration })}` : null, 'days');
+/** Job details known so far: only times with a SUITABLE cleaner are listed */
+export type SlotJobFilter = { serviceId?: string | null; extras?: string[]; postcode?: string | null; pets?: boolean | null };
+const jobParams = (job?: SlotJobFilter) => ({
+  serviceId: job?.serviceId ?? undefined,
+  extras: job?.extras?.length ? [...job.extras].sort().join(',') : undefined,
+  postcode: job?.postcode && /^\d{5}$/.test(job.postcode) ? job.postcode : undefined,
+  pets: job?.pets ? true : undefined,
+});
+
+export function useAvailableDays(from: string, to: string, duration: number | null, job?: SlotJobFilter) {
+  const res = useGet<{ data: AvailableDay[] }>(duration ? `/bookings/availability/days${qs({ from, to, duration, ...jobParams(job) })}` : null, 'days');
   return { days: res.data?.data ?? null, loading: res.loading, error: res.error, reload: res.reload, fresh: res.fresh };
 }
 
 /** Start times on `date` where the whole job (`duration` minutes) fits */
-export function useAvailability(date: string | null, duration: number | null) {
-  const res = useGet<{ data: Slot[] }>(date && duration ? `/bookings/availability${qs({ date, duration })}` : null, date ?? undefined);
+export function useAvailability(date: string | null, duration: number | null, job?: SlotJobFilter) {
+  const res = useGet<{ data: Slot[] }>(date && duration ? `/bookings/availability${qs({ date, duration, ...jobParams(job) })}` : null, date ?? undefined);
   return { slots: res.data?.data ?? null, loading: res.loading, error: res.error, reload: res.reload, fresh: res.fresh };
 }
 

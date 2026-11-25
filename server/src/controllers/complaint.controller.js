@@ -18,6 +18,7 @@ import {
   startReview,
 } from "../services/complaint.service.js";
 import { getPagination, paginationMeta } from "../utils/helpers.js";
+import { hasBytes, sendStoredFile } from "../services/file-store.service.js";
 
 const validId = (res, ...ids) => {
   if (ids.every((id) => mongoose.isValidObjectId(id))) return true;
@@ -162,13 +163,17 @@ export const adminComplaintPhoto = async (req, res, next) => {
     if (!validId(res, req.params.id, req.params.photoId)) return;
     const complaint = await Complaint.findById(req.params.id).select("+photos.data");
     const photo = complaint?.photos.id(req.params.photoId);
-    if (!photo?.data) return res.status(404).json({ success: false, message: "Photo not found." });
+    if (!hasBytes(photo)) return res.status(404).json({ success: false, message: "Photo not found." });
     res.setHeader("Content-Type", photo.type);
     res.setHeader("Content-Disposition", `${req.query.inline === "1" ? "inline" : "attachment"}; filename="${encodeURIComponent(photo.name)}"`);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
-    return res.send(photo.data);
+    if (await sendStoredFile(res, photo)) return;
+    res.removeHeader("Content-Disposition");
+    res.removeHeader("Content-Security-Policy");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    return res.status(404).json({ success: false, message: "Photo not found." });
   } catch (error) {
     next(error);
   }

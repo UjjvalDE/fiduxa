@@ -243,9 +243,14 @@ export function BookingWizard() {
   };
 
   /* ---------- Days & start times for the total duration ---------- */
-  const availableDays = useAvailableDays(range.min, range.max, availabilityDuration);
+  // Only times where a suitable cleaner (skills, area, pets) is free
+  const slotJob = useMemo(
+    () => ({ serviceId: draft.serviceId, extras: draft.extras, postcode: draft.postcode, pets: draft.pets }),
+    [draft.serviceId, draft.extras, draft.postcode, draft.pets]
+  );
+  const availableDays = useAvailableDays(range.min, range.max, availabilityDuration, slotJob);
   const dateInRange = Boolean(draft.date) && draft.date >= range.min && draft.date <= range.max;
-  const availability = useAvailability(dateInRange ? draft.date : null, availabilityDuration);
+  const availability = useAvailability(dateInRange ? draft.date : null, availabilityDuration, slotJob);
   const freeDays = useMemo(
     () => (availableDays.days ? new Set(availableDays.days.filter((d) => d.freeSlots > 0).map((d) => d.date)) : null),
     [availableDays.days]

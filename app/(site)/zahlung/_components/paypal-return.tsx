@@ -14,6 +14,7 @@ import { translateApiError } from '@/lib/i18n/api-errors';
 import type { PaymentSummary } from '@/lib/types';
 import messages from '../_messages';
 import { PaymentProgress } from './payment-shared';
+import { DevPayPalSimulator } from './dev-paypal-simulator';
 
 type View = { kind: 'confirming' } | { kind: 'failed' | 'expired' | 'error'; error: unknown } | { kind: 'missing' };
 
@@ -85,6 +86,7 @@ export function PayPalReturn() {
                   {t.paypal.toBooking}
                 </Link>
               </div>
+              <DevPayPalSimulator bookingId={bookingId} orderId={orderId} />
             </>
           )}
 

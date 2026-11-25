@@ -143,7 +143,13 @@ export const addStrike = async (userOrId, { kind, bookingRef = "", note = "", co
     after: { kind, count: n, bookingRef, note, activeStrikes: active, paused: isPaused(user) },
   });
   await trySend("Reliability strike", () => sendStrikeEmail({ worker: user, kind, count: n, active, paused: isPaused(user) }));
-  return { strikes: n, activeCount: active, paused: isPaused(user), justPaused };
+  // Paused → their future jobs go to other cleaners (auto mode: replacement)
+  let replaced = null;
+  if (justPaused) {
+    const { replaceWorkerJobs } = await import("./auto-assign.service.js");
+    replaced = await replaceWorkerJobs(user._id, { kind: "paused", reason: user.reliability.pausedReason, by: actor });
+  }
+  return { strikes: n, activeCount: active, paused: isPaused(user), justPaused, replaced };
 };
 
 /** Admin lifts the pause (strikes stay in the history) */

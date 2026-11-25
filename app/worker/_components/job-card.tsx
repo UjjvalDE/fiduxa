@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 
 import messages from '../_messages';
 import confirmMessages from '../_confirm-messages';
+import autoMessages from '../_auto-messages';
 import portalMessages from '../_portal-messages';
 import { CashBadge, useJobTime } from './cash';
 import { JOB_STATUS_CLASSES } from './labels';
@@ -25,6 +26,11 @@ export type WorkerJobWithSlot = Omit<WorkerJob, 'workerPayout'> & {
   extraTimeRequests?: WorkerExtraTimeRequest[];
   /** Past job still open: late confirmation ("Job erledigt bestätigen") */
   confirmation?: JobConfirmationInfo | null;
+  /** Auto assignment: assigned and not opened yet / "can't make it" possible */
+  isNew?: boolean;
+  canReportEmergency?: boolean;
+  /** No strike when reported more than this many hours ahead (null = never a strike) */
+  emergencyNoStrikeHours?: number | null;
 };
 
 export type JobConfirmationInfo = {
@@ -55,6 +61,7 @@ export function JobCard({ job, unread = 0 }: { job: WorkerJobWithSlot; unread?: 
   const f = useFormat();
   const jobTime = useJobTime();
   const tc = useMessages(confirmMessages);
+  const ta = useMessages(autoMessages);
   const service = c.services[job.serviceId] ?? job.serviceId;
 
   return (
@@ -72,7 +79,10 @@ export function JobCard({ job, unread = 0 }: { job: WorkerJobWithSlot; unread?: 
             {tc.badge}
           </span>
         ) : (
-          <JobStatusBadge status={job.status} />
+          <span className="flex items-center gap-1.5">
+            {job.isNew && <span className="rounded-full bg-pine px-2 py-0.5 text-xs font-bold text-white">{ta.newBadge}</span>}
+            <JobStatusBadge status={job.status} />
+          </span>
         )}
       </div>
       <ul className="mt-3 space-y-1.5 text-sm text-charcoal">

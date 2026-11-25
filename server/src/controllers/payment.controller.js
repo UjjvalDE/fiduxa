@@ -18,7 +18,7 @@ import {
   refundBookingPayment,
   refundPaymentRecord,
 } from "../services/payment.service.js";
-import { capturePayPalOrder, isPayPalConfigured, verifyPayPalWebhookSignature } from "../services/paypal.service.js";
+import { capturePayPalOrder, isPayPalConfigured, isPayPalSimulationAllowed, verifyPayPalWebhookSignature } from "../services/paypal.service.js";
 import { withLock } from "../utils/lock.js";
 import { logger } from "../utils/logger.js";
 
@@ -69,7 +69,34 @@ export const getPaymentConfig = (req, res) => {
     // Everything the customer can choose at checkout, incl. "cash"
     bookingMethods: bookingMethods(),
     cashEnabled: cashAllowed(),
+    // Dev/test only: the return page offers "Simulate PayPal approval (dev)"
+    paypalSimulation: isPayPalSimulationAllowed(),
   });
+};
+
+// POST /api/v1/payments/paypal/simulate-approval  { orderId }
+// DEV/TEST ONLY (NODE_ENV development|test + PAYPAL_SIMULATE=true). Marks the
+// customer's own open PayPal order (booking, pay link or gift card) as approved;
+// the normal capture endpoint then completes it without contacting PayPal.
+export const simulatePayPalApproval = async (req, res, next) => {
+  try {
+    if (!isPayPalSimulationAllowed()) {
+      return res.status(403).json({ success: false, code: "PAYPAL_SIMULATION_DISABLED", message: "PayPal simulation is not available in this environment." });
+    }
+    const { orderId } = z.object({ orderId: z.string().trim().min(5).max(64).regex(/^[A-Z0-9-]+$/i) }).parse(req.body);
+    const payment = await Payment.findOne({ provider: "paypal", checkoutSessionId: orderId, customer: req.user._id });
+    if (!payment) return res.status(404).json({ success: false, message: "Payment not found." });
+    if (payment.status === "paid") return res.json({ success: true, simulated: true, alreadyPaid: true });
+    if (!["created", "processing"].includes(payment.status)) {
+      return res.status(409).json({ success: false, message: "This payment can no longer be approved." });
+    }
+    payment.simulatedApprovalAt = new Date();
+    await payment.save();
+    logger.warn({ orderId, paymentId: String(payment._id) }, "PayPal approval SIMULATED (dev/test only)");
+    return res.json({ success: true, simulated: true, orderId, bookingId: payment.booking ? String(payment.booking) : null, giftCardId: payment.giftCard ? String(payment.giftCard) : null });
+  } catch (error) {
+    next(error);
+  }
 };
 
 const providerError = (error, res) => {

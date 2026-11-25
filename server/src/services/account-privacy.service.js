@@ -18,6 +18,7 @@ import User from "../models/user.model.js";
 import { httpError } from "../utils/helpers.js";
 import { todayInBerlin } from "../utils/helpers.js";
 import { recordAudit } from "./audit.service.js";
+import { removeStoredKeys } from "./file-store.service.js";
 
 export const RETENTION_YEARS = 10;
 const TOMBSTONE_EMAIL = "tombstone@anonymised.invalid";
@@ -216,6 +217,9 @@ export const anonymiseUser = async (user, { actorId, reason = "", self = false }
 
   // 5b. Complaints filed by the customer: free text, photos and office notes
   //     erased; category / status / remedies stay (cleaner's history, accounting)
+  //     (stored photo files are deleted from object storage below)
+  const complaintPhotoKeys = (await Complaint.find({ customer: id, anonymisedAt: { $exists: false } }).select("photos.storageKey").lean())
+    .flatMap((c) => (c.photos ?? []).map((p) => p.storageKey));
   const complaintsAnonymised = (
     await Complaint.updateMany(
       { customer: id, anonymisedAt: { $exists: false } },
@@ -229,11 +233,16 @@ export const anonymiseUser = async (user, { actorId, reason = "", self = false }
 
   // 7. Verification documents (ID, permit …): file bytes erased, metadata kept for the audit trail
   let documentsPurged = 0;
+  const fileKeys = [...complaintPhotoKeys];
   if (isWorker) {
     const docs = await User.findById(id).select("documents");
     documentsPurged = docs?.documents?.length ?? 0;
     if (documentsPurged) {
-      await User.updateOne({ _id: id }, { $unset: { "documents.$[].data": "" }, $set: { "documents.$[].name": REMOVED, "documents.$[].purgedAt": now } });
+      fileKeys.push(...docs.documents.map((d) => d.storageKey));
+      await User.updateOne(
+        { _id: id },
+        { $unset: { "documents.$[].data": "", "documents.$[].storageKey": "", "documents.$[].sha256": "" }, $set: { "documents.$[].name": REMOVED, "documents.$[].purgedAt": now } }
+      );
     }
   }
 
@@ -255,6 +264,8 @@ export const anonymiseUser = async (user, { actorId, reason = "", self = false }
   fresh.emailVerificationTokenHash = undefined;
   fresh.emailVerificationExpires = undefined;
   fresh.avatarData = undefined;
+  if (fresh.avatarKey) fileKeys.push(fresh.avatarKey);
+  fresh.avatarKey = "";
   // Unlink social logins: signing in with Google/Apple again starts a new account
   fresh.oauth = undefined;
   fresh.avatarType = "";
@@ -274,16 +285,19 @@ export const anonymiseUser = async (user, { actorId, reason = "", self = false }
   }
   await fresh.save();
 
+  // Object storage: best-effort, failures are queued and retried by the housekeeping job
+  const files = await removeStoredKeys(fileKeys, "account.anonymised");
+
   await recordAudit({
     actor: actorId ?? id,
     action: self ? "account.deleted.self" : "customer.deleted",
     entityType: "User",
     entityId: id,
     before,
-    after: { reason, unpaidEarningsCents: unpaid.cents, payoutDetailsRetained: retainPayout, documentsPurged, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messages, codesRevoked: codes, complaintsAnonymised, retentionYears: RETENTION_YEARS },
+    after: { reason, unpaidEarningsCents: unpaid.cents, payoutDetailsRetained: retainPayout, documentsPurged, filesDeleted: files.deleted, filesQueued: files.queued, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messages, codesRevoked: codes, complaintsAnonymised, retentionYears: RETENTION_YEARS },
   });
 
-  return { unpaidEarningsCents: unpaid.cents, payoutDetailsRetained: retainPayout, documentsPurged, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messagesAnonymised: messages, codesRevoked: codes, complaintsAnonymised, retentionYears: RETENTION_YEARS };
+  return { unpaidEarningsCents: unpaid.cents, payoutDetailsRetained: retainPayout, documentsPurged, filesDeleted: files.deleted, filesQueued: files.queued, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messagesAnonymised: messages, codesRevoked: codes, complaintsAnonymised, retentionYears: RETENTION_YEARS };
 };
 
 const clearPayoutDetails = (worker) => {

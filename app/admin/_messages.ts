@@ -11,6 +11,10 @@ const de = {
     badge: 'Admin',
     logout: 'Abmelden',
     language: 'Sprache',
+    searchPlaceholder: 'Menü durchsuchen …',
+    settingsSections: { 'preise': 'Preise', 'zusatzleistungen': 'Zusatzleistungen', 'buchungsregeln': 'Buchungsregeln', 'zahlungsarten': 'Zahlungsarten', 'gutscheine': 'Gutscheine', 'verguetung': 'Vergütung', 'provision': 'Provision & Stufen', 'richtlinien': 'Richtlinien (Storno, Auszahlung)' } as Record<string, string>,
+    searchEmpty: 'Nichts gefunden.',
+    groups: { start: 'Start', bookings: 'Buchungen & Termine', team: 'Reinigungskräfte', customers: 'Kunden & Service', finance: 'Finanzen', marketing: 'Marketing', system: 'System' },
   },
   nav: {
     overview: 'Übersicht',
@@ -24,12 +28,14 @@ const de = {
     emails: 'E-Mails',
     // [slot-A-nav-msg]
     series: 'Putzpläne',
+    dispatch: 'Disposition',
     // [slot-B-nav-msg]
     // [slot-C-nav-msg]
     // [slot-D-nav-msg]
     // [slot-E-nav-msg]
     // [slot-F-nav-msg]
     complaints: 'Beschwerden',
+    documents: 'Dokumentenprüfung',
     promotions: 'Aktionen',
     giftCards: 'Gutscheine',
     analytics: 'Auswertungen',
@@ -76,6 +82,10 @@ const en: AdminMessages = {
     badge: 'Admin',
     logout: 'Log out',
     language: 'Language',
+    searchPlaceholder: 'Search menu …',
+    settingsSections: { 'preise': 'Prices', 'zusatzleistungen': 'Extras', 'buchungsregeln': 'Booking rules', 'zahlungsarten': 'Payment methods', 'gutscheine': 'Gift cards', 'verguetung': 'Cleaner pay', 'provision': 'Commission & tiers', 'richtlinien': 'Policies (cancellation, payouts)' } as Record<string, string>,
+    searchEmpty: 'Nothing found.',
+    groups: { start: 'Start', bookings: 'Bookings & schedule', team: 'Cleaners', customers: 'Customers & service', finance: 'Finance', marketing: 'Marketing', system: 'System' },
   },
   nav: {
     overview: 'Overview',
@@ -89,12 +99,14 @@ const en: AdminMessages = {
     emails: 'E-mails',
     // [slot-A-nav-msg]
     series: 'Cleaning plans',
+    dispatch: 'Dispatch',
     // [slot-B-nav-msg]
     // [slot-C-nav-msg]
     // [slot-D-nav-msg]
     // [slot-E-nav-msg]
     // [slot-F-nav-msg]
     complaints: 'Complaints',
+    documents: 'Document review',
     promotions: 'Promotions',
     giftCards: 'Gift cards',
     analytics: 'Analytics',
@@ -148,6 +160,10 @@ const pl: AdminMessages = {
     badge: 'Admin',
     logout: 'Wyloguj się',
     language: 'Język',
+    searchPlaceholder: 'Szukaj w menu …',
+    settingsSections: { 'preise': 'Ceny', 'zusatzleistungen': 'Usługi dodatkowe', 'buchungsregeln': 'Zasady rezerwacji', 'zahlungsarten': 'Metody płatności', 'gutscheine': 'Bony', 'verguetung': 'Wynagrodzenie', 'provision': 'Prowizja i poziomy', 'richtlinien': 'Zasady (anulowanie, wypłaty)' } as Record<string, string>,
+    searchEmpty: 'Nic nie znaleziono.',
+    groups: { start: 'Start', bookings: 'Rezerwacje i terminy', team: 'Sprzątający', customers: 'Klienci i obsługa', finance: 'Finanse', marketing: 'Marketing', system: 'System' },
   },
   nav: {
     overview: 'Przegląd',
@@ -161,12 +177,14 @@ const pl: AdminMessages = {
     emails: 'E-maile',
     // [slot-A-nav-msg]
     series: 'Plany sprzątania',
+    dispatch: 'Dyspozycja',
     // [slot-B-nav-msg]
     // [slot-C-nav-msg]
     // [slot-D-nav-msg]
     // [slot-E-nav-msg]
     // [slot-F-nav-msg]
     complaints: 'Reklamacje',
+    documents: 'Weryfikacja dokumentów',
     promotions: 'Promocje',
     giftCards: 'Karty podarunkowe',
     analytics: 'Analizy',

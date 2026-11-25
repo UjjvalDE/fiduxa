@@ -12,7 +12,13 @@ const generateToken = (userOrId, { expiresIn, abs } = {}) => {
 
   const payload =
     typeof userOrId === "object" && userOrId !== null
-      ? { userId: userOrId._id.toString(), tv: userOrId.tokenVersion ?? 0 }
+      ? {
+          userId: userOrId._id.toString(),
+          tv: userOrId.tokenVersion ?? 0,
+          // Role hint only (maintenance mode lets admins through without a DB
+          // lookup); every protected route still re-checks the user in the DB.
+          ...(userOrId.role && { role: userOrId.role }),
+        }
       : { userId: String(userOrId), tv: 0 };
   if (abs) payload.abs = abs;
 

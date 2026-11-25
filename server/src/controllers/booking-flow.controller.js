@@ -8,6 +8,7 @@ import {
   bookableRange,
   getAvailableDays,
   getSlotsForDate,
+  slotJobFilter,
   reserveAndCreate,
 } from "../services/availability.service.js";
 import {
@@ -146,7 +147,9 @@ export const getEstimate = (req, res, next) => {
 export const getAvailableSlots = async (req, res, next) => {
   try {
     const date = assertBookableDate(req.query.date);
-    const slots = await getSlotsForDate(date, Number(req.query.duration) || undefined);
+    // Optional job details (service, extras, postcode, pets): only start
+    // times where a SUITABLE cleaner is free are listed
+    const slots = await getSlotsForDate(date, Number(req.query.duration) || undefined, slotJobFilter(req.query));
 
     return res.json({ success: true, data: slots });
   } catch (error) {
@@ -165,7 +168,8 @@ export const getAvailableDaysHandler = async (req, res, next) => {
     const days = await getAvailableDays(
       from < range.from ? range.from : from,
       to > range.to ? range.to : to,
-      Number(req.query.duration) || undefined
+      Number(req.query.duration) || undefined,
+      slotJobFilter(req.query)
     );
 
     return res.json({ success: true, data: days });
@@ -244,7 +248,13 @@ export const createBookingRequest = async (req, res, next) => {
 
       // Take the start time inside the admin's availability window (locked → no overbooking)
       const booking = await reserveAndCreate(
-        { slotId: data.slotId, date: preferredDate, startTime: data.startTime, durationMinutes: estimate.durationMinutes },
+        {
+          slotId: data.slotId,
+          date: preferredDate,
+          startTime: data.startTime,
+          durationMinutes: estimate.durationMinutes,
+          job: { serviceId: data.serviceId, extras: estimate.extras.map((e) => e.id), postcode: data.postcode, pets: data.pets, customer: req.user._id },
+        },
         async (slot, { startTime, endTime }) => {
           const doc = new Booking({
             _id: bookingId,
@@ -446,7 +456,7 @@ export const getMyBookings = async (req, res, next) => {
     }
 
     const bookings = await Booking.find(filter)
-      .select("-adminNotes -statusHistory.changedBy -quotation.sentBy -assignedBy -quotationHistory -jobOffer -job.issueReported")
+      .select("-adminNotes -statusHistory.changedBy -quotation.sentBy -assignedBy -quotationHistory -jobOffer -job.issueReported -workerPayout")
       .populate("assignedWorker", "name avatarUpdatedAt")
       .sort({ preferredDate: -1, createdAt: -1 });
 

@@ -12,6 +12,21 @@ export const ORDER_LIFETIME_MINUTES = 30;
 
 export const isPayPalLive = () => process.env.PAYPAL_MODE === "live";
 
+/**
+ * Dev/test PayPal approval simulator. Allowed ONLY when NODE_ENV is
+ * "development" or "test" AND PAYPAL_SIMULATE=true, never with live keys and
+ * never when DEPLOY_ENV/APP_ENV says production or staging.
+ */
+export const isPayPalSimulationAllowed = () => {
+  if (!["development", "test"].includes(process.env.NODE_ENV)) return false;
+  if (process.env.PAYPAL_SIMULATE !== "true") return false;
+  if (isPayPalLive()) return false;
+  const deploy = `${process.env.DEPLOY_ENV ?? ""} ${process.env.APP_ENV ?? ""}`.toLowerCase();
+  if (/prod|staging/.test(deploy)) return false;
+  return true;
+};
+export const SIMULATED_CAPTURE_PREFIX = "SIMCAP-";
+
 const credentials = () =>
   isPayPalLive()
     ? { id: process.env.PAYPAL_CLIENT_ID, secret: process.env.PAYPAL_SECRET_KEY }
@@ -176,6 +191,12 @@ export const createPayPalOrderForBooking = async (booking, customerId, { amountC
  * Capture an approved order. Returns { status: "COMPLETED"|"PENDING"|..., captureId, amountCents, currency }.
  */
 export const capturePayPalOrder = async (orderId) => {
+  if (isPayPalSimulationAllowed()) {
+    const simulated = await Payment.findOne({ checkoutSessionId: orderId, provider: "paypal", simulatedApprovalAt: { $ne: null } }).lean();
+    if (simulated) {
+      return { status: "COMPLETED", captureId: `${SIMULATED_CAPTURE_PREFIX}${orderId}`, amountCents: simulated.amountCents, currency: simulated.currency || "EUR" };
+    }
+  }
   let response = await paypalRequest("POST", `/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {}, `capture-${orderId}`);
 
   if (response.status === 422 && response.body?.details?.[0]?.issue === "ORDER_ALREADY_CAPTURED") {
@@ -201,6 +222,11 @@ export const capturePayPalOrder = async (orderId) => {
  * Returns the refund id.
  */
 export const refundPayPalCapture = async (captureId, paymentId, { amountCents, requestKey } = {}) => {
+  // Simulated capture (dev/test only): nothing exists at PayPal to refund
+  if (String(captureId).startsWith(SIMULATED_CAPTURE_PREFIX)) {
+    if (!isPayPalSimulationAllowed()) throw httpError(409, "Simulated PayPal payments cannot be refunded here.");
+    return `SIMREF-${paymentId}-${Date.now().toString(36)}`;
+  }
   const response = await paypalRequest(
     "POST",
     `/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,

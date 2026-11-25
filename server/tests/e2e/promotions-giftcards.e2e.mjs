@@ -5,6 +5,9 @@ import { createHash } from "node:crypto";
 import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock } from "../helpers/harness.mjs";
 
 prepareEnv("fiduxa_e2e_promotions");
+// Admin window capacity only: these checks are about window capacity / pricing, not the
+// cleaner pool (cleaner-aware slots are covered in slot-capacity-overlap.e2e.mjs)
+process.env.SLOT_CAPACITY_MODE = "window";
 const paypal = await startPayPalMock();
 process.env.PAYPALAPIKEY = "mock-client";
 process.env.PAYPALSECRET_KEY = "mock-secret";
@@ -203,6 +206,7 @@ check("ledger: issue → reserve → capture → refund", ledger.map((l) => l.ty
 r = await call("POST", "/admin/gift-cards/issue", { amountCents: 10000, recipientName: "Eva", recipientEmail: "eva@t.local", reason: "Test", sendEmail: false }, adminT);
 const card100 = r.body.giftCard;
 r = await book(dora.token, day(5), "09:00", { ...doraContact, promoCode: doraCode, giftCardCodes: [card100.code], expectedPayableCents: 0 });
+const fullGiftBookingId = r.body.booking?.id;
 card = await GiftCard.findById(card100._id);
 check("fully covered by gift card: confirmed, paid, €32.50 left", r.status === 201 && r.body.booking.status === "confirmed" && r.body.booking.payment.method === "gift_card" && r.body.booking.payment.status === "paid" && card.balanceCents === 3250, { b: r.body.booking?.payment, bal: card.balanceCents });
 
@@ -255,6 +259,10 @@ r = await call("POST", "/gift-cards", { amountCents: 7500, recipientName: "Gina"
 const bought = r.body.giftCard;
 const gcOrder = new URL(r.body.checkoutUrl).searchParams.get("token");
 check("purchase started: pending, code hidden, PayPal order €75", r.status === 201 && bought.status === "pending_payment" && bought.code === null && paypal.orders.get(gcOrder)?.amount.value === "75.00", r.body);
+paypal.idempotent = true;
+r = await call("POST", `/gift-cards/${bought.id}/pay`, { method: "paypal" }, fin.token);
+paypal.idempotent = false;
+check("retrying payment right away reuses the PayPal order (no duplicate-record 409)", r.status === 200 && new URL(r.body.checkoutUrl).searchParams.get("token") === gcOrder, { s: r.status, b: r.body });
 r = await call("POST", "/gift-cards/check", { code: (await GiftCard.findById(bought.id)).code });
 check("unpaid card cannot be redeemed", r.body.valid === false && r.body.reason === "not_active", r.body);
 r = await call("POST", `/gift-cards/${bought.id}/paypal/capture`, { orderId: gcOrder }, ben.token);
@@ -300,6 +308,15 @@ r = await call("GET", "/admin/gift-cards", null, fin.token);
 check("customer cannot open admin gift cards (403)", r.status === 403, r.status);
 
 const { failures, passes } = summary();
+// Cancel the gift-card-only booking: balance back on the card, payment "refunded" – never stuck on "refund pending" (QA open issue 3)
+const balanceBeforeCancel = (await GiftCard.findById(card100._id)).balanceCents;
+r = await call("POST", `/customer/bookings/${fullGiftBookingId}/cancel`, {}, dora.token);
+const giftCancelled = await Booking.findById(fullGiftBookingId);
+const cardAfter = await GiftCard.findById(card100._id);
+check("cancel gift-card-only booking → payment refunded (not refund_pending), €67.50 back on the card",
+  r.status === 200 && giftCancelled.status === "cancelled" && giftCancelled.payment.status === "refunded" && !!giftCancelled.payment.refundedAt && cardAfter.balanceCents === balanceBeforeCancel + 6750 && r.body.refunded === true,
+  { s: r.status, p: giftCancelled?.payment?.status, bal: cardAfter.balanceCents, before: balanceBeforeCancel, body: r.body });
+
 console.log(`\n${failures === 0 ? "ALL PASSED" : failures + " FAILED"} (${passes} passed)`);
 await User.db.dropDatabase();
 server.close();

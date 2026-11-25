@@ -215,7 +215,13 @@ export const createManualBooking = async (req, res, next) => {
       const payable = quote.lines.payableCents;
 
       const booking = await reserveAndCreate(
-        { slotId: data.slotId, date: preferredDate, startTime: data.startTime, durationMinutes: estimate.durationMinutes },
+        {
+          slotId: data.slotId,
+          date: preferredDate,
+          startTime: data.startTime,
+          durationMinutes: estimate.durationMinutes,
+          job: { serviceId: data.serviceId, extras: estimate.extras.map((e) => e.id), postcode: details.postcode, pets: data.pets, customer: customer._id },
+        },
         async (slot, { startTime, endTime }) => {
           const doc = new Booking({
             _id: bookingId,

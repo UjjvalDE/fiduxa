@@ -16,11 +16,16 @@ import { pricingSnapshot, vatContained } from "./quote.service.js";
 import { getSlotsForDate, reserveAndCreate } from "./availability.service.js";
 import { cancelBooking, confirmBooking } from "./booking-lifecycle.service.js";
 import { createCheckoutForBooking, isOnlinePaymentAvailable, pickMethod } from "./payment.service.js";
-import { offerJob } from "./job-dispatch.service.js";
+import { findWorkerConflict, offerJob } from "./job-dispatch.service.js";
+import User from "../models/user.model.js";
+import { jobMismatch } from "./worker-profile.service.js";
+import { eligibilityProblem } from "./work-eligibility.service.js";
+import { isPaused } from "./reliability.service.js";
 import { sendAdminNotificationEmail, sendSeriesPaymentEmail, trySend } from "./email.service.js";
 import { generateBookingReference } from "../utils/booking-reference.js";
 import { DAY_MS, formatGermanDate, httpError, parseCalendarDate, slotStartInstant, slotStartTime, todayInBerlin } from "../utils/helpers.js";
 import { withLock } from "../utils/lock.js";
+import { isAutoMode } from "./assignment-mode.js";
 
 export const INTERVAL_DAYS = { weekly: 7, biweekly: 14, monthly: 28 };
 
@@ -133,6 +138,15 @@ export const occurrenceQuote = (template) => {
   };
 };
 
+/** Preferred cleaner is active, eligible, not on holiday and has no overlapping job then */
+const preferredWorkerCanTake = async (workerId, probe) => {
+  const worker = await User.findOne({ _id: workerId, role: "worker", workerStatus: "approved", isActive: true })
+    .select("role availability holidays reliability.pausedAt reliability.pausedUntil documents workEligibility nationality workerProfile.petsOk")
+    .lean();
+  if (!worker || isPaused(worker) || jobMismatch(worker, probe) || eligibilityProblem(worker, probe.preferredDate)) return false;
+  return !(await findWorkerConflict(workerId, probe));
+};
+
 const noteProblem = async (series, date, reason, message = "") => {
   const previous = series.lastProblem;
   const same = previous && previous.reason === reason && previous.date && previous.date.getTime() === date.getTime();
@@ -170,7 +184,8 @@ const createOccurrence = async (series, date, now) => {
   if (duplicate) return { booking: null, advance: true };
 
   // The window of that day whose start matches the plan's start time
-  const options = await getSlotsForDate(date, t.durationMinutes);
+  const job = { serviceId: t.serviceId, extras: [...(t.extras ?? [])].sort(), postcode: t.customerDetails?.postcode ?? null, pets: Boolean(t.pets) };
+  const options = await getSlotsForDate(date, t.durationMinutes, job);
   const option = options.find((o) => o.startTime === t.startTime);
   if (!option) {
     const hasWindow = await AvailabilitySlot.exists({ date, active: true, capacity: { $gt: 0 } });
@@ -190,10 +205,19 @@ const createOccurrence = async (series, date, now) => {
   const online = t.paymentMethod === "online" && isOnlinePaymentAvailable() && payable >= 50;
   const method = t.paymentMethod === "cash" ? "cash" : online ? pickMethod() ?? "invoice" : "invoice";
   const reference = await generateBookingReference();
-  const priority = series.preferredWorker && RECURRING.priorityHours > 0;
+  // Priority window only when the preferred cleaner can actually take the job –
+  // otherwise nobody may accept it for priorityHours (a cleaner never gets two
+  // overlapping jobs, see job-dispatch.service.js).
+  // Auto mode: no priority window – the plan's cleaner is preferred by the
+  // automatic assignment after confirmation (auto-assign.service.js)
+  const priority =
+    !isAutoMode() &&
+    series.preferredWorker &&
+    RECURRING.priorityHours > 0 &&
+    (await preferredWorkerCanTake(series.preferredWorker, { _id: null, preferredDate: date, slot: t.startTime, pets: t.pets, estimate: { durationMinutes: estimate.durationMinutes } }));
 
   const booking = await reserveAndCreate(
-    { slotId: option.windowId, date, startTime: t.startTime, durationMinutes: estimate.durationMinutes },
+    { slotId: option.windowId, date, startTime: t.startTime, durationMinutes: estimate.durationMinutes, job: { ...job, customer: series.customer, series: series._id } },
     async (slot, { startTime, endTime }) => {
       const doc = new Booking({
         reference,
@@ -305,8 +329,8 @@ export const generateDueOccurrences = async ({ now = new Date() } = {}) => {
     }
   }
 
-  // Priority window over → the job goes to the whole board (email once)
-  const released = await Booking.find({
+  // Priority window over → the job goes to the whole board (email once; board mode only)
+  const released = isAutoMode() ? [] : await Booking.find({
     status: "confirmed",
     assignedWorker: null,
     "jobOffer.priorityUntil": { $ne: null, $lte: now },

@@ -47,7 +47,10 @@ export const cancellationPreview = (booking, { now = new Date(), noAccess = fals
   // could not get access – the late fee applies.
   let tier = "free";
   let feePct = 0;
-  if (FEE_STATUSES.includes(booking.status) && (noAccess || now.getTime() > freeUntil.getTime())) {
+  // No cleaner could be found (auto assignment) → the problem is on our side: always free
+  const noCleaner = booking.assignment?.state === "needs_attention" && !booking.assignedWorker;
+  if (noCleaner) tier = "free_no_cleaner";
+  else if (FEE_STATUSES.includes(booking.status) && (noAccess || now.getTime() > freeUntil.getTime())) {
     tier = "late";
     feePct = c.lateFeePct;
   }

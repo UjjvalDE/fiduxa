@@ -16,6 +16,7 @@ import {
   markOnTheWay,
   releaseJob,
   reportJobIssue,
+  reportEmergency,
   requestMyExtraTime,
   startMyJob,
 } from "../controllers/worker-job.controller.js";
@@ -40,6 +41,7 @@ workerJobRouter.get("/:id", getMyJob);
 workerJobRouter.post("/:id/accept", acceptJob);
 workerJobRouter.post("/:id/decline", declineJob);
 workerJobRouter.post("/:id/release", releaseJob);
+workerJobRouter.post("/:id/emergency", reportEmergency);
 workerJobRouter.post("/:id/on-the-way", markOnTheWay);
 workerJobRouter.post("/:id/start", startMyJob);
 workerJobRouter.post("/:id/complete", completeMyJob);

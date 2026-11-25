@@ -36,8 +36,8 @@ export const recordCashPayment = async (booking, { amountCents, actorId, byWorke
 
   // Paid → invoice (once) and "your invoice" mail with the PDF
   try {
-    const { invoice, pdf, created } = await issueInvoiceForBooking(booking);
-    if (created) await trySend("Invoice", () => sendInvoiceEmail({ booking, invoice, pdf }));
+    const { invoice, pdf, storageKey, created } = await issueInvoiceForBooking(booking);
+    if (created) await trySend("Invoice", () => sendInvoiceEmail({ booking, invoice, pdf, storageKey }));
   } catch (error) {
     console.error(`Invoice creation failed for ${booking.reference}:`, error.message);
   }

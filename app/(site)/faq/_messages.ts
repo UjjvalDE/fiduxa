@@ -60,6 +60,13 @@ const de = {
       answer: `Im Buchungskalender siehst du alle freien Termine, die wir veröffentlicht haben – ab morgen und bis zu ${v.daysAhead} Tage im Voraus. Ausgebuchte Termine kannst du nicht auswählen.`,
     },
     {
+      id: 'reinigungskraft-auswahl',
+      category: 'Buchung',
+      question: 'Wie wird meine Reinigungskraft ausgewählt?',
+      answer:
+        'Automatisch, direkt nach der Zahlung: Wir wählen die passendste freie Reinigungskraft – nach Verfügbarkeit (Wochenplan und freie Tage), Entfernung bzw. Bezirk, Leistungen und Extras, die sie anbietet, Bewertungen, Zuverlässigkeit, deiner bisherigen bzw. Putzplan-Reinigungskraft und einer fairen Auslastung. Du siehst sie sofort in deinem Konto. Angezeigt werden dir nur Termine, an denen eine passende Reinigungskraft frei ist. Kann sie kurzfristig nicht, teilen wir automatisch Ersatz zu und informieren dich. Ist ausnahmsweise niemand frei, wählst du einen neuen Termin, wartest – oder stornierst kostenlos mit voller Erstattung.',
+    },
+    {
       id: 'reservierung',
       category: 'Buchung',
       question: 'Was passiert, wenn ich gebucht, aber noch nicht bezahlt habe?',
@@ -221,6 +228,13 @@ const en: Messages = {
       category: 'Booking',
       question: 'Which slots can I book?',
       answer: `The booking calendar shows all free slots we have published – from tomorrow and up to ${v.daysAhead} days in advance. Fully booked slots cannot be selected.`,
+    },
+    {
+      id: 'reinigungskraft-auswahl',
+      category: 'Booking',
+      question: 'How is my cleaner chosen?',
+      answer:
+        'Automatically, right after payment: we choose the best-matching available cleaner – based on availability (weekly plan and days off), distance or district, the services and extras they offer, ratings, reliability, your previous or cleaning-plan cleaner and a fair workload. You see them in your account right away. You are only shown times when a suitable cleaner is free. If they cannot make it at short notice, we assign a replacement automatically and let you know. If exceptionally nobody is free, you choose a new time, keep waiting – or cancel free of charge with a full refund.',
     },
     {
       id: 'reservierung',
@@ -389,6 +403,13 @@ const pl: Messages = {
       category: 'Rezerwacja',
       question: 'Jakie terminy mogę zarezerwować?',
       answer: `W kalendarzu rezerwacji widzisz wszystkie opublikowane przez nas wolne terminy – od jutra i do ${v.daysAhead} dni naprzód. Terminów w pełni zarezerwowanych nie można wybrać.`,
+    },
+    {
+      id: 'reinigungskraft-auswahl',
+      category: 'Rezerwacja',
+      question: 'Jak wybierana jest osoba sprzątająca?',
+      answer:
+        'Automatycznie, zaraz po płatności: wybieramy najlepiej dopasowaną wolną osobę – według dostępności (plan tygodnia i dni wolne), odległości lub dzielnicy, oferowanych usług i dodatków, ocen, rzetelności, Twojej dotychczasowej osoby lub osoby z planu sprzątania oraz równomiernego obciążenia. Widzisz ją od razu na swoim koncie. Pokazujemy tylko terminy, w których odpowiednia osoba jest wolna. Jeśli nie może przyjść, automatycznie przydzielamy zastępstwo i informujemy Cię. Jeśli wyjątkowo nikt nie jest wolny, wybierasz nowy termin, czekasz – albo anulujesz bezpłatnie z pełnym zwrotem.',
     },
     {
       id: 'reservierung',

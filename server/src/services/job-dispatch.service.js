@@ -14,8 +14,29 @@ import {
 import { jobMismatch } from "./worker-profile.service.js";
 import { eligibilityProblem } from "./work-eligibility.service.js";
 import { isPaused } from "./reliability.service.js";
+import { withLock } from "../utils/lock.js";
+import { httpError } from "../utils/helpers.js";
 
-const BUSY_STATUSES = ["confirmed", "in_progress", "accepted"];
+// payment_pending counts too: a recurring occurrence waiting for its pay link
+// already belongs to the preferred cleaner's schedule.
+export const BUSY_STATUSES = ["payment_pending", "confirmed", "in_progress", "accepted"];
+
+/** Error code for "this cleaner already has an overlapping job" (409) */
+export const WORKER_CONFLICT_CODE = "WORKER_SCHEDULE_CONFLICT";
+
+/**
+ * Serialise every change to ONE cleaner's schedule (accept, admin assign,
+ * reschedule, extra time, recurring assignment) with a MongoDB lock, so the
+ * "no overlapping jobs" check and the write are atomic across processes.
+ */
+export const withWorkerSchedule = (workerId, fn) => withLock(`worker-schedule:${workerId}`, fn);
+
+/** 409 with code WORKER_SCHEDULE_CONFLICT */
+export const workerConflictError = (conflict, message) =>
+  Object.assign(httpError(409, message ?? `The cleaner already has job ${conflict?.reference ?? ""} at that time (incl. ${OPERATIONS.travelBufferMinutes} min travel buffer).`), {
+    code: WORKER_CONFLICT_CODE,
+    conflictReference: conflict?.reference,
+  });
 
 /** [start, end) of a booking in real time (slot start + booked duration) */
 export const jobTimeRange = (booking) => {
@@ -31,10 +52,12 @@ const overlaps = (a, b, bufferMs) =>
  * Another job of this cleaner that overlaps (incl. travel buffer), or null.
  */
 export const findWorkerConflict = async (workerId, booking) => {
+  // Neighbouring days too: a late job can run into the next day's early one
+  const day = new Date(booking.preferredDate).getTime();
   const sameDay = await Booking.find({
     _id: { $ne: booking._id },
     assignedWorker: workerId,
-    preferredDate: booking.preferredDate,
+    preferredDate: { $gte: new Date(day - DAY_MS), $lte: new Date(day + DAY_MS) },
     status: { $in: BUSY_STATUSES },
   }).select("reference preferredDate slot estimate.durationMinutes");
 
@@ -62,6 +85,21 @@ export const loadBusyRanges = async (workerIds, dates) => {
     map.get(key).push({ ...jobTimeRange(row), reference: row.reference, id: String(row._id) });
   }
   return map;
+};
+
+/**
+ * Save a booking whose time range may have changed (reschedule, duration
+ * edit, extra time) – atomically re-checks the assigned cleaner's schedule
+ * under the schedule lock. Throws 409 WORKER_SCHEDULE_CONFLICT on overlap.
+ */
+export const saveScheduleChange = async (booking) => {
+  const timeChanged = ["preferredDate", "slot", "slotEnd", "estimate"].some((path) => booking.isModified(path));
+  if (!booking.assignedWorker || !timeChanged || !BUSY_STATUSES.includes(booking.status)) return booking.save();
+  return withWorkerSchedule(booking.assignedWorker, async () => {
+    const conflict = await findWorkerConflict(booking.assignedWorker, booking);
+    if (conflict) throw workerConflictError(conflict);
+    return booking.save();
+  });
 };
 
 /** In-memory version of findWorkerConflict using loadBusyRanges() output */

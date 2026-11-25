@@ -2,6 +2,7 @@
 import Booking from "../models/booking.model.js";
 import Review from "../models/review.model.js";
 import { slotStartInstant, slotStartTime } from "../utils/helpers.js";
+import { isAutoMode } from "./assignment-mode.js";
 
 const toMinutes = (hhmm) => {
   const [h, m] = String(hhmm || "0:0").split(":").map(Number);
@@ -20,14 +21,60 @@ export const holidayOn = (worker, date) => {
   return (worker.holidays ?? []).find((h) => new Date(h.from).getTime() <= t && t <= new Date(h.to).getTime()) ?? null;
 };
 
-/** true if the job lies within the cleaner's weekly hours (no hours set = always) */
+// ---------------------------------------------------------------------------
+// Availability pattern (round 3)
+//   weekly windows { weekday, start, end, weeks: "all" | "A" | "B" }
+//   – "A"/"B" = every second week. Week A/B is counted from Monday
+//     2024-01-01 (week A), so it never jumps at a year boundary.
+//   date overrides { date, kind: "off" | "extra", start, end } – the monthly
+//   calendar: a day off, or extra hours on a single day.
+// In "auto" mode a cleaner WITHOUT a weekly pattern counts as not available.
+// In the legacy "board" mode an empty pattern still means "always".
+// ---------------------------------------------------------------------------
+const WEEK_ANCHOR = Date.UTC(2024, 0, 1); // a Monday → week A
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** "A" or "B" for the calendar week of `date` */
+export const weekParity = (date) => {
+  const day = new Date(date);
+  const utc = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate());
+  const weeks = Math.floor((utc - WEEK_ANCHOR) / WEEK_MS);
+  return ((weeks % 2) + 2) % 2 === 0 ? "A" : "B";
+};
+
+const sameDay = (a, b) => new Date(a).toISOString().slice(0, 10) === new Date(b).toISOString().slice(0, 10);
+
+/** The cleaner's date override for that day, or null */
+export const overrideOn = (worker, date) => (worker.availabilityOverrides ?? []).find((o) => sameDay(o.date, date)) ?? null;
+
+export const hasWeeklyPattern = (worker) => (worker.availability ?? []).length > 0;
+
+const patternRequired = () => isAutoMode();
+
+/**
+ * Working windows of a cleaner on a calendar day as [{ start, end }] in
+ * minutes (Berlin). Holidays and "off" overrides → []. Without a weekly
+ * pattern: [] in auto mode, the whole day in board mode.
+ */
+export const dayWindows = (worker, date) => {
+  if (holidayOn(worker, date)) return [];
+  const override = overrideOn(worker, date);
+  if (override?.kind === "off") return [];
+  const extra = override?.kind === "extra" && override.start && override.end ? [{ start: toMinutes(override.start), end: toMinutes(override.end) }] : [];
+  if (!hasWeeklyPattern(worker)) return patternRequired() ? extra : [{ start: 0, end: 24 * 60 }];
+  const weekday = isoWeekday(date);
+  const parity = weekParity(date);
+  const weekly = (worker.availability ?? [])
+    .filter((w) => w.weekday === weekday && (!w.weeks || w.weeks === "all" || w.weeks === parity))
+    .map((w) => ({ start: toMinutes(w.start), end: toMinutes(w.end) }));
+  return [...weekly, ...extra];
+};
+
+/** true if the job lies within the cleaner's working windows of that day */
 export const withinWeeklyHours = (worker, booking) => {
-  const windows = worker.availability ?? [];
-  if (windows.length === 0) return true;
-  const weekday = isoWeekday(booking.preferredDate);
   const start = toMinutes(slotStartTime(booking.slot));
   const end = start + (booking.estimate?.durationMinutes ?? 120);
-  return windows.some((w) => w.weekday === weekday && toMinutes(w.start) <= start && end <= toMinutes(w.end));
+  return dayWindows(worker, booking.preferredDate).some((w) => w.start <= start && end <= w.end);
 };
 
 /**
@@ -36,15 +83,19 @@ export const withinWeeklyHours = (worker, booking) => {
  */
 export const jobMismatch = (worker, booking, { strictHours = true } = {}) => {
   if (holidayOn(worker, booking.preferredDate)) return "holiday";
+  if (overrideOn(worker, booking.preferredDate)?.kind === "off") return "day_off";
   if (booking.pets && !worker.workerProfile?.petsOk) return "pets";
+  if (strictHours && patternRequired() && !hasWeeklyPattern(worker)) return "no_pattern";
   if (strictHours && !withinWeeklyHours(worker, booking)) return "hours";
   return null;
 };
 
 export const MISMATCH_MESSAGES = {
   holiday: "You are on holiday on that day.",
+  day_off: "You marked this day as not available.",
   pets: "There are pets in this home and your profile says you do not work with pets.",
   hours: "This job is outside your working hours.",
+  no_pattern: "Please set your weekly availability first.",
 };
 
 const round1 = (n) => Math.round(n * 10) / 10;

@@ -19,7 +19,9 @@ import {
   getEarnings,
   getWorkerOverview,
   saveWorkerProfile,
+  getAvailability,
   setAvailability,
+  setMatchingProfile,
   uploadAvatar,
 } from "../controllers/worker-profile.controller.js";
 
@@ -42,7 +44,9 @@ workerOnboardingRouter.put("/bank-details", workerOnly, saveWorkerBankDetails);
 workerOnboardingRouter.put("/payout-method", workerOnly, saveWorkerPayoutMethod);
 workerOnboardingRouter.put("/avatar", workerOnly, uploadAvatar);
 workerOnboardingRouter.delete("/avatar", workerOnly, deleteAvatar);
+workerOnboardingRouter.get("/availability", workerOnly, getAvailability);
 workerOnboardingRouter.put("/availability", workerOnly, setAvailability);
+workerOnboardingRouter.put("/matching-profile", workerOnly, setMatchingProfile);
 workerOnboardingRouter.post("/holidays", workerOnly, addHoliday);
 workerOnboardingRouter.delete("/holidays/:holidayId", workerOnly, deleteHoliday);
 // Verification documents + reliability rules (package E)

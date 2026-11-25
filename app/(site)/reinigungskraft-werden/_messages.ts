@@ -81,20 +81,20 @@ const de = {
   page: {
     metaTitle: 'Reinigungskraft werden in Berlin',
     metaDescription:
-      'Arbeite als Reinigungskraft mit Fiduxa in Berlin: Aufträge selbst auswählen, Wochenstunden selbst festlegen, Auszahlung per Überweisung oder PayPal. Jetzt in wenigen Minuten bewerben.',
+      'Arbeite als Reinigungskraft mit Fiduxa in Berlin: Verfügbarkeit selbst festlegen, passende Aufträge automatisch bekommen, Auszahlung per Überweisung oder PayPal. Jetzt in wenigen Minuten bewerben.',
     eyebrow: 'Reinigungskraft werden',
     titleBefore: 'Putzen, wann es',
     titleEm: 'zu dir passt.',
     lead:
-      'Fiduxa bringt Berliner Haushalte mit zuverlässigen Reinigungskräften zusammen. Du entscheidest, welche Aufträge du übernimmst und wie viel du arbeitest – wir kümmern uns um Kundschaft, Buchung und Bezahlung.',
+      'Fiduxa bringt Berliner Haushalte mit zuverlässigen Reinigungskräften zusammen. Du legst fest, wann, wo und wie viel du arbeitest – wir kümmern uns um Kundschaft, Buchung und Bezahlung.',
     ctaApply: 'Zur Bewerbung',
     benefitsHeading: 'Darum mit Fiduxa',
     shareTitle: (min: number, max: number) => `${min}–${max} % vom Auftragspreis`,
     shareText:
       'Dein Anteil am Preis jedes Auftrags. Er steigt mit deiner Erfahrung auf der Plattform und mit guten Bewertungen.',
-    jobsTitle: 'Aufträge selbst auswählen',
+    jobsTitle: 'Aufträge passend zu deiner Verfügbarkeit',
     jobsText:
-      'Auf der offenen Auftragsbörse siehst du verfügbare Reinigungen und nimmst nur die an, die zu dir passen. Deine Wochenstunden legst du selbst fest.',
+      'Du pflegst Wochenplan, freie Tage, Bezirk bzw. Anfahrtsradius, Leistungen und maximale Auslastung. Passende Aufträge teilen wir dir automatisch zu – ohne Annehmen, mit E-Mail und Eintrag im Portal.',
     payoutTitle: 'Auszahlung per Überweisung oder PayPal',
     payoutText: 'Du wählst, wie du dein Geld bekommst – per Banküberweisung oder über PayPal.',
     stepsHeading: 'So geht es weiter',
@@ -182,19 +182,19 @@ const en: ApplicationMessages = {
   page: {
     metaTitle: 'Become a cleaner in Berlin',
     metaDescription:
-      'Work as a cleaner with Fiduxa in Berlin: pick your own jobs, set your own weekly hours, get paid by bank transfer or PayPal. Apply in just a few minutes.',
+      'Work as a cleaner with Fiduxa in Berlin: set your own availability and get matching jobs automatically, get paid by bank transfer or PayPal. Apply in just a few minutes.',
     eyebrow: 'Work with Fiduxa',
     titleBefore: 'Clean on a schedule',
     titleEm: 'that suits you.',
     lead:
-      'Fiduxa connects Berlin households with reliable cleaners. You decide which jobs you take and how much you work – we take care of customers, bookings and payment.',
+      'Fiduxa connects Berlin households with reliable cleaners. You decide when, where and how much you work – we take care of customers, bookings and payment.',
     ctaApply: 'Go to the application',
     benefitsHeading: 'Why Fiduxa',
     shareTitle: (min, max) => `${min}–${max} % of the job price`,
     shareText: 'Your share of the price of every job. It rises with your experience on the platform and with good ratings.',
-    jobsTitle: 'Pick your own jobs',
+    jobsTitle: 'Jobs that fit your availability',
     jobsText:
-      'The open job board shows available cleanings and you only accept the ones that suit you. You set your weekly working hours yourself.',
+      'You maintain your weekly plan, days off, area or travel radius, services and maximum workload. We assign matching jobs to you automatically – no accepting needed, with an e-mail and an entry in the portal.',
     payoutTitle: 'Payout by bank transfer or PayPal',
     payoutText: 'You choose how you get your money – by bank transfer or via PayPal.',
     stepsHeading: 'What happens next',
@@ -336,19 +336,19 @@ const pl: ApplicationMessages = {
   page: {
     metaTitle: 'Praca przy sprzątaniu w Berlinie',
     metaDescription:
-      'Pracuj jako osoba sprzątająca z Fiduxa w Berlinie: sam(a) wybierasz zlecenia, sam(a) ustalasz godziny tygodniowo, wypłata przelewem lub przez PayPal. Aplikuj w kilka minut.',
+      'Pracuj jako osoba sprzątająca z Fiduxa w Berlinie: sam(a) ustalasz dostępność, a pasujące zlecenia dostajesz automatycznie, wypłata przelewem lub przez PayPal. Aplikuj w kilka minut.',
     eyebrow: 'Pracuj z Fiduxa',
     titleBefore: 'Sprzątaj wtedy,',
     titleEm: 'kiedy Ci pasuje.',
     lead:
-      'Fiduxa łączy berlińskie gospodarstwa domowe z rzetelnymi osobami sprzątającymi. Ty decydujesz, które zlecenia przyjmujesz i ile pracujesz – my zajmujemy się klientami, rezerwacjami i płatnościami.',
+      'Fiduxa łączy berlińskie gospodarstwa domowe z rzetelnymi osobami sprzątającymi. Ty decydujesz, kiedy, gdzie i ile pracujesz – my zajmujemy się klientami, rezerwacjami i płatnościami.',
     ctaApply: 'Przejdź do aplikacji',
     benefitsHeading: 'Dlaczego Fiduxa',
     shareTitle: (min, max) => `${min}–${max} % ceny zlecenia`,
     shareText: 'Twój udział w cenie każdego zlecenia. Rośnie wraz z Twoim doświadczeniem na platformie i dobrymi ocenami.',
-    jobsTitle: 'Sam(a) wybierasz zlecenia',
+    jobsTitle: 'Zlecenia dopasowane do Twojej dostępności',
     jobsText:
-      'Na otwartej giełdzie zleceń widzisz dostępne sprzątania i przyjmujesz tylko te, które Ci odpowiadają. Liczbę godzin tygodniowo ustalasz sam(a).',
+      'Ustalasz plan tygodnia, dni wolne, dzielnicę lub promień dojazdu, usługi i maksymalne obciążenie. Pasujące zlecenia przydzielamy Ci automatycznie – bez akceptowania, z e-mailem i wpisem w portalu.',
     payoutTitle: 'Wypłata przelewem lub przez PayPal',
     payoutText: 'Wybierasz, jak otrzymujesz pieniądze – przelewem bankowym lub przez PayPal.',
     stepsHeading: 'Co dalej',

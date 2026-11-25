@@ -14,7 +14,19 @@ import { useFormat, useMessages } from '@/lib/i18n/client';
 import type { Holiday, WeeklyWindow, WorkerOverview } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ErrorState } from '@/app/admin/_components/states';
-import { useErrorText } from '@/app/admin/_components/use-api';
+import { useApi, useErrorText } from '@/app/admin/_components/use-api';
+
+import autoMessages from '../_auto-messages';
+import {
+  type AutoWeekly,
+  type AvailabilityResponse,
+  type AvailabilitySettings,
+  type WeekKey,
+  MatchingCard,
+  OverridesCalendar,
+  WorkloadCard,
+  isAutoMode,
+} from '../_components/auto-assign';
 
 import portalMessages from '../_portal-messages';
 import { berlinToday } from '../_components/job-flow';
@@ -24,14 +36,14 @@ import { canEditProfile, useWorkerOverview } from '../_components/worker-context
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
 const DEFAULT_RANGE = { start: '08:00', end: '16:00' };
 
-type Range = { start: string; end: string };
+type Range = { start: string; end: string; weeks?: WeekKey };
 type DayState = { on: boolean; ranges: Range[] };
 type Week = Record<number, DayState>;
 
 const toWeek = (windows: WeeklyWindow[]): Week => {
   const week: Week = {};
   WEEKDAYS.forEach((d) => {
-    const ranges = windows.filter((w) => w.weekday === d).map((w) => ({ start: w.start, end: w.end }));
+    const ranges = windows.filter((w) => w.weekday === d).map((w) => ({ start: w.start, end: w.end, weeks: (w as AutoWeekly).weeks ?? 'all' }));
     week[d] = { on: ranges.length > 0, ranges: ranges.length ? ranges : [{ ...DEFAULT_RANGE }] };
   });
   return week;
@@ -44,11 +56,13 @@ const dayCount = (from: string, to: string) =>
 // Weekly hours
 // ---------------------------------------------------------------------------
 
-function HoursEditor({ data, editable }: { data: WorkerOverview; editable: boolean }) {
+function HoursEditor({ data, editable, currentWeek }: { data: WorkerOverview; editable: boolean; currentWeek?: 'A' | 'B' }) {
   const t = useMessages(portalMessages).availability;
+  const at = useMessages(autoMessages);
+  const auto = isAutoMode(data);
   const errorText = useErrorText();
   const { setData } = useWorkerOverview();
-  const [mode, setMode] = useState<'flexible' | 'fixed'>(data.worker.availability.length ? 'fixed' : 'flexible');
+  const [mode, setMode] = useState<'flexible' | 'fixed'>(data.worker.availability.length || isAutoMode(data) ? 'fixed' : 'flexible');
   const [week, setWeek] = useState<Week>(() => toWeek(data.worker.availability));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,20 +77,20 @@ function HoursEditor({ data, editable }: { data: WorkerOverview; editable: boole
   const save = async () => {
     setError(null);
     const errs: Record<number, string> = {};
-    const weekly: WeeklyWindow[] = [];
+    const weekly: AutoWeekly[] = [];
     if (mode === 'fixed') {
       WEEKDAYS.forEach((d) => {
         const day = week[d];
         if (!day.on) return;
         const sorted = [...day.ranges].sort((a, b) => a.start.localeCompare(b.start));
         if (sorted.some((r) => !r.start || !r.end || r.start >= r.end)) errs[d] = t.errRange;
-        else if (sorted.some((r, i) => i > 0 && r.start < sorted[i - 1].end)) errs[d] = t.errOverlap;
-        sorted.forEach((r) => weekly.push({ weekday: d, start: r.start, end: r.end }));
+        else if (sorted.some((r, i) => i > 0 && r.start < sorted[i - 1].end && (r.weeks ?? 'all') === (sorted[i - 1].weeks ?? 'all'))) errs[d] = t.errOverlap;
+        sorted.forEach((r) => weekly.push({ weekday: d, start: r.start, end: r.end, weeks: r.weeks ?? 'all' }));
       });
       setDayErrors(errs);
       if (Object.keys(errs).length) return;
       if (weekly.length === 0) return setError(t.errNoDay);
-      if (weekly.length > 21) return setError(t.errTooMany);
+      if (weekly.length > 42) return setError(t.errTooMany);
     } else {
       setDayErrors({});
     }
@@ -84,7 +98,7 @@ function HoursEditor({ data, editable }: { data: WorkerOverview; editable: boole
     setPending(true);
     try {
       const res = await api.put<{ availability: WeeklyWindow[] }>('/worker/availability', { weekly });
-      setData((prev) => (prev ? { ...prev, worker: { ...prev.worker, availability: res.availability } } : prev));
+      setData((prev) => (prev ? { ...prev, availabilityPrompt: null, worker: { ...prev.worker, availability: res.availability } } as WorkerOverview : prev));
       toast.success(t.hoursSaved);
     } catch (err) {
       setError(errorText(err));
@@ -95,7 +109,8 @@ function HoursEditor({ data, editable }: { data: WorkerOverview; editable: boole
 
   return (
     <PortalCard title={t.hoursTitle}>
-      <fieldset>
+      {auto && currentWeek && <p className="mb-3 text-sm text-muted-grey">{at.currentWeek(currentWeek)}</p>}
+      <fieldset hidden={auto}>
         <legend className="mb-2 text-sm font-medium text-charcoal">{t.modeLegend}</legend>
         <div className="grid gap-2 sm:grid-cols-2">
           {(['flexible', 'fixed'] as const).map((m) => (
@@ -180,6 +195,24 @@ function HoursEditor({ data, editable }: { data: WorkerOverview; editable: boole
                             className="h-11 w-[8.5rem] text-base"
                           />
                         </div>
+                        <div className="space-y-1">
+                          <Label htmlFor={`${switchId}-${i}-weeks`} className="text-xs text-muted-grey">
+                            {at.weeksLabel}
+                          </Label>
+                          <select
+                            id={`${switchId}-${i}-weeks`}
+                            value={r.weeks ?? 'all'}
+                            onChange={(e) => updateRange(d, i, { weeks: e.target.value as WeekKey })}
+                            disabled={disabled}
+                            className="h-11 rounded-md border border-input bg-white px-2 text-base"
+                          >
+                            {(['all', 'A', 'B'] as const).map((w) => (
+                              <option key={w} value={w}>
+                                {at.weeks[w]}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                         {day.ranges.length > 1 && (
                           <Button
                             type="button"
@@ -199,7 +232,7 @@ function HoursEditor({ data, editable }: { data: WorkerOverview; editable: boole
                         {dayErrors[d]}
                       </p>
                     )}
-                    {day.ranges.length < 3 && (
+                    {day.ranges.length < 6 && (
                       <Button
                         type="button"
                         variant="ghost"
@@ -399,10 +432,15 @@ function Holidays({ holidays, editable }: { holidays: Holiday[]; editable: boole
 
 function AvailabilityPage() {
   const { availability: t, common } = useMessages(portalMessages);
+  const at = useMessages(autoMessages);
   const { data, error, reload } = useWorkerOverview();
+  const extra = useApi<AvailabilityResponse>(data ? '/worker/availability' : null);
   if (error && !data) return <ErrorState message={error} onRetry={reload} />;
   if (!data) return <PageSkeleton label={common.loading} />;
   const editable = canEditProfile(data);
+  const auto = isAutoMode(data);
+  const rules = auto ? at.autoRules : t.rules;
+  const setSettings = (settings: AvailabilitySettings) => extra.setData((prev) => (prev ? { ...prev, settings } : prev));
 
   return (
     <div className="space-y-5">
@@ -415,14 +453,28 @@ function AvailabilityPage() {
           {t.rulesTitle}
         </h2>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-          {t.rules.map((rule) => (
+          {rules.map((rule) => (
             <li key={rule}>{rule}</li>
           ))}
         </ul>
       </section>
 
-      <HoursEditor data={data} editable={editable} />
+      <HoursEditor data={data} editable={editable} currentWeek={extra.data?.settings.currentWeek} />
+      {extra.data && <OverridesCalendar settings={extra.data.settings} editable={editable} onSaved={setSettings} />}
       <Holidays holidays={data.worker.holidays} editable={editable} />
+      {extra.data && (
+        <>
+          <WorkloadCard settings={extra.data.settings} editable={editable} onSaved={setSettings} />
+          <MatchingCard
+            matching={extra.data.matching}
+            editable={editable}
+            onSaved={(matching) => {
+              extra.setData((prev) => (prev ? { ...prev, matching } : prev));
+              reload();
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

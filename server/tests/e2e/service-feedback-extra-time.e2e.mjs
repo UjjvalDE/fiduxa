@@ -3,7 +3,7 @@
 // extra-time requests (approve → duration/price/pay link/cleaner pay,
 // decline, expiry) and the PayPal-only payment-method policy.
 // PayPal is a local mock; no real payments, separate test DB.
-import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 
 prepareEnv("fiduxa_e2e_feedback_extratime");
 const paypal = await startPayPalMock();
@@ -37,8 +37,8 @@ const day = (n) => new Date(todayInBerlin().getTime() + n * DAY_MS).toISOString(
 const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 await User.create({
-  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-  workerProfile: { address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
+  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+  workerProfile: { ...BERLIN_WIDE, address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
 });
 const login = async (email) => (await call("POST", "/auth/login", { email, password: "Password12345" })).body.token;
 const adminT = await login("admin@t.local");
@@ -157,6 +157,13 @@ b = await Booking.findById(jobA);
 check("completion response asks the cleaner app for feedback", r.status === 200 && r.body.feedbackPending === true, r.body);
 check("cleaner pay based on the raised price", b.workerPayout.grossCents === b.pricing.totalCents && b.workerPayout.amountCents > 0, b.workerPayout);
 check("completed paid booking has an invoice", Boolean(b.invoice?.number), b.invoice);
+check("approved extra time raises the invoice labour line (hours × rate = line amount)",
+  b.estimate.labourCents === Math.round((b.estimate.durationMinutes / 60) * b.estimate.hourlyRateCents),
+  { est: b.estimate.labourCents, minutes: b.estimate.durationMinutes, rate: b.estimate.hourlyRateCents });
+r = await call("GET", `/customer/bookings/${jobA}`, null, custT);
+check("customer booking detail hides the cleaner's pay / commission", r.status === 200 && !("workerPayout" in r.body.booking), r.body.booking?.workerPayout);
+r = await call("GET", "/bookings/my-bookings", null, custT);
+check("customer booking list hides the cleaner's pay / commission", r.body.bookings?.length > 0 && r.body.bookings.every((x) => !("workerPayout" in x)), r.body.bookings?.map((x) => x.workerPayout));
 r = await call("GET", "/customer/invoices", null, custT);
 const invA = r.body.invoices?.find((i) => String(i.bookingId) === String(jobA));
 check("invoice list: service, date, duration, amount, payment status", invA && invA.serviceId === "home-cleaning" && invA.preferredDate && invA.durationMinutes === origMinutes + 30 && invA.totalCents > 0 && invA.paymentStatus === "paid", invA);

@@ -1,6 +1,6 @@
 // E2E (package C): invoices + § 35a statement, GDPR export/deletion,
 // manual customers and bookings created by the office (phone orders).
-import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 
 prepareEnv("fiduxa_e2e_invoices_gdpr");
 process.env.EMAIL_TRANSPORT = "json";
@@ -43,8 +43,8 @@ const raw = (p, token) => fetch(base + p, { headers: token ? { Authorization: `B
 const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const anna = await User.create({
-  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-  workerProfile: { address: "Strasse 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
+  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+  workerProfile: { ...BERLIN_WIDE, address: "Strasse 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
 });
 const login = async (email) => (await call("POST", "/auth/login", { email, password: "Password12345" })).body.token;
 const adminT = await login("admin@t.local");

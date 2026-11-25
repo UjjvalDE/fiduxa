@@ -1,7 +1,7 @@
 // E2E: cleaner earnings → monthly eligibility (5th of the next month) → admin settlement via the
 // PayPal Payouts MOCK (success, denied, pending+refresh, retry, duplicates),
 // refund → hold, payout-method onboarding, permissions. NO real money.
-import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 
 prepareEnv("fiduxa_e2e_payouts");
 const paypal = await startPayPalMock();
@@ -36,8 +36,8 @@ const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const mkWorker = (name, email) =>
   User.create({
-    name, email, password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-    workerProfile: { address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: name,
+    name, email, password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+    workerProfile: { ...BERLIN_WIDE, address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: name,
   });
 const anna = await mkWorker("Anna Nowak", "anna@t.local");
 const ben = await mkWorker("Ben Weber", "ben@t.local");
@@ -87,6 +87,11 @@ const expectedDue = `${em === 12 ? ey + 1 : ey}-${String(em === 12 ? 1 : em + 1)
 check("TEST 8c: eligibility date = 5th of the following month (monthly payouts, configurable)", berlin(b.workerPayout.dueAt) === expectedDue, { due: berlin(b.workerPayout.dueAt), expectedDue });
 r = await call("GET", "/worker/earnings", null, annaT);
 check("TEST 9a: cleaner sees pending earnings, nothing withdrawable", r.body.summary.pendingCents === 5625 && r.body.summary.dueCents === 0 && r.body.jobs[0].status === "pending", r.body.summary);
+check("TEST 9a2: earnings page shows the commission model (75 % share, per-hour pay after commission), not the 18 €/h rate",
+  r.body.summary.payModel?.basis === "commission" && r.body.summary.payModel.commissionPct === 25 && r.body.summary.payModel.sharePct === 75 &&
+    r.body.summary.payModel.perHourCents === Math.round(r.body.summary.payModel.customerHourlyCents * 0.75) &&
+    r.body.jobs[0].basis === "commission" && r.body.jobs[0].grossCents === 7500 && r.body.jobs[0].commissionPct === 25 && r.body.jobs[0].commissionCents === 1875,
+  { pm: r.body.summary.payModel, job: r.body.jobs[0] });
 r = await call("POST", "/admin/payouts", { workerId: String(anna._id) }, adminT);
 check("TEST 9b: settlement before 30 days → 409 (nothing eligible)", r.status === 409, r.body);
 r = await call("GET", "/admin/payouts/open", null, adminT);

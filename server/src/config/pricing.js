@@ -51,6 +51,21 @@ export const OPERATIONS = {
   startStepMinutes: 30,
   // Minutes kept free between two jobs of the same team (capacity check)
   teamBufferMinutes: 30,
+  // Customer slot list / reservation (availability.service.js):
+  //   mode "cleaners" – a start time is offered only while an eligible cleaner
+  //     is free for the whole job incl. travelBufferMinutes (capped by the
+  //     admin window capacity); "window" – admin window capacity only (legacy).
+  //   unassignedConsumesCleaner – a held / confirmed booking without a cleaner
+  //     still uses up one free cleaner (owner question, default yes).
+  //   respectWorkingHours – only cleaners whose weekly hours cover the job count.
+  slotCapacity: {
+    mode: process.env.SLOT_CAPACITY_MODE === "window" ? "window" : "cleaners",
+    unassignedConsumesCleaner: process.env.SLOT_UNASSIGNED_CONSUMES_CLEANER !== "false",
+    respectWorkingHours: process.env.SLOT_RESPECT_WORKING_HOURS !== "false",
+  },
+  // Cleaner extra time may not run into the cleaner's next job (incl. travel
+  // buffer): the request is refused with 409 WORKER_SCHEDULE_CONFLICT
+  extraTimeBlockedByNextJob: process.env.EXTRA_TIME_BLOCKED_BY_NEXT_JOB !== "false",
   // Warn the admin if a confirmed job has no cleaner this many hours before start
   unassignedAlertHours: Number(process.env.UNASSIGNED_ALERT_HOURS) || 48,
 };
@@ -136,7 +151,8 @@ export const INVOICING = {
   addressLines: (process.env.INVOICE_ADDRESS_LINES || "Putlitzstraße 4|10551 Berlin|Deutschland").split("|").map((l) => l.trim()).filter(Boolean),
   // USt-IdNr. or Steuernummer
   taxId: process.env.INVOICE_TAX_ID || "",
-  email: process.env.INVOICE_EMAIL || process.env.SMTP_FROM || "",
+  // SMTP_FROM is often "Name <address>" – invoices (and the settings form) need the bare address
+  email: process.env.INVOICE_EMAIL || (process.env.SMTP_FROM || "").replace(/^.*<([^>]+)>.*$/, "$1").trim(),
   // Shown under the totals, e.g. "Gemäß § 19 UStG wird keine Umsatzsteuer ausgewiesen."
   vatNote: process.env.INVOICE_VAT_NOTE || "",
   // false = Kleinunternehmer: no VAT line on the invoice
@@ -174,6 +190,26 @@ export const POLICIES = {
   // governed by this list.
   paymentMethods: {
     enabled: ["paypal"], // subset of PAYMENT_METHOD_KEYS
+  },
+  // Cleaner assignment (round 3, services/auto-assign.service.js):
+  //   mode "auto"  – after payment the best suitable cleaner is assigned
+  //                  automatically (no accept step); "board" – legacy open-job
+  //                  board where cleaners accept jobs (kept for rollback).
+  //   weights      – relative weight of each matching criterion (0–100 each)
+  //   emergencyNoStrikeHours – "can't make it" reported more than this many
+  //                  hours before the start never counts as a strike
+  //   emergencyStrike – false = emergency reports never give a strike
+  //   alternativesCount – alternative times offered when nobody is free
+  //   retryMinutes – background re-matching interval for unassigned bookings
+  //   escalateHours – urgent admin alert when still unassigned this close to the start
+  assignment: {
+    mode: process.env.ASSIGNMENT_MODE === "board" ? "board" : "auto",
+    weights: { distance: 25, skills: 10, rating: 20, reliability: 20, preference: 15, workload: 10 },
+    emergencyNoStrikeHours: 24,
+    emergencyStrike: true,
+    alternativesCount: 5,
+    retryMinutes: 10,
+    escalateHours: 24,
   },
 };
 export const PAYMENT_METHOD_KEYS = ["paypal", "stripe", "cash"];

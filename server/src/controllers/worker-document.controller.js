@@ -11,6 +11,7 @@ import { DOCUMENT_KINDS } from "../config/pricing.js";
 import { recordAudit } from "../services/audit.service.js";
 import { sendAdminNotificationEmail, trySend } from "../services/email.service.js";
 import { decodeCv } from "./worker-application.controller.js";
+import { hasBytes, keys, removeStoredKeys, sendStoredFile, storeBytes } from "../services/file-store.service.js";
 import {
   EXPIRING_KINDS,
   eligibilityProblem,
@@ -106,24 +107,35 @@ export const uploadMyDocument = async (req, res, next) => {
     }
     // Re-upload after a rejection replaces the rejected file of that kind. Atomic
     // $pull: re-saving the whole array would drop the (unselected) bytes of other files.
-    const rejected = await User.findById(req.user._id).select("documents._id documents.kind documents.status").lean();
-    const replaced = (rejected?.documents ?? []).filter((d) => d.kind === data.kind && d.status === "rejected").map((d) => d._id);
-    if (replaced.length) await User.updateOne({ _id: req.user._id }, { $pull: { documents: { _id: { $in: replaced } } } });
+    const rejected = await User.findById(req.user._id).select("documents._id documents.kind documents.status documents.storageKey").lean();
+    const replacedDocs = (rejected?.documents ?? []).filter((d) => d.kind === data.kind && d.status === "rejected");
+    const replaced = replacedDocs.map((d) => d._id);
+    if (replaced.length) {
+      await User.updateOne({ _id: req.user._id }, { $pull: { documents: { _id: { $in: replaced } } } });
+      await removeStoredKeys(replacedDocs.map((d) => d.storageKey), "document.replaced");
+    }
     const user = await User.findById(req.user._id);
     if ((user.documents?.length ?? 0) >= MAX_DOCUMENTS) {
       return res.status(409).json({ success: false, message: "You have reached the maximum number of documents. Please delete one first." });
     }
+    const docId = new mongoose.Types.ObjectId();
+    const stored = await storeBytes(keys.document(user._id, docId, decoded.kind.type), decoded.buffer, decoded.kind.type);
     user.documents.push({
+      _id: docId,
       kind: data.kind,
       idType: data.idType,
       name: data.name.replace(/[^\w.\- ()äöüÄÖÜß]/g, "_"),
       type: decoded.kind.type,
-      size: decoded.buffer.length,
-      data: decoded.buffer,
+      ...stored,
       uploadedAt: new Date(),
       status: "pending",
     });
-    await user.save();
+    try {
+      await user.save();
+    } catch (error) {
+      await removeStoredKeys([stored.storageKey], "document.upload-failed");
+      throw error;
+    }
     const doc = user.documents[user.documents.length - 1];
     await recordAudit({ actor: req.user._id, action: "worker.document.uploaded", entityType: "User", entityId: user._id, after: { documentId: doc._id, kind: doc.kind, size: doc.size, replacedRejected: replaced.length } });
     await trySend("Admin notification", () =>
@@ -148,8 +160,10 @@ export const deleteMyDocument = async (req, res, next) => {
     if (doc.status !== "pending") {
       return res.status(409).json({ success: false, message: "Checked documents can no longer be deleted. Please contact the office." });
     }
+    const storageKey = doc.storageKey;
     doc.deleteOne();
     await user.save();
+    await removeStoredKeys([storageKey], "document.deleted");
     await recordAudit({ actor: req.user._id, action: "worker.document.deleted", entityType: "User", entityId: user._id, before: { documentId: req.params.id } });
     return res.json({ success: true, message: "Document deleted.", ...documentsView(user) });
   } catch (error) {
@@ -181,13 +195,17 @@ const loadWorkerDoc = async (req, res, { withData = false } = {}) => {
 };
 
 /** Send the bytes: attachment by default; inline (admin preview) only for images/PDF */
-const sendDocumentFile = (res, doc, { inline = false } = {}) => {
+const sendDocumentFile = async (res, doc, { inline = false } = {}) => {
   res.setHeader("Content-Type", doc.type);
   res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(doc.name)}"`);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Cache-Control", "private, no-store");
   res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
-  return res.send(doc.data);
+  if (await sendStoredFile(res, doc)) return;
+  res.removeHeader("Content-Disposition");
+  res.removeHeader("Content-Security-Policy");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  return res.status(404).json({ success: false, message: "Document not found." });
 };
 
 // GET /api/v1/admin/workers/:id/documents/:docId – download (?inline=1 for the preview)
@@ -196,8 +214,8 @@ export const downloadWorkerDocument = async (req, res, next) => {
     const found = await loadWorkerDoc(req, res, { withData: true });
     if (!found) return;
     const { doc } = found;
-    if (!doc.data) return res.status(404).json({ success: false, message: "Document not found." });
-    return sendDocumentFile(res, doc, { inline: req.query.inline === "1" });
+    if (!hasBytes(doc)) return res.status(404).json({ success: false, message: "Document not found." });
+    return await sendDocumentFile(res, doc, { inline: req.query.inline === "1" });
   } catch (error) {
     next(error);
   }
@@ -228,6 +246,18 @@ export const reviewWorkerDocument = async (req, res, next) => {
         return res.status(422).json({ success: false, code: "DOCUMENT_ALREADY_EXPIRED", message: "This document has already expired and cannot be approved." });
       }
     }
+    // ID / work permit: never "verified" without an expiry date (QA open issue 1) –
+    // without one the cleaner looks verified but can never be matched to jobs.
+    if (data.status === "verified" && EXPIRING_KINDS.includes(doc.kind)) {
+      const effective = data.expiresAt !== undefined ? data.expiresAt : doc.expiresAt;
+      if (!effective) {
+        return res.status(422).json({
+          success: false,
+          code: "EXPIRY_DATE_REQUIRED",
+          message: "Please enter the document's expiry date before verifying it.",
+        });
+      }
+    }
     const before = { status: doc.status, note: doc.note, expiresAt: doc.expiresAt ?? null };
     if (data.expiresAt !== undefined) {
       doc.expiresAt = data.expiresAt ? new Date(`${data.expiresAt}T00:00:00.000Z`) : null;
@@ -252,8 +282,8 @@ export const downloadMyDocument = async (req, res, next) => {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid document ID." });
     const user = await User.findById(req.user._id).select("+documents.data");
     const doc = user?.documents.id(req.params.id);
-    if (!doc?.data) return res.status(404).json({ success: false, message: "Document not found." });
-    return sendDocumentFile(res, doc);
+    if (!hasBytes(doc)) return res.status(404).json({ success: false, message: "Document not found." });
+    return await sendDocumentFile(res, doc);
   } catch (error) {
     next(error);
   }

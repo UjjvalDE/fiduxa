@@ -23,6 +23,7 @@ import { translateApiError } from '@/lib/i18n/api-errors';
 import type { Booking, BookingPayment, PaymentMethod, PaymentSummary } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { PaymentMethodPicker, payButtonClass, paymentMethodMessages } from '../../_shared/payment-methods';
+import { DevPayPalSimulator } from './dev-paypal-simulator';
 import messages from '../_messages';
 import { HoldCountdown, useCountdown } from './countdown';
 import { OrderSummary, PaymentProgress, type PaymentStep } from './payment-shared';
@@ -305,6 +306,7 @@ function PaymentContent({ booking, summary, onRefresh }: { booking: Booking; sum
           </Card>
 
           {submitError && <Notice tone="red">{submitError}</Notice>}
+          {payment.method === 'paypal' && <DevPayPalSimulator bookingId={booking._id} orderId={payment.checkoutSessionId} />}
 
           <button
             type="button"

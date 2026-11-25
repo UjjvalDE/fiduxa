@@ -29,6 +29,8 @@ const workerApplicationSchema = new mongoose.Schema(
     locale: { type: String, enum: ["de", "en", "pl"], default: "de" },
     cv: {
       data: { type: Buffer, select: false },
+      storageKey: { type: String, default: undefined },
+      sha256: { type: String, default: undefined },
       name: { type: String, maxlength: 200 },
       type: { type: String, maxlength: 100 },
       size: Number,

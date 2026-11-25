@@ -37,7 +37,7 @@ const de = {
     view: 'Profil ansehen',
   },
   howItWorks:
-    'Du buchst Termin und Leistung – eine passende, freie Reinigungskraft aus deinem Bezirk übernimmt den Auftrag. Sobald sie feststeht, siehst du ihr Profil in deinem Konto.',
+    'Du buchst Termin und Leistung – nach der Zahlung teilen wir automatisch die passendste freie Reinigungskraft aus deiner Nähe zu. Ihr Profil siehst du sofort in deinem Konto.',
   cta: {
     eyebrow: 'Bereit?',
     titleBefore: 'Festpreis sehen und',
@@ -103,7 +103,7 @@ const en: CleanersMessages = {
     view: 'View profile',
   },
   howItWorks:
-    'You book the date and service – a suitable, available cleaner from your district takes the job. As soon as it is settled you can see their profile in your account.',
+    'You book the date and service – after payment we automatically assign the best-matching available cleaner near you. You see their profile in your account right away.',
   cta: {
     eyebrow: 'Ready?',
     titleBefore: 'See your fixed price and',
@@ -167,7 +167,7 @@ const pl: CleanersMessages = {
     view: 'Zobacz profil',
   },
   howItWorks:
-    'Rezerwujesz termin i usługę – odpowiednia, wolna osoba z Twojej dzielnicy przyjmuje zlecenie. Gdy zostanie przydzielona, zobaczysz jej profil na swoim koncie.',
+    'Rezerwujesz termin i usługę – po płatności automatycznie przydzielamy najlepiej dopasowaną wolną osobę z okolicy. Jej profil zobaczysz od razu na swoim koncie.',
   cta: {
     eyebrow: 'Gotowe?',
     titleBefore: 'Zobacz stałą cenę i',

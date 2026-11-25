@@ -60,7 +60,7 @@ const TEXTS = {
 };
 
 /** "Your invoice" mail with the PDF attached (cash payments after the job) */
-export const sendInvoiceEmail = async ({ booking, invoice, pdf }) => {
+export const sendInvoiceEmail = async ({ booking, invoice, pdf, storageKey = null }) => {
   const l = lang(booking.locale);
   const t = TEXTS[l];
   const g = emailGreeting(l);
@@ -78,7 +78,7 @@ export const sendInvoiceEmail = async ({ booking, invoice, pdf }) => {
       `<p>${escapeHtml(g.hello(name))}</p><p>${escapeHtml(body)}</p><p style="color:#65736B;font-size:13px">${escapeHtml(note)}</p>`,
       g.regardsHtml
     ),
-    attachments: pdf ? [invoiceAttachment(invoice.number, pdf)] : undefined,
+    attachments: pdf ? [invoiceAttachment(invoice.number, pdf, storageKey)] : undefined,
   });
 };
 

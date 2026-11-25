@@ -80,6 +80,10 @@ Fill in `server/.env` as follows:
   - `BANK_DETAILS_ENCRYPTION_KEY`. Never change it later, or saved bank details become unreadable.
 - **PayPal sandbox keys** (`PAYPALAPIKEY`, `PAYPALSECRET_KEY`). Do **not** set `PAYPAL_MODE=live`.
 - **Email (`SMTP_*`, `SMTP_FROM`, `ADMIN_NOTIFICATION_EMAIL`):** your email provider's SMTP settings.
+- **`INVOICE_EMAIL`:** the plain contact address printed on invoices, for example `rechnung@your-domain.de` (no display name, no `<…>`). If you leave it empty, the address inside `SMTP_FROM` is used.
+- **Do not set `PAYPAL_SIMULATE`** on the server. It is a developer switch and is refused outside development/test anyway.
+- **Emails are sent in the background** by the job runner (inside the API, or by the worker service if `RUN_JOBS_IN_API=false`). If mails do not arrive, check that one of the two is running and look at Admin → E-Mails.
+- **File storage (Cloudflare R2):** `S3_ENDPOINT` (`https://<account-id>.r2.cloudflarestorage.com`), `ACCESS_KEY_ID_S3`, `ACCESS_SECRET_KEY_S3` (an R2 API token with Object Read & Write on the bucket only) and `R2_BUCKET_NAME`. The bucket must stay **private** (no public access, no custom domain). Uploaded documents, CVs, complaint photos, cleaner photos and invoice PDFs are stored there; every download goes through the API with the usual login checks. Uploads go through the API too, so the bucket needs **no CORS rule**. If the four variables are empty, files are kept in MongoDB as before. Files saved in MongoDB earlier are moved once with `docker compose --env-file .env exec api node src/scripts/migrate-files-to-r2.js --dry-run` (counts only), then the same command without `--dry-run`.
 - **Leave empty:** Google and Apple login for now.
 - **Leave out, the stack sets them itself:** `MONGODB_URI`, `NODE_ENV`, `PORT`, `PUBLIC_SITE_URL`, `CLIENT_URL` and `TRUST_PROXY`.
 

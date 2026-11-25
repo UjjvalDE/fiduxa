@@ -11,7 +11,9 @@ import Complaint, { COMPLAINT_MAX_PHOTOS, COMPLAINT_PHOTO_MAX_BYTES, COMPLAINT_P
 import Payment from "../models/payment.model.js";
 import User from "../models/user.model.js";
 import { DAY_MS, httpError, slotStartInstant } from "../utils/helpers.js";
+import mongoose from "mongoose";
 import { recordAudit } from "./audit.service.js";
+import { keys, removeStoredKeys, storeBytes } from "./file-store.service.js";
 import { trySend } from "./email.service.js";
 import { bookingRefundStatus, refundableCents, refundPaymentRecord } from "./payment.service.js";
 import { issueAdminGiftCard } from "./gift-card-purchase.service.js";
@@ -99,19 +101,31 @@ export const createComplaint = async ({ customer, bookingId, category, descripti
     const d = decodePhoto(p.dataUrl);
     if (!d) throw Object.assign(httpError(422, "Please upload photos as JPG or PNG."), { code: "COMPLAINT_PHOTO_TYPE" });
     if (d.buffer.length > COMPLAINT_PHOTO_MAX_BYTES) throw Object.assign(httpError(422, "A photo may be at most 3 MB."), { code: "COMPLAINT_PHOTO_SIZE" });
-    return { name: String(p.name).replace(/[^\w.\- ()äöüÄÖÜß]/g, "_").slice(0, 200), type: d.type, size: d.buffer.length, data: d.buffer };
+    return { name: String(p.name).replace(/[^\w.\- ()äöüÄÖÜß]/g, "_").slice(0, 200), type: d.type, buffer: d.buffer };
   });
 
+  // Bytes → object storage (or inline when storage is not configured)
+  const complaintId = new mongoose.Types.ObjectId();
+  const stored = [];
+  for (const [i, p] of decoded.entries()) {
+    const { buffer, ...meta } = p;
+    stored.push({ ...meta, ...(await storeBytes(keys.complaintPhoto(complaintId, i + 1, p.type), buffer, p.type)) });
+  }
+
   const complaint = await Complaint.create({
+    _id: complaintId,
     booking: booking._id,
     bookingRef: booking.reference,
     customer: customer._id,
     worker: booking.assignedWorker ?? null,
     category,
     description,
-    photos: decoded,
+    photos: stored,
     status: "open",
     history: [{ status: "open", by: customer._id }],
+  }).catch(async (error) => {
+    await removeStoredKeys(stored.map((p) => p.storageKey), "complaint.create-failed");
+    throw error;
   });
   await recordAudit({ actor: customer._id, action: "complaint.created", entityType: "Complaint", entityId: complaint._id, after: { booking: booking.reference, category, photos: decoded.length } });
   const worker = booking.assignedWorker ? await User.findById(booking.assignedWorker).select("name") : null;
@@ -237,7 +251,13 @@ export const applyAction = async (id, adminId, { type, amountCents, days, note =
         await worker.save();
       }
     }
-    await recordAudit({ actor: adminId, action: `complaint.worker_${type}`, entityType: "User", entityId: worker._id, before, after: { complaint: String(complaint._id), days: action.days ?? null, until: action.until ?? null, note } });
+    // Suspend / block → their future jobs (inside the suspension) get a replacement
+    let replaced = null;
+    if (type === "suspend" || type === "block") {
+      const { replaceWorkerJobs } = await import("./auto-assign.service.js");
+      replaced = await replaceWorkerJobs(worker._id, { kind: type === "block" ? "blocked" : "suspended", reason: `Beschwerde ${complaint.bookingRef}`, by: adminId, byRole: "admin", until: type === "suspend" ? action.until : null });
+    }
+    await recordAudit({ actor: adminId, action: `complaint.worker_${type}`, entityType: "User", entityId: worker._id, before, after: { complaint: String(complaint._id), days: action.days ?? null, until: action.until ?? null, note, replaced } });
     await trySend("Complaint restriction", () => sendComplaintRestrictionEmail({ worker, complaint, action }));
   } else if (type === "reclean" || type === "other") {
     if (!note.trim()) throw httpError(422, "Please add a note.");

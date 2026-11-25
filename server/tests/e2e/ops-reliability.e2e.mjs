@@ -1,7 +1,7 @@
 // E2E: reliability & operations – e-mail outbox (queue, immediate delivery,
 // retry with backoff, permanent failure, admin log + resend), job scheduler
 // lock, no-show watch, PayPal webhook (verified, idempotent), readiness probe.
-import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock, flushEmails, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 
 prepareEnv("fiduxa_e2e_ops");
 const paypal = await startPayPalMock();
@@ -47,8 +47,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const anna = await User.create({
-  name: "Anna Nowak", email: "anna@t.local", phone: "0170 1234567", password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-  workerProfile: { address: "Strasse 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
+  name: "Anna Nowak", email: "anna@t.local", phone: "0170 1234567", password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+  workerProfile: { ...BERLIN_WIDE, address: "Strasse 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
 });
 const login = async (email) => (await call("POST", "/auth/login", { email, password: "Password12345" })).body.token;
 const adminT = await login("admin@t.local");
@@ -63,18 +63,32 @@ await call("POST", "/admin/slots", { from: day(1), to: day(20), weekdays: [1, 2,
   check("/health still answers 200", health.status === 200, health.status);
 }
 
-// ---------- Outbox: enqueue + immediate delivery (json transport) ----------
+// ---------- Outbox: request only enqueues, the outbox job delivers ----------
 let r = await call("POST", "/auth/register", { name: "Kunde Klara", email: "klara@t.local", password: "Password12345", phone: "030 123456" });
 const custT = r.body.token;
-await sleep(150);
+const pending = await EmailMessage.findOne({ to: "klara@t.local" }).lean();
+check("request does not wait for SMTP: registration mail is queued (0 attempts)", pending?.status === "queued" && pending.attempts === 0, pending && { s: pending.status, a: pending.attempts });
+await flushEmails();
 let verifyMail = await EmailMessage.findOne({ to: "klara@t.local" }).lean();
-check("registration mail is stored in the outbox and delivered at once",
+check("registration mail is delivered by the outbox job",
   r.status === 201 && verifyMail?.status === "sent" && verifyMail.attempts === 1 && !!verifyMail.sentAt && verifyMail.template === "emailVerification",
   verifyMail && { s: verifyMail.status, a: verifyMail.attempts, t: verifyMail.template });
+
+// A process that runs the scheduler (API with RUN_JOBS_IN_API, or worker.js) kicks the outbox right after enqueueing
+{
+  const { enableOutboxKick } = await import(ROOT + "/src/services/email.service.js");
+  enableOutboxKick(true);
+  await sendAdminNotificationEmail({ subject: "Kick-Test", lines: ["x"] });
+  await sleep(800);
+  const kicked = await EmailMessage.findOne({ subject: /Kick-Test/ }).lean();
+  check("scheduler process: queued mail is delivered in the background within a second", kicked?.status === "sent", kicked && { s: kicked.status });
+  enableOutboxKick(false);
+}
 
 // ---------- Outbox: transport down → queued with backoff, retried later ----------
 process.env.EMAIL_TRANSPORT = ""; // SMTP vars are stripped by the harness → transporter cannot be created
 const outcome = await trySend("Ops test", () => sendAdminNotificationEmail({ subject: "Outbox-Test FID-2026-00042", lines: ["Zeile 1"] }));
+await flushEmails();
 let queued = await EmailMessage.findOne({ subject: /Outbox-Test/ });
 check("failed delivery keeps the mail queued (attempt 1, error recorded, retry in ~1 min, trySend never throws)",
   outcome === "sent" && queued?.status === "queued" && queued.attempts === 1 && /Missing email configuration/.test(queued.lastError) &&
@@ -130,8 +144,8 @@ check("resend of unknown mail → 404", r.status === 404, r.status);
   check("job lock: two concurrent runs → exactly one executes, the other skips", runs === 1 && [a.ran, b.ran].filter(Boolean).length === 1, { runs, a: a.ran, b: b.ran });
   const c = await runJob(job);
   check("lock is released afterwards → next run executes", c.ran === true && runs === 2, { ran: c.ran, runs });
-  check("registry contains housekeeping, dailyMaintenance, emailOutbox (30 s) and noShowWatch (5 min)",
-    !!findJob("housekeeping") && !!findJob("dailyMaintenance") && findJob("emailOutbox")?.everyMs === 30_000 && findJob("noShowWatch")?.everyMs === 300_000,
+  check("registry contains housekeeping, dailyMaintenance, emailOutbox (10 s) and noShowWatch (5 min)",
+    !!findJob("housekeeping") && !!findJob("dailyMaintenance") && findJob("emailOutbox")?.everyMs === 10_000 && findJob("noShowWatch")?.everyMs === 300_000,
     JOBS.map((j) => j.name));
   const outboxRun = await runJob(findJob("emailOutbox"));
   check("emailOutbox job runs through the scheduler", outboxRun.ran === true && typeof outboxRun.result?.sent === "number", outboxRun);
@@ -160,6 +174,7 @@ const now = new Date(slotStartInstant(today, "00:00").getTime() + 20 * 60_000); 
 
 const mailsBefore = await EmailMessage.countDocuments({ template: "cleanerDelayed" });
 let flagged = await detectNoShows({ now });
+await flushEmails();
 let lateDoc = await Booking.findById(late);
 let okDoc = await Booking.findById(onTime);
 const delayedMail = await EmailMessage.findOne({ template: "cleanerDelayed", bookingRef: lateDoc.reference }).lean();

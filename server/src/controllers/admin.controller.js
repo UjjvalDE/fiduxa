@@ -1,6 +1,8 @@
 import { rejectIfIneligible } from "../services/work-eligibility.service.js";
 import { jobMismatch } from "../services/worker-profile.service.js";
 import { z } from "zod";
+import { isAutoMode } from "../services/assignment-mode.js";
+import { manualAssign, replaceAssignment } from "../services/auto-assign.service.js";
 import mongoose from "mongoose";
 
 import Booking from "../models/booking.model.js";
@@ -11,6 +13,9 @@ import { trySend } from "../services/email.service.js";
 import { cancelBooking, confirmBooking } from "../services/booking-lifecycle.service.js";
 import {
   findWorkerConflict,
+  withWorkerSchedule,
+  WORKER_CONFLICT_CODE,
+  saveScheduleChange,
   notifyAssignment,
   offerJob,
 } from "../services/job-dispatch.service.js";
@@ -278,6 +283,21 @@ export const assignWorker = async (req, res, next) => {
       });
     }
 
+    // Auto mode: same locks + history as Admin → Disposition. Removing the
+    // cleaner triggers the automatic replacement (next best cleaner).
+    if (isAutoMode() && booking.status === "confirmed") {
+      const result = workerId
+        ? await manualAssign(booking._id, { workerId, by: req.user._id, reason: "Admin → booking", override: true })
+        : await replaceAssignment(booking._id, { workerId: booking.assignedWorker, kind: "removed", reason: "Removed by admin", by: req.user._id, byRole: "admin" });
+      const fresh = await Booking.findById(booking._id).populate("assignedWorker", "name email phone");
+      return res.json({
+        success: true,
+        message: workerId ? "Worker assigned." : result.state === "assigned" ? "Worker removed – a replacement was assigned automatically." : "Worker unassigned.",
+        assignment: { state: result.state },
+        booking: { id: fresh._id, reference: fresh.reference, status: fresh.status, assignedWorker: fresh.assignedWorker },
+      });
+    }
+
     const before = { assignedWorker: booking.assignedWorker };
     let assignedWorker = null;
 
@@ -315,22 +335,28 @@ export const assignWorker = async (req, res, next) => {
       // Work eligibility: ID / work permit verified and valid on the job date
       if (rejectIfIneligible(res, worker, booking.preferredDate, { admin: true })) return;
 
-      // Prevent overlapping jobs for the same cleaner (incl. travel buffer)
-      const clash = await findWorkerConflict(worker._id, booking);
+      // Cash policy: tier below the minimum or too much cash held → no cash jobs (409)
+      await assertWorkerMayTakeCash(worker, booking);
+
+      // Prevent overlapping jobs for the same cleaner (incl. travel buffer) –
+      // check and write atomically under the cleaner's schedule lock
+      const clash = await withWorkerSchedule(worker._id, async () => {
+        const found = await findWorkerConflict(worker._id, booking);
+        if (found) return found;
+        booking.assignedWorker = worker._id;
+        booking.assignedAt = new Date();
+        booking.assignedBy = req.user._id;
+        await booking.save();
+        return null;
+      });
 
       if (clash) {
         return res.status(409).json({
           success: false,
-          message: `This worker is already assigned to ${clash.reference} in the same slot.`,
+          code: WORKER_CONFLICT_CODE,
+          message: `This worker is already assigned to ${clash.reference} at an overlapping time (incl. travel buffer).`,
         });
       }
-
-      // Cash policy: tier below the minimum or too much cash held → no cash jobs (409)
-      await assertWorkerMayTakeCash(worker, booking);
-
-      booking.assignedWorker = worker._id;
-      booking.assignedAt = new Date();
-      booking.assignedBy = req.user._id;
       assignedWorker = worker;
     }
 
@@ -684,7 +710,8 @@ export const editBookingDetails = async (req, res, next) => {
       });
       await settleAdjustment(booking, adjustment, { actorId: req.user._id });
     }
-    await booking.save();
+    // Longer job / new time: the assigned cleaner must still be free (atomic check)
+    await saveScheduleChange(booking);
 
     await recordAudit({
       actor: req.user._id,

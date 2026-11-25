@@ -2,9 +2,13 @@
 // occurrence generation through real pricing + slot reservation, preferred-cleaner
 // priority on the job board, pause / skip / resume / end, online pay-link
 // occurrences with a hold, capacity problems, permissions.
-import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 
 prepareEnv("fiduxa_e2e_recurring");
+// Legacy job board (assignmentMode "board"): this suite tests cleaners accepting /
+// handing back jobs from the open-job board. Automatic assignment is covered by
+// auto-assignment.e2e.mjs; the board stays reachable for a rollback.
+process.env.ASSIGNMENT_MODE = "board";
 process.env.EMAIL_TRANSPORT = "json";
 const paypal = await startPayPalMock();
 process.env.PAYPALAPIKEY = "mock-client";
@@ -47,8 +51,8 @@ const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const mkWorker = (name, email) =>
   User.create({
-    name, email, password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-    workerProfile: { address: "Strasse 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: name,
+    name, email, password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+    workerProfile: { ...BERLIN_WIDE, address: "Strasse 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: name,
   });
 const anna = await mkWorker("Anna Nowak", "anna@t.local");
 const ben = await mkWorker("Ben Weber", "ben@t.local");
@@ -211,6 +215,45 @@ r = await call("GET", "/admin/settings", null, adminT);
 check("settings expose recurring defaults", r.body.settings?.recurring?.generateDaysAhead === 14 && r.body.settings.recurring.priorityHours === 24 && r.body.settings.recurring.onlineHoldDays === 7, r.body.settings?.recurring);
 r = await call("PUT", "/admin/settings", { recurring: { generateDaysAhead: 10, priorityHours: 12, onlineHoldDays: 5 } }, adminT);
 check("admin changes recurring settings (applied in memory)", r.status === 200 && RECURRING.priorityHours === 12 && RECURRING.generateDaysAhead === 10, r.body.settings?.recurring);
+
+// ---------- Price change + preferred cleaner busy at the next occurrence ----------
+{
+  const { PRICING } = await import(ROOT + "/src/config/pricing.js");
+  const { default: AvailabilitySlot } = await import(ROOT + "/src/models/availability-slot.model.js");
+  const { bumpAvailability } = await import(ROOT + "/src/services/availability.service.js");
+  RECURRING.generateDaysAhead = 14;
+  RECURRING.priorityHours = 24;
+  // Room for two parallel jobs on day 6 and day 13 (the plan and Anna's other job)
+  await AvailabilitySlot.updateMany({ date: { $in: [dayDate(6), dayDate(13)] } }, { $set: { capacity: 3 } });
+  bumpAvailability();
+  r = await book(custT, day(6), "15:00", { frequency: "weekly" });
+  const first = await Booking.findById(r.body.booking?.id);
+  check("weekly plan booked on day 6, 15:00", r.status === 201 && first.slot === "15:00", r.body);
+  const plan = await BookingSeries.findOne({ createdFrom: first._id });
+  r = await call("PATCH", `/admin/series/${plan._id}`, { preferredWorker: String(anna._id) }, adminT);
+  // Anna already works at that time on day 13
+  r = await book(otherT, day(13), "15:00");
+  const blocker = r.body.booking?.id;
+  r = await call("POST", `/worker/jobs/${blocker}/accept`, null, annaT);
+  check("Anna holds another job on day 13 at 15:00", r.status === 200, r.body);
+
+  const oldRate = PRICING.hourlyRateCents;
+  PRICING.hourlyRateCents = oldRate + 500; // price change between occurrences
+  await generateDueOccurrences();
+  PRICING.hourlyRateCents = oldRate;
+  const next = await Booking.findOne({ series: plan._id, seriesIndex: 1 });
+  check("price change: the new occurrence uses the current rate (old booking keeps its price)",
+    next && next.pricing.totalCents > first.pricing.totalCents && (await Booking.findById(first._id)).pricing.totalCents === first.pricing.totalCents,
+    next && { next: next.pricing.totalCents, first: first.pricing.totalCents });
+  check("preferred cleaner busy then → no priority window, job open to the board at once",
+    next && !next.jobOffer?.priorityWorker && (await openRefs(benT)).includes(next.reference), next?.jobOffer);
+  r = await call("POST", `/worker/jobs/${next?._id}/accept`, null, annaT);
+  check("preferred cleaner cannot accept the overlapping occurrence → 409 WORKER_SCHEDULE_CONFLICT", r.status === 409 && r.body.code === "WORKER_SCHEDULE_CONFLICT", r.body);
+  r = await call("POST", `/worker/jobs/${next?._id}/accept`, null, benT);
+  check("another cleaner takes it", r.status === 200, r.body);
+  r = await call("PATCH", `/customer/series/${plan._id}`, { action: "end" }, custT);
+  check("ending the plan cancels the accepted occurrence (free, > 24 h ahead)", r.status === 200 && r.body.cancelled.includes(next?.reference), r.body);
+}
 
 paypal.close();
 server.close();

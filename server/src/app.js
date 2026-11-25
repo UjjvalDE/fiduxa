@@ -1,3 +1,4 @@
+import "./config/mongoose-defaults.js";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -22,6 +23,8 @@ import { paymentRouter } from "./routes/payment.routes.js";
 import { giftCardRouter } from "./routes/gift-card.routes.js";
 import { handlePayPalWebhook, handleStripeWebhook } from "./controllers/payment.controller.js";
 import { captureError, logger } from "./utils/logger.js";
+import { isDbTimeoutError, isDbUnavailableError } from "./config/mongoose-defaults.js";
+import { busyGuard, dbGuard, isMaintenanceMode, isServiceReady, loadStats, maintenanceGuard } from "./middleware/resilience.middleware.js";
 
 const app = express();
 
@@ -41,6 +44,45 @@ app.use(
     credentials: true,
   })
 );
+
+// ---------- Health / readiness (before every guard) ----------
+// /health = liveness (the process is up), /ready = readiness (MongoDB answers).
+// /api/v1/ready is the same probe reachable through the Next.js proxy.
+// No secrets: only up/down, uptime and the maintenance flag.
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Fiduxa API is running.",
+    status: "up",
+    db: mongoose.connection.readyState === 1 ? "up" : "down",
+    database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+const readiness = async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const base = { uptime: Math.round(process.uptime()), maintenance: isMaintenanceMode(), timestamp: new Date().toISOString() };
+  try {
+    if (!isServiceReady()) throw new Error("database not connected");
+    await Promise.race([
+      mongoose.connection.db.admin().ping(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("database ping timed out")), 2_000).unref()),
+    ]);
+    return res.status(200).json({ success: true, ready: true, db: "up", database: "connected", ...loadStats(), ...base });
+  } catch (error) {
+    res.setHeader("Retry-After", "10");
+    return res.status(503).json({ success: false, ready: false, code: "DB_UNAVAILABLE", db: "down", database: "unavailable", reason: error.message, ...base });
+  }
+};
+app.get(["/ready", "/api/v1/ready"], readiness);
+
+// ---------- Fail fast when unhealthy ----------
+// Overload → 503 SERVER_BUSY; DB down → 503 DB_UNAVAILABLE (webhooks too, so
+// PayPal/Stripe retry later); maintenance → 503 MAINTENANCE (admins pass).
+app.use(busyGuard);
+app.use(dbGuard);
 
 // Stripe webhook needs the untouched raw body for signature verification,
 // so it is registered BEFORE the JSON body parser.
@@ -68,6 +110,7 @@ app.use((req, res, next) =>
 );
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(maintenanceGuard);
 
 // ---------- Request logging ----------
 // Development: colourful one-liners (morgan). Everything else: structured JSON
@@ -138,28 +181,6 @@ app.use("/api/v1/bookings/quote", limiter(15, 200));
 app.use("/api/v1/auth/verify-email", limiter(60, 20));
 app.use("/api/v1/auth/resend-verification", limiter(60, 5));
 
-// ---------- Health ----------
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Fiduxa API is running.",
-    database:
-      mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-    timestamp: new Date().toISOString(),
-  });
-});
-
-// Readiness: only "ready" when MongoDB answers a ping (load balancer / compose healthcheck)
-app.get("/ready", async (req, res) => {
-  try {
-    if (mongoose.connection.readyState !== 1) throw new Error("database not connected");
-    await mongoose.connection.db.admin().ping();
-    return res.status(200).json({ success: true, ready: true, database: "connected", timestamp: new Date().toISOString() });
-  } catch (error) {
-    return res.status(503).json({ success: false, ready: false, database: "unavailable", reason: error.message });
-  }
-});
-
 // ---------- Routes ----------
 app.use("/api/v1", catalogueRouter);
 app.use("/api/v1", publicFormRouter);
@@ -228,6 +249,17 @@ app.use((err, req, res, next) => {
     return res.status(409).json({
       success: false,
       message: "A record with this value already exists.",
+    });
+  }
+
+  // Database outage / overloaded query → 503 so clients retry instead of seeing a 500
+  if (isDbUnavailableError(err) || isDbTimeoutError(err)) {
+    logger.warn({ err: err.message, path: req.originalUrl }, "Request failed: database unavailable or too slow");
+    res.setHeader("Retry-After", "10");
+    return res.status(503).json({
+      success: false,
+      code: isDbTimeoutError(err) ? "DB_TIMEOUT" : "DB_UNAVAILABLE",
+      message: "The service is temporarily unavailable. Please try again in a moment.",
     });
   }
 

@@ -3,7 +3,9 @@
 // An invoice is issued exactly once per booking – when the payment becomes
 // "paid" (Stripe webhook, PayPal capture, cash recorded, gift card covered).
 // Numbers are sequential per year (FX-YYYY-000001, Counter "invoice-YYYY").
-// The PDF is rendered with pdfkit and stored on the booking (invoice.pdf,
+// The PDF is rendered with pdfkit and stored in object storage (R2,
+// invoices/<year>/<number>.pdf → invoice.storageKey); without storage it stays
+// inline on the booking (invoice.pdf,
 // select: false). Invoices are accounting records: they stay for 10 years
 // (§ 147 AO) even when the customer deletes the account.
 //
@@ -16,6 +18,7 @@
 // so the WHOLE invoice amount (incl. VAT) counts as labour costs. Cash
 // payments do not qualify (§ 35a Abs. 5 S. 3 EStG requires a bank transfer).
 import PDFDocument from "pdfkit";
+import { keys, loadBytes, removeStoredKeys, storeBytes } from "./file-store.service.js";
 
 import Booking from "../models/booking.model.js";
 import Counter from "../models/counter.model.js";
@@ -473,7 +476,8 @@ export const issueInvoiceForBooking = async (booking) => {
   const number = await nextInvoiceNumber(issuedAt);
   const figures = invoiceFigures(booking);
   const pdf = await renderInvoicePdf({ booking, number, issuedAt, figures });
-  const invoice = { number, issuedAt, locale: lang(booking.locale), ...figures, pdf };
+  const file = await storeBytes(keys.invoice(number, issuedAt), pdf, "application/pdf", { inlineField: "pdf" });
+  const invoice = { number, issuedAt, locale: lang(booking.locale), ...figures, ...file };
 
   const result = await Booking.updateOne(
     { _id: booking._id, "invoice.number": { $exists: false } },
@@ -481,32 +485,42 @@ export const issueInvoiceForBooking = async (booking) => {
   );
   if (result.matchedCount === 0) {
     // Lost a race – keep the number that was persisted first
+    await removeStoredKeys([file.storageKey], "invoice.race-lost");
     const winner = await Booking.findById(booking._id).select("invoice").lean();
     applyMeta(booking, metaOf(winner?.invoice));
     return { invoice: metaOf(winner?.invoice), pdf: null, created: false };
   }
   const meta = metaOf(invoice);
   applyMeta(booking, meta);
-  return { invoice: meta, pdf, created: true };
+  return { invoice: meta, pdf, storageKey: file.storageKey ?? null, created: true };
 };
 
 /** Stored PDF of a booking's invoice (or null) */
 export const loadInvoicePdf = async (bookingId) => {
   const doc = await Booking.findById(bookingId).select("+invoice.pdf").lean();
-  if (!doc?.invoice?.number || !doc.invoice.pdf) return null;
-  const pdf = Buffer.from(doc.invoice.pdf.buffer ?? doc.invoice.pdf);
-  if (pdf.length >= 2000) return { number: doc.invoice.number, pdf };
-  // Invoices issued before the blank-PDF fix contain an empty page. Re-render
-  // once with the SAME number, date and stored figures, and persist it.
+  if (!doc?.invoice?.number) return null;
+  if (!doc.invoice.pdf && !doc.invoice.storageKey) return null;
+  const pdf = await loadBytes(doc.invoice, { inlineField: "pdf" });
+  if (pdf && pdf.length >= 2000) return { number: doc.invoice.number, pdf };
+  // Missing in storage, or issued before the blank-PDF fix (empty page):
+  // re-render with the SAME number, date and stored figures, and persist it.
   const { number, issuedAt } = doc.invoice;
   const figures = { ...invoiceFigures(doc), ...metaOf(doc.invoice) };
   const fixed = await renderInvoicePdf({ booking: doc, number, issuedAt, figures });
-  await Booking.updateOne({ _id: doc._id, "invoice.number": number }, { $set: { "invoice.pdf": fixed } });
+  const stored = await storeBytes(keys.invoice(number, issuedAt), fixed, "application/pdf", { inlineField: "pdf" });
+  const update = stored.storageKey
+    ? { $set: { "invoice.storageKey": stored.storageKey, "invoice.sha256": stored.sha256, "invoice.size": stored.size }, $unset: { "invoice.pdf": "" } }
+    : { $set: { "invoice.pdf": fixed, "invoice.sha256": stored.sha256, "invoice.size": stored.size }, $unset: { "invoice.storageKey": "" } };
+  await Booking.updateOne({ _id: doc._id, "invoice.number": number }, update);
   return { number, pdf: fixed };
 };
 
 /** Attachment descriptor for the outbox */
-export const invoiceAttachment = (number, pdf) => ({ filename: `${number}.pdf`, contentType: "application/pdf", content: pdf });
+//  Stored in object storage → the outbox keeps only the key (no PDF copy in MongoDB)
+export const invoiceAttachment = (number, pdf, storageKey = null) =>
+  storageKey
+    ? { filename: `${number}.pdf`, contentType: "application/pdf", storageKey }
+    : { filename: `${number}.pdf`, contentType: "application/pdf", content: pdf };
 
 // ---------------------------------------------------------------------------
 // Customer invoice list + yearly § 35a statement

@@ -303,6 +303,8 @@ export interface StatusHistoryEntry {
 }
 
 export interface Booking {
+  /** Automatic assignment (round 3) – customer-visible part */
+  assignment?: { state?: 'assigned' | 'needs_attention' | null; reason?: string; customerChoice?: 'wait' | 'rescheduled' | 'cancelled' | null; alternatives?: BookingAlternative[] };
   _id: string;
   /** my-bookings: date is past, cleaner has not confirmed the job yet */
   awaitingConfirmation?: boolean;
@@ -557,10 +559,24 @@ export interface EarningJob {
   amountCents: number;
   minutes: number;
   rateCents: number;
+  /** How the pay was calculated (snapshot at completion) */
+  basis?: 'commission' | 'hourly' | 'cancellation';
+  grossCents?: number | null;
+  commissionPct?: number | null;
+  commissionCents?: number | null;
   earnedAt: string;
   dueAt: string;
   paidAt: string | null;
   status: PayoutStatus;
+}
+
+/** Current pay model of the cleaner (same formula as the payout records) */
+export interface WorkerPayModel {
+  basis: 'commission' | 'hourly';
+  commissionPct: number | null;
+  sharePct: number | null;
+  customerHourlyCents: number;
+  perHourCents: number;
 }
 
 export interface WorkerPayoutRecord {
@@ -578,7 +594,7 @@ export interface WorkerPayoutRecord {
 }
 
 export interface WorkerEarningsResponse {
-  summary: EarningsSummary & { rateCents: number; defaultRateCents: number };
+  summary: EarningsSummary & { rateCents: number; defaultRateCents: number; payModel?: WorkerPayModel };
   bank: { accountHolder: string; iban: string | null };
   payoutMethod: PayoutMethod;
   jobs: EarningJob[];
@@ -1640,4 +1656,20 @@ export interface AdminComplaintDetail {
   customerNotifiedAt?: string | null;
   refundableCents: number;
   workerCounts: ComplaintCounts | null;
+}
+
+/** A free alternative time when no cleaner is available (GET /customer/bookings/:id/alternatives) */
+export interface BookingAlternative {
+  date: string;
+  slotId: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface BookingAlternativesResponse {
+  state: 'assigned' | 'needs_attention' | null;
+  needsChoice: boolean;
+  customerChoice: 'wait' | 'rescheduled' | 'cancelled' | null;
+  alternatives: BookingAlternative[];
+  booking: { id: string; reference: string; status: string; preferredDate: string; slot: string; slotEnd?: string; payment?: { status?: string; method?: string } };
 }

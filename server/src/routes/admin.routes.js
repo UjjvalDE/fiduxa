@@ -14,6 +14,7 @@ import {
   setCommissionOverride,
 } from "../controllers/admin-commission.controller.js";
 
+import { dispatchAssign, dispatchAuto, dispatchUnassign, getDispatchBooking, getDispatchOverview } from "../controllers/admin-dispatch.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 import { authorize } from "../middleware/role.middleware.js";
 
@@ -146,6 +147,12 @@ adminRouter.patch("/bookings/:id/details", editBookingDetails);
 adminRouter.patch("/bookings/:id/status", updateBookingStatus);
 adminRouter.patch("/bookings/:id/not-happened", decideNotHappened);
 adminRouter.patch("/bookings/:id/assign", assignWorker);
+// Disposition (automatic assignment): overview, ranked cleaners, manual reassignment
+adminRouter.get("/dispatch", getDispatchOverview);
+adminRouter.get("/dispatch/bookings/:id", getDispatchBooking);
+adminRouter.post("/dispatch/bookings/:id/assign", dispatchAssign);
+adminRouter.post("/dispatch/bookings/:id/auto", dispatchAuto);
+adminRouter.post("/dispatch/bookings/:id/unassign", dispatchUnassign);
 adminRouter.patch("/bookings/:id/notes", updateBookingNotes);
 adminRouter.patch("/bookings/:id/payout", setBookingPayoutHold);
 adminRouter.patch("/bookings/:id/cash", recordBookingCash);

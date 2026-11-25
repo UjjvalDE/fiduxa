@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 
 import User from "../models/user.model.js";
 import Review from "../models/review.model.js";
+import { sendStoredFile } from "../services/file-store.service.js";
 import { firstName, getWorkerStats, publicWorkerCard, PUBLIC_WORKER_FIELDS } from "../services/worker-profile.service.js";
 
 const PUBLIC_FILTER = {
@@ -79,14 +80,16 @@ export const getCleaner = async (req, res, next) => {
 export const getCleanerAvatar = async (req, res, next) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).end();
-    const worker = await User.findOne({ _id: req.params.id, role: "worker" }).select("+avatarData avatarType");
-    if (!worker?.avatarData?.length) return res.status(404).end();
+    const worker = await User.findOne({ _id: req.params.id, role: "worker" }).select("+avatarData avatarType avatarKey");
+    if (!worker?.avatarKey && !worker?.avatarData?.length) return res.status(404).end();
     res.set({
       "Content-Type": worker.avatarType || "image/jpeg",
       "Cache-Control": "public, max-age=86400",
       "X-Content-Type-Options": "nosniff",
     });
-    return res.send(worker.avatarData);
+    if (await sendStoredFile(res, { storageKey: worker.avatarKey, data: worker.avatarData })) return;
+    res.removeHeader("Cache-Control");
+    return res.status(404).end();
   } catch (error) {
     next(error);
   }

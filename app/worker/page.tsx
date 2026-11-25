@@ -38,6 +38,7 @@ import messages from './_messages';
 import portalMessages from './_portal-messages';
 import { JobCard, type WorkerJobWithSlot } from './_components/job-card';
 import { OpenJobsPanel, type OpenJobsResponse } from './_components/open-jobs';
+import { AutoBoardInfo, AutoNotices, isAutoMode } from './_components/auto-assign';
 import { PageSkeleton, PortalCard, StatTile } from './_components/portal-ui';
 import { SetupChecklist } from './_components/setup';
 import { StatusBanner } from './_components/status-banner';
@@ -90,13 +91,15 @@ const tabTriggerClass =
 
 function JobsSection() {
   const t = useMessages(messages).home;
-  const openJobs = useApi<OpenJobsResponse>('/worker/jobs/open');
+  // Auto mode: jobs are assigned automatically – no open-job board
+  const auto = isAutoMode(useWorkerOverview().data);
+  const openJobs = useApi<OpenJobsResponse>(auto ? null : '/worker/jobs/open');
   const todayJobs = useApi<JobsResponse>('/worker/jobs?scope=today');
   const [tabChoice, setTabChoice] = useState<string | null>(null);
   const openCount = openJobs.data?.jobs.length ?? 0;
   // Default: open jobs first when there is something to grab and nothing to do today
   const tab =
-    tabChoice ?? (openJobs.data && todayJobs.data && openCount > 0 && todayJobs.data.jobs.length === 0 ? 'open' : 'today');
+    tabChoice ?? (!auto && openJobs.data && todayJobs.data && openCount > 0 && todayJobs.data.jobs.length === 0 ? 'open' : 'today');
 
   // Auto-refresh the open jobs every 60 s while that tab is shown and the page is visible
   const reloadOpen = openJobs.reload;
@@ -119,8 +122,8 @@ function JobsSection() {
         {t.jobsTitle}
       </h2>
       <Tabs value={tab} onValueChange={setTabChoice}>
-        <TabsList className="grid h-auto w-full grid-cols-4 gap-1 bg-white p-1">
-          <TabsTrigger value="open" className={tabTriggerClass}>
+        <TabsList className={`grid h-auto w-full ${auto ? 'grid-cols-3' : 'grid-cols-4'} gap-1 bg-white p-1`}>
+          <TabsTrigger value="open" className={tabTriggerClass} hidden={auto}>
             <span className="flex flex-wrap items-center justify-center gap-1">
               {t.tabs.open}
               {openCount > 0 && (
@@ -145,14 +148,14 @@ function JobsSection() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="open" className="mt-3">
-          <OpenJobsPanel
+          {auto ? <AutoBoardInfo /> : <OpenJobsPanel
             state={openJobs}
             onAccepted={() => {
               openJobs.reload();
               todayJobs.reload();
               setTabChoice('upcoming');
             }}
-          />
+          />}
         </TabsContent>
         <TabsContent value="today" className="mt-3">
           <JobsListView scope="today" state={todayJobs} />
@@ -223,6 +226,7 @@ function Dashboard({ data }: { data: WorkerOverview }) {
 
   return (
     <div className="space-y-5">
+      <AutoNotices overview={data} />
       <div className="flex items-center gap-4">
         <CleanerAvatar name={worker.name} src={worker.avatarUrl} size="md" />
         <div className="min-w-0">

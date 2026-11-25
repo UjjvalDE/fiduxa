@@ -2,9 +2,12 @@
 // pricing/extras, customer + admin booking editing (reschedule, reprice,
 // guards, change log), post-cleaning feedback (actual durations, mismatch
 // flag, recurring keep-cleaner preference), IDOR checks.
-import { ROOT, prepareEnv, createChecker, apiClient } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, createChecker, apiClient, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 
 prepareEnv("fiduxa_e2e_editfeedback");
+// Admin window capacity only: these checks are about window capacity / pricing, not the
+// cleaner pool (cleaner-aware slots are covered in slot-capacity-overlap.e2e.mjs)
+process.env.SLOT_CAPACITY_MODE = "window";
 
 const { createRequire } = await import("node:module");
 const require = createRequire(ROOT + "/package.json");
@@ -35,8 +38,8 @@ const day = (n) => new Date(todayInBerlin().getTime() + n * DAY_MS).toISOString(
 const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const anna = await User.create({
-  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-  workerProfile: { address: "Strasse 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
+  name: "Anna Nowak", email: "anna@t.local", password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+  workerProfile: { ...BERLIN_WIDE, address: "Strasse 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: "Anna",
 });
 const login = async (email) => (await call("POST", "/auth/login", { email, password: "Password12345" })).body.token;
 const adminT = await login("admin@t.local");

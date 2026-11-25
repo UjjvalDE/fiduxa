@@ -63,6 +63,7 @@ const settingsSchema = z
         maxBookingDaysAhead: z.number().int().min(7).max(365),
         cancellationCutoffHours: z.number().int().min(0).max(168),
         teamBufferMinutes: z.number().int().min(0).max(120),
+        travelBufferMinutes: z.number().int().min(0).max(180).optional(),
       })
       .optional(),
     payments: z
@@ -123,6 +124,25 @@ const settingsSchema = z
           .object({
             enabled: z.array(z.enum(["paypal", "stripe", "cash"])).min(1, "At least one payment method must stay enabled.").max(3)
               .transform((list) => [...new Set(list)]),
+          })
+          .optional(),
+        // Automatic assignment (round 3): mode, matching weights, emergency rule
+        assignment: z
+          .object({
+            mode: z.enum(["auto", "board"]),
+            weights: z.object({
+              distance: z.number().int().min(0).max(100),
+              skills: z.number().int().min(0).max(100),
+              rating: z.number().int().min(0).max(100),
+              reliability: z.number().int().min(0).max(100),
+              preference: z.number().int().min(0).max(100),
+              workload: z.number().int().min(0).max(100),
+            }).refine((w) => Object.values(w).some((v) => v > 0), "At least one weight must be above 0."),
+            emergencyNoStrikeHours: z.number().int().min(0).max(336),
+            emergencyStrike: z.boolean(),
+            alternativesCount: z.number().int().min(1).max(10),
+            retryMinutes: z.number().int().min(1).max(120),
+            escalateHours: z.number().int().min(1).max(168),
           })
           .optional(),
       })

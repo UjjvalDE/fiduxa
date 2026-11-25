@@ -6,12 +6,17 @@ import mongoose from "mongoose";
 import User from "../models/user.model.js";
 import Booking from "../models/booking.model.js";
 import Payout from "../models/payout.model.js";
-import { WORKER_LANGUAGES, WORKER_PAY, WORKER_SPECIALTIES } from "../config/pricing.js";
+import { PRICING, WORKER_LANGUAGES, WORKER_PAY, WORKER_SPECIALTIES } from "../config/pricing.js";
 import { DAY_MS, parseCalendarDate, todayInBerlin } from "../utils/helpers.js";
-import { avatarUrl, getWorkerStats } from "../services/worker-profile.service.js";
-import { displayPayoutStatus, earningsSummary, workerRateCents } from "../services/payout.service.js";
+import { avatarUrl, getWorkerStats, hasWeeklyPattern, weekParity } from "../services/worker-profile.service.js";
+import { homePostcodeOf } from "../services/matching.service.js";
+import { assignmentMode } from "../services/assignment-mode.js";
+import { bumpAvailability } from "../services/availability.service.js";
+import { EXTRAS, EXTRA_IDS, SERVICES, SERVICE_IDS } from "../data/catalogue.js";
+import { displayPayoutStatus, earningsSummary, previewPayCents, workerPayContext, workerRateCents } from "../services/payout.service.js";
 import { requiredDocumentsVerified } from "./worker-document.controller.js"; // [E]
 import { isPaused } from "../services/reliability.service.js";
+import { keys, removeStoredKeys, storeBytes } from "../services/file-store.service.js";
 
 const LOCKED_STATUSES = ["invited", "rejected", "suspended"];
 
@@ -74,6 +79,8 @@ export const getWorkerOverview = async (req, res, next) => {
         workerProfile: worker.workerProfile,
         avatarUrl: avatarUrl(worker),
         availability: worker.availability ?? [],
+        availabilitySettings: availabilityView(worker),
+        matching: matchingView(worker),
         holidays: (worker.holidays ?? []).filter((h) => h.to >= today).map(holidayOut),
         payRateCents: workerRateCents(worker),
         bankDetails: {
@@ -90,6 +97,14 @@ export const getWorkerOverview = async (req, res, next) => {
       checklist,
       canAccessJobs: approved,
       paused: isPaused(worker), // reliability pause (package E)
+      assignmentMode: assignmentMode(),
+      // Auto mode: without a weekly pattern (or home postcode) no jobs can be assigned
+      availabilityPrompt: assignmentMode() === "auto" && approved
+        ? !hasWeeklyPattern(worker) ? "no_pattern" : !homePostcodeOf(worker) ? "no_location" : null
+        : null,
+      newAssignments: approved
+        ? await Booking.countDocuments({ assignedWorker: worker._id, status: "confirmed", preferredDate: { $gte: today }, "assignment.workerSeenAt": null })
+        : 0,
       stats,
       earnings,
       upcomingCount,
@@ -171,10 +186,20 @@ export const uploadAvatar = async (req, res, next) => {
 
     const worker = await User.findById(req.user._id);
     if (!assertEditable(worker, res)) return;
-    worker.avatarData = buf;
+    const previousKey = worker.avatarKey;
+    const now = new Date();
+    const stored = await storeBytes(keys.avatar(worker._id, now.getTime(), type), buf, type);
+    if (stored.storageKey) {
+      worker.avatarKey = stored.storageKey;
+      worker.avatarData = undefined;
+    } else {
+      worker.avatarKey = "";
+      worker.avatarData = buf;
+    }
     worker.avatarType = type;
-    worker.avatarUpdatedAt = new Date();
+    worker.avatarUpdatedAt = now;
     await worker.save();
+    if (previousKey && previousKey !== worker.avatarKey) await removeStoredKeys([previousKey], "avatar.replaced");
 
     return res.json({ success: true, message: "Photo saved.", avatarUrl: avatarUrl(worker) });
   } catch (error) {
@@ -185,10 +210,12 @@ export const uploadAvatar = async (req, res, next) => {
 // DELETE /api/v1/worker/avatar
 export const deleteAvatar = async (req, res, next) => {
   try {
+    const before = await User.findById(req.user._id).select("avatarKey").lean();
     await User.updateOne(
       { _id: req.user._id },
-      { $unset: { avatarData: 1 }, $set: { avatarType: "", avatarUpdatedAt: null } }
+      { $unset: { avatarData: 1 }, $set: { avatarKey: "", avatarType: "", avatarUpdatedAt: null } }
     );
+    await removeStoredKeys([before?.avatarKey], "avatar.deleted");
     return res.json({ success: true, message: "Photo removed.", avatarUrl: null });
   } catch (error) {
     next(error);
@@ -197,30 +224,127 @@ export const deleteAvatar = async (req, res, next) => {
 
 const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-// PUT /api/v1/worker/availability  { weekly: [{ weekday, start, end }] }
+const overrideOut = (o) => ({ date: new Date(o.date).toISOString().slice(0, 10), kind: o.kind, start: o.start || "", end: o.end || "", note: o.note || "" });
+
+/** Everything the availability page needs (also part of GET /worker/me) */
+const availabilityView = (worker) => {
+  const today = todayInBerlin();
+  return {
+    weekly: (worker.availability ?? []).map((w) => ({ weekday: w.weekday, start: w.start, end: w.end, weeks: w.weeks ?? "all" })),
+    overrides: (worker.availabilityOverrides ?? []).filter((o) => new Date(o.date) >= today).map(overrideOut),
+    workload: {
+      maxJobsPerDay: worker.workload?.maxJobsPerDay ?? null,
+      maxHoursPerDay: worker.workload?.maxHoursPerDay ?? null,
+      maxJobsPerWeek: worker.workload?.maxJobsPerWeek ?? null,
+      maxHoursPerWeek: worker.workload?.maxHoursPerWeek ?? null,
+    },
+    hasWeeklyPattern: hasWeeklyPattern(worker),
+    currentWeek: weekParity(today), // "A" | "B" (alternating weeks)
+    assignmentMode: assignmentMode(),
+  };
+};
+
+const matchingView = (worker) => ({
+  homePostcode: worker.workerProfile?.homePostcode || "",
+  effectivePostcode: homePostcodeOf(worker),
+  maxTravelKm: worker.workerProfile?.maxTravelKm ?? 10,
+  excludedServices: worker.workerProfile?.excludedServices ?? [],
+  excludedExtras: worker.workerProfile?.excludedExtras ?? [],
+  options: {
+    services: SERVICES.map((x) => ({ id: x.id, name: x.name, nameEn: x.nameEn })),
+    extras: EXTRAS.map((x) => ({ id: x.id, label: x.label, labelEn: x.labelEn })),
+  },
+});
+
+const weeklySchema = z
+  .array(
+    z
+      .object({
+        weekday: z.number().int().min(1).max(7),
+        start: z.string().regex(timeRe),
+        end: z.string().regex(timeRe),
+        weeks: z.enum(["all", "A", "B"]).optional().default("all"),
+      })
+      .refine((w) => w.start < w.end, "End must be after start.")
+  )
+  .max(42);
+
+const overrideSchema = z
+  .array(
+    z
+      .object({
+        date: z.string(),
+        kind: z.enum(["off", "extra"]),
+        start: z.string().regex(timeRe).optional(),
+        end: z.string().regex(timeRe).optional(),
+        note: z.string().trim().max(200).optional().default(""),
+      })
+      .refine((o) => o.kind === "off" || (o.start && o.end && o.start < o.end), "Extra hours need a start before the end.")
+  )
+  .max(120);
+
+const limit = (max) => z.number().int().min(1).max(max).nullable();
+const workloadSchema = z.object({
+  maxJobsPerDay: limit(10),
+  maxHoursPerDay: limit(14),
+  maxJobsPerWeek: limit(50),
+  maxHoursPerWeek: limit(70),
+});
+
+// GET /api/v1/worker/availability
+export const getAvailability = async (req, res) => res.json({ success: true, settings: availabilityView(req.user), matching: matchingView(req.user) });
+
+// PUT /api/v1/worker/availability
+//   { weekly?: [{ weekday, start, end, weeks? }], overrides?: [{ date, kind, start?, end?, note? }], workload? }
+// Changes take effect immediately: the slot cache is cleared on save.
 export const setAvailability = async (req, res, next) => {
   try {
-    const { weekly } = z
-      .object({
-        weekly: z
-          .array(
-            z
-              .object({
-                weekday: z.number().int().min(1).max(7),
-                start: z.string().regex(timeRe),
-                end: z.string().regex(timeRe),
-              })
-              .refine((w) => w.start < w.end, "End must be after start.")
-          )
-          .max(21),
-      })
-      .parse(req.body);
+    const data = z.object({ weekly: weeklySchema.optional(), overrides: overrideSchema.optional(), workload: workloadSchema.optional() }).parse(req.body);
 
     const worker = await User.findById(req.user._id);
     if (!assertEditable(worker, res)) return;
-    worker.availability = [...weekly].sort((a, b) => a.weekday - b.weekday || a.start.localeCompare(b.start));
+    if (data.weekly) worker.availability = [...data.weekly].sort((a, b) => a.weekday - b.weekday || a.start.localeCompare(b.start));
+    if (data.overrides) {
+      const today = todayInBerlin();
+      const byDay = new Map();
+      for (const o of data.overrides) {
+        const date = parseCalendarDate(o.date);
+        if (!date) return res.status(422).json({ success: false, message: `Invalid date: ${o.date}` });
+        if (date < today) continue; // past days are dropped
+        byDay.set(date.getTime(), { date, kind: o.kind, start: o.kind === "extra" ? o.start : "", end: o.kind === "extra" ? o.end : "", note: o.note });
+      }
+      worker.availabilityOverrides = [...byDay.values()].sort((a, b) => a.date - b.date);
+    }
+    if (data.workload) worker.workload = data.workload;
     await worker.save();
-    return res.json({ success: true, message: "Working hours saved.", availability: worker.availability });
+    bumpAvailability();
+    return res.json({ success: true, message: "Availability saved.", availability: worker.availability, settings: availabilityView(worker) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// PUT /api/v1/worker/matching-profile { homePostcode, maxTravelKm, excludedServices, excludedExtras }
+// Location (home postcode + travel radius) and skills used by the automatic assignment
+export const setMatchingProfile = async (req, res, next) => {
+  try {
+    const data = z
+      .object({
+        homePostcode: z.union([z.string().trim().regex(/^1[0-4]\d{3}$/, "Please enter a Berlin postcode."), z.literal("")]),
+        maxTravelKm: z.number().int().min(1).max(40),
+        excludedServices: z.array(z.enum(SERVICE_IDS)).max(SERVICE_IDS.length).default([]),
+        excludedExtras: z.array(z.enum(EXTRA_IDS)).max(EXTRA_IDS.length).default([]),
+      })
+      .parse(req.body);
+    const worker = await User.findById(req.user._id);
+    if (!assertEditable(worker, res)) return;
+    worker.set("workerProfile.homePostcode", data.homePostcode);
+    worker.set("workerProfile.maxTravelKm", data.maxTravelKm);
+    worker.set("workerProfile.excludedServices", [...new Set(data.excludedServices)]);
+    worker.set("workerProfile.excludedExtras", [...new Set(data.excludedExtras)]);
+    await worker.save();
+    bumpAvailability();
+    return res.json({ success: true, message: "Saved.", matching: matchingView(worker) });
   } catch (error) {
     next(error);
   }
@@ -267,6 +391,7 @@ export const addHoliday = async (req, res, next) => {
     worker.holidays.push({ from, to, note: data.note });
     worker.holidays = worker.holidays.filter((h) => h.to >= todayInBerlin()).sort((a, b) => a.from - b.from);
     await worker.save();
+    bumpAvailability();
     return res.status(201).json({ success: true, message: "Holiday saved.", holidays: worker.holidays.map(holidayOut) });
   } catch (error) {
     next(error);
@@ -286,6 +411,7 @@ export const deleteHoliday = async (req, res, next) => {
       return res.status(404).json({ success: false, message: "Holiday not found." });
     }
     await worker.save();
+    bumpAvailability();
     return res.json({ success: true, message: "Holiday removed.", holidays: worker.holidays.map(holidayOut) });
   } catch (error) {
     next(error);
@@ -327,6 +453,12 @@ export const getCalendar = async (req, res, next) => {
       })),
       holidays: (req.user.holidays ?? []).filter((h) => h.to >= from && h.from <= to).map(holidayOut),
       availability: req.user.availability ?? [],
+      overrides: (req.user.availabilityOverrides ?? []).filter((o) => o.date >= from && o.date <= to).map(overrideOut),
+      // Week A/B of each Monday in the range (alternating-week patterns)
+      weeks: Object.fromEntries(
+        Array.from({ length: Math.ceil((to.getTime() - from.getTime()) / DAY_MS) + 1 }, (_, i) => new Date(from.getTime() + i * DAY_MS))
+          .map((d) => [d.toISOString().slice(0, 10), weekParity(d)])
+      ),
     });
   } catch (error) {
     next(error);
@@ -336,7 +468,7 @@ export const getCalendar = async (req, res, next) => {
 // GET /api/v1/worker/earnings – per-job pay, payout status, payouts
 export const getEarnings = async (req, res, next) => {
   try {
-    const [summary, jobs, payouts] = await Promise.all([
+    const [summary, jobs, payouts, payCtx] = await Promise.all([
       earningsSummary(req.user._id),
       Booking.find({ assignedWorker: req.user._id, "workerPayout.status": { $exists: true } })
         .select("reference serviceId preferredDate slot slotEnd workerPayout")
@@ -348,11 +480,24 @@ export const getEarnings = async (req, res, next) => {
         .sort({ paidAt: -1 })
         .limit(50)
         .lean(),
+      workerPayContext(req.user),
     ]);
+
+    // What the cleaner actually earns NOW – same formula as recordWorkerEarning
+    // (commission model: job price × (100 − commission %)). perHourCents is the
+    // pay for one hour at the current customer hourly price.
+    const customerHourlyCents = PRICING.hourlyRateCents;
+    const payModel = {
+      basis: payCtx.basis,
+      commissionPct: payCtx.basis === "commission" ? payCtx.commissionPct : null,
+      sharePct: payCtx.basis === "commission" ? 100 - payCtx.commissionPct : null,
+      customerHourlyCents,
+      perHourCents: previewPayCents(payCtx, { grossCents: customerHourlyCents, minutes: 60 }),
+    };
 
     return res.json({
       success: true,
-      summary: { ...summary, rateCents: workerRateCents(req.user), defaultRateCents: WORKER_PAY.hourlyRateCents },
+      summary: { ...summary, rateCents: workerRateCents(req.user), defaultRateCents: WORKER_PAY.hourlyRateCents, payModel },
       bank: {
         accountHolder: req.user.bankAccountHolder || "",
         iban: req.user.bankAccountLast4 ? `•••• •••• •••• ${req.user.bankAccountLast4}` : null,
@@ -373,6 +518,10 @@ export const getEarnings = async (req, res, next) => {
         netCents: (j.workerPayout.amountCents ?? 0) - (j.workerPayout.cashHeldCents ?? 0),
         minutes: j.workerPayout.minutes,
         rateCents: j.workerPayout.rateCents,
+        basis: j.workerPayout.basis ?? "hourly",
+        grossCents: j.workerPayout.grossCents ?? null,
+        commissionPct: j.workerPayout.commissionPct ?? null,
+        commissionCents: j.workerPayout.commissionCents ?? null,
         earnedAt: j.workerPayout.earnedAt,
         dueAt: j.workerPayout.dueAt,
         paidAt: j.workerPayout.paidAt ?? null,

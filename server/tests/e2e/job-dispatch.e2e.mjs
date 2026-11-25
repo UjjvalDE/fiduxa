@@ -1,6 +1,10 @@
 // E2E: open-job marketplace (confirmed booking → offered → accepted → on the way → done)
-import { ROOT, prepareEnv } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 prepareEnv("fiduxa_e2e3");
+// Legacy job board (assignmentMode "board"): this suite tests cleaners accepting /
+// handing back jobs from the open-job board. Automatic assignment is covered by
+// auto-assignment.e2e.mjs; the board stays reachable for a rollback.
+process.env.ASSIGNMENT_MODE = "board";
 
 const { createRequire } = await import("node:module");
 const require = createRequire(ROOT + "/package.json");
@@ -44,8 +48,8 @@ const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const mkWorker = (name, email, extra = {}) =>
   User.create({
-    name, email, password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-    workerProfile: { address: "Str 1", serviceAreas: ["Mitte"] }, bankAccountLast4: "1234", bankAccountHolder: name, ...extra,
+    name, email, password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+    workerProfile: { ...BERLIN_WIDE, address: "Str 1", serviceAreas: ["Mitte"] }, bankAccountLast4: "1234", bankAccountHolder: name, ...extra,
   });
 const anna = await mkWorker("Anna Nowak", "anna@t.local", { preferredLanguage: "pl" });
 const ben = await mkWorker("Ben Weber", "ben@t.local");

@@ -327,9 +327,16 @@ const generate = async () => {
             petsOk: chance(0.7),
             bringsSupplies: chance(0.4),
             publicVisible: c.cat === "approved",
+            // Automatic assignment (round 3): home postcode + travel radius,
+            // services they do not offer (catalogue IDs)
+            homePostcode: postcode,
+            maxTravelKm: c.key === "H" || c.key === "L" ? 8 : 14,
+            excludedServices: ["home-cleaning", "deep-cleaning", "end-of-tenancy", "business-cleaning"].filter((id) => !c.services.includes(id)),
           }
         : { address: "", serviceAreas: [], languages: ["de"] },
       availability: c.avail,
+      // Maximum workload: newer cleaners take at most 3 jobs a day
+      workload: c.jobs && c.jobs < 40 ? { maxJobsPerDay: 3, maxHoursPerDay: null, maxJobsPerWeek: null, maxHoursPerWeek: null } : undefined,
       holidays: c.holidays,
       ...bank,
       payoutMethod: { type: "bank" },

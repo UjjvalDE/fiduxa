@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { replaceWorkerJobs } from "../services/auto-assign.service.js";
 import mongoose from "mongoose";
 import { randomBytes, createHash } from "node:crypto";
 import bcrypt from "bcryptjs";
@@ -449,6 +450,9 @@ export const setWorkerStatus = async (req, res, next) => {
 
     await worker.save();
 
+    // Suspended → every future job gets a replacement cleaner (auto mode)
+    const replaced = data.action === "suspend" ? await replaceWorkerJobs(worker._id, { kind: "suspended", reason: data.note || "Cleaner suspended", by: req.user._id, byRole: "admin" }) : null;
+
     await recordAudit({
       actor: req.user._id,
       action: `worker.${data.action === "suspend" ? "suspended" : "reactivated"}`,
@@ -459,6 +463,7 @@ export const setWorkerStatus = async (req, res, next) => {
         workerStatus: worker.workerStatus,
         isActive: worker.isActive,
         note: data.note,
+        replaced,
       },
     });
 

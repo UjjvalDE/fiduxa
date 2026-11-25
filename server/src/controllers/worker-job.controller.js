@@ -12,6 +12,8 @@ import {
   claimJob,
   conflictIn,
   findWorkerConflict,
+  withWorkerSchedule,
+  WORKER_CONFLICT_CODE,
   loadBusyRanges,
   isOpenJob,
   jobTimeRange,
@@ -19,7 +21,7 @@ import {
   offerJob,
   priorityBlocks,
 } from "../services/job-dispatch.service.js";
-import { OPERATIONS } from "../config/pricing.js";
+import { OPERATIONS, POLICIES } from "../config/pricing.js";
 import { RELIABILITY } from "../config/pricing.js"; // [E]
 import { addStrike, isPaused } from "../services/reliability.service.js"; // [E]
 import { eligibilityProblem, rejectIfIneligible } from "../services/work-eligibility.service.js";
@@ -30,6 +32,8 @@ import { assertWorkerMayTakeCash } from "../services/money-policies.service.js";
 import { unreadCounts } from "../services/booking-message.service.js";
 import { EXTRA_TIME, requestExtraTime } from "../services/extra-time.service.js";
 import { recordAudit } from "../services/audit.service.js";
+import { isAutoMode } from "../services/assignment-mode.js";
+import { emergencyStrikeDue, replaceAssignment } from "../services/auto-assign.service.js";
 import {
   JOB_CONFIRMATION,
   OPEN_JOB_STATUSES,
@@ -95,14 +99,20 @@ const WORKER_JOB_FIELDS = [
   "payment.cashCollectedCents",
   "priceAdjustments",
   "assignedWorker",
+  "assignment.workerSeenAt",
 ].join(" ");
 
 // Workers see the price only when they have to collect it in cash
 const forWorker = (job, payCtx) => {
-  const { payment, pricing, priceAdjustments, ...rest } = job;
+  const { payment, pricing, priceAdjustments, assignment, ...rest } = job;
   const confirmable = needsConfirmation(job) && !lateConfirmProblem(job);
   return {
     ...rest,
+    // In-dashboard notice: assigned to me and not opened yet
+    isNew: ["confirmed"].includes(job.status) && !assignment?.workerSeenAt,
+    // "Can't make it" (emergency) possible until the start
+    canReportEmergency: job.status === "confirmed" && jobTimeRange(job).start.getTime() > Date.now(),
+    emergencyNoStrikeHours: POLICIES.assignment?.emergencyStrike === false ? null : POLICIES.assignment?.emergencyNoStrikeHours ?? 24,
     // Past job still open: "Job erledigt bestätigen" / "Nicht stattgefunden"
     confirmation: needsConfirmation(job)
       ? { needed: true, possible: confirmable, deadline: confirmDeadline(job.preferredDate), defaults: bookedTimes(job), graceDays: JOB_CONFIRMATION.graceDays }
@@ -210,7 +220,10 @@ export const getMyJob = async (req, res, next) => {
     }
 
     const payCtx = await workerPayContext(req.user);
-    return res.json({ success: true, job: forWorker(job, payCtx) });
+    const out = forWorker(job, payCtx);
+    // Opening the job marks the "new job" notice as read
+    if (!job.assignment?.workerSeenAt) await Booking.updateOne({ _id: job._id, assignedWorker: req.user._id }, { $set: { "assignment.workerSeenAt": new Date() } });
+    return res.json({ success: true, job: out });
   } catch (error) {
     next(error);
   }
@@ -534,6 +547,8 @@ const toOpenJob = (booking, payCtx, homePlz = null) => ({
 // GET /api/v1/worker/jobs/open – confirmed jobs without cleaner that fit my calendar
 export const listOpenJobs = async (req, res, next) => {
   try {
+    // Auto mode: jobs are assigned automatically – there is no job board
+    if (isAutoMode()) return res.json({ success: true, count: 0, jobs: [], assignmentMode: "auto" });
     // Paused cleaners (reliability strikes) see no open jobs
     if (isPaused(req.user)) {
       return res.json({ success: true, count: 0, jobs: [], paused: true, pausedAt: req.user.reliability.pausedAt });
@@ -581,8 +596,12 @@ export const listOpenJobs = async (req, res, next) => {
 };
 
 // POST /api/v1/worker/jobs/:id/accept – first come, first served
+const autoModeRefusal = (res) =>
+  res.status(409).json({ success: false, code: "ASSIGNMENT_AUTO", message: "Jobs are assigned automatically – there is nothing to accept." });
+
 export const acceptJob = async (req, res, next) => {
   try {
+    if (isAutoMode()) return autoModeRefusal(res);
     if (!mongoose.isValidObjectId(req.params.id)) {
       return res.status(400).json({ success: false, message: "Invalid job ID." });
     }
@@ -612,18 +631,23 @@ export const acceptJob = async (req, res, next) => {
     // Work eligibility: documents verified + valid on the job date (409 DOCUMENTS_* / *_EXPIRES_BEFORE_JOB)
     if (rejectIfIneligible(res, req.user, booking.preferredDate)) return;
 
-    const conflict = await findWorkerConflict(req.user._id, booking);
-    if (conflict) {
-      return res.status(409).json({
-        success: false,
-        message: `You already have job ${conflict.reference} at that time.`,
-      });
-    }
-
     // Cash policy: below the minimum tier or holding too much cash → no cash jobs (409 CASH_BLOCKED)
     await assertWorkerMayTakeCash(req.user, booking);
 
-    const claimed = await claimJob(booking._id, req.user._id);
+    // Overlap check + claim under the cleaner's schedule lock: two parallel
+    // accepts of overlapping jobs can never both succeed.
+    const { conflict, claimed } = await withWorkerSchedule(req.user._id, async () => {
+      const clash = await findWorkerConflict(req.user._id, booking);
+      if (clash) return { conflict: clash };
+      return { claimed: await claimJob(booking._id, req.user._id) };
+    });
+    if (conflict) {
+      return res.status(409).json({
+        success: false,
+        code: WORKER_CONFLICT_CODE,
+        message: `You already have job ${conflict.reference} at that time.`,
+      });
+    }
     if (!claimed) {
       return res.status(409).json({
         success: false,
@@ -656,6 +680,7 @@ export const acceptJob = async (req, res, next) => {
 // POST /api/v1/worker/jobs/:id/decline – hide an open job for me
 export const declineJob = async (req, res, next) => {
   try {
+    if (isAutoMode()) return autoModeRefusal(res);
     if (!mongoose.isValidObjectId(req.params.id)) {
       return res.status(400).json({ success: false, message: "Invalid job ID." });
     }
@@ -691,6 +716,8 @@ export const releaseJob = async (req, res, next) => {
         message: "Only confirmed jobs that have not started can be handed back.",
       });
     }
+    // Auto mode: handing back = "can't make it" → automatic replacement
+    if (isAutoMode()) return handleEmergency(req, res, booking, reason);
 
     const cutoff =
       jobTimeRange(booking).start.getTime() - OPERATIONS.workerReleaseCutoffHours * 60 * 60 * 1000;
@@ -731,6 +758,51 @@ export const releaseJob = async (req, res, next) => {
     );
 
     return res.json({ success: true, message: strike ? "Job handed back. Because it was short notice, a reliability strike was recorded." : "Job handed back.", strike });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/v1/worker/jobs/:id/emergency { reason } – "I can't make it"
+// The job is taken off the cleaner and given to the next best cleaner at once
+// (customer informed). A strike only when reported less than
+// POLICIES.assignment.emergencyNoStrikeHours before the start.
+const handleEmergency = async (req, res, booking, reason) => {
+  if (booking.status !== "confirmed" || jobTimeRange(booking).start.getTime() <= Date.now()) {
+    return res.status(409).json({ success: false, message: "Only confirmed jobs that have not started yet can be reported. Please call the office." });
+  }
+  const strikeDue = emergencyStrikeDue(booking);
+  const result = await replaceAssignment(booking._id, { workerId: req.user._id, kind: "emergency", reason, by: req.user._id, byRole: "worker" });
+  if (result.state === "not_assigned") return res.status(409).json({ success: false, message: "This job is no longer assigned to you." });
+  const strike = strikeDue ? await addStrike(req.user._id, { kind: "late_release", bookingRef: booking.reference, note: `Emergency: ${reason}` }) : null;
+  await trySend("Admin notification", () =>
+    sendAdminNotificationEmail({
+      bookingRef: booking.reference,
+      subject: `Notfall gemeldet: ${booking.reference}`,
+      lines: [
+        `Referenz: ${booking.reference}`,
+        `Reinigungskraft: ${req.user.name}`,
+        `Termin: ${formatGermanDate(booking.preferredDate)}, ${slotLabel(booking.slot, booking.slotEnd)}`,
+        `Grund: ${reason}`,
+        result.state === "assigned" ? `Ersatz automatisch zugewiesen: ${result.worker?.name ?? ""}` : "KEIN Ersatz gefunden – Buchung braucht Aufmerksamkeit.",
+        strike ? "Kurzfristig: 1 Zuverlässigkeits-Strike vergeben." : "Kein Strike (rechtzeitig gemeldet).",
+      ],
+    })
+  );
+  return res.json({
+    success: true,
+    message: strike ? "Thanks for letting us know. Because it was short notice, a reliability strike was recorded." : "Thanks for letting us know. The job has been handed over.",
+    replacement: result.state === "assigned" ? "assigned" : result.state === "needs_attention" ? "searching" : result.state,
+    strike,
+  });
+};
+
+export const reportEmergency = async (req, res, next) => {
+  try {
+    const { reason } = z.object({ reason: z.string().trim().min(3).max(500) }).parse(req.body ?? {});
+    const booking = await findAssignedJob(req, res);
+    if (!booking) return;
+    return await handleEmergency(req, res, booking, reason);
   } catch (error) {
     next(error);
   }

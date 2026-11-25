@@ -6,9 +6,13 @@
 // the privacy hook. Fake Stripe API + throwaway MongoDB (27999). NO real money.
 import http from "node:http";
 
-import { ROOT, prepareEnv, createChecker, apiClient } from "../helpers/harness.mjs";
+import { ROOT, prepareEnv, createChecker, apiClient, ALWAYS_AVAILABLE, BERLIN_WIDE } from "../helpers/harness.mjs";
 
 prepareEnv("fiduxa_e2e_complaints");
+// Legacy job board (assignmentMode "board"): this suite tests cleaners accepting /
+// handing back jobs from the open-job board. Automatic assignment is covered by
+// auto-assignment.e2e.mjs; the board stays reachable for a rollback.
+process.env.ASSIGNMENT_MODE = "board";
 process.env.EMAIL_TRANSPORT = "json";
 process.env.ADMIN_NOTIFICATION_EMAIL = "office@t.local";
 
@@ -85,8 +89,8 @@ const pw = await bcrypt.hash("Password12345", 12);
 await User.create({ name: "Admin", email: "admin@t.local", password: pw, role: "admin" });
 const mkWorker = (name, email) =>
   User.create({
-    name, email, password: pw, role: "worker", workerStatus: "approved", emailVerified: true,
-    workerProfile: { address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: name,
+    name, email, password: pw, role: "worker", availability: ALWAYS_AVAILABLE, workerStatus: "approved", emailVerified: true,
+    workerProfile: { ...BERLIN_WIDE, address: "Str 1", serviceAreas: ["Mitte"], petsOk: true }, bankAccountLast4: "1234", bankAccountHolder: name,
   });
 const anna = await mkWorker("Anna Nowak", "anna@t.local");
 const ben = await mkWorker("Ben Weber", "ben@t.local");

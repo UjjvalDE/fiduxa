@@ -155,3 +155,14 @@ export const postcodeFromAddress = (address) => {
   const m = /\b(1[0-4]\d{3})\b/.exec(String(address ?? ""));
   return m ? m[1] : null;
 };
+
+// A representative postcode per district name (as used in
+// workerProfile.serviceAreas) – lets the assignment migration turn a list of
+// districts into a travel radius around the cleaner's home postcode.
+export const DISTRICT_POSTCODES = {
+  Mitte: "10115", Friedrichshain: "10243", "Prenzlauer Berg": "10405", Moabit: "10551", Charlottenburg: "10585",
+  Wilmersdorf: "10707", Schöneberg: "10777", Kreuzberg: "10961", Neukölln: "12043", Tempelhof: "12099",
+  Friedenau: "12161", Lichterfelde: "12203", Wedding: "13347", Reinickendorf: "13405", Westend: "14050",
+  Zehlendorf: "14163", Steglitz: "12163", Pankow: "13187", Lichtenberg: "10365", Treptow: "12435",
+  Köpenick: "12555", Spandau: "13597", Marzahn: "12679", Hellersdorf: "12627", Weißensee: "13086",
+};

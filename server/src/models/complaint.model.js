@@ -21,6 +21,9 @@ const photoSchema = new mongoose.Schema({
   type: { type: String, enum: COMPLAINT_PHOTO_TYPES, required: true },
   size: { type: Number, min: 0 },
   data: { type: Buffer, select: false },
+  // Object storage (R2) key instead of inline bytes
+  storageKey: { type: String, default: undefined },
+  sha256: { type: String, default: undefined },
   uploadedAt: { type: Date, default: Date.now },
 });
 
