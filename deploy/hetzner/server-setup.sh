@@ -54,6 +54,13 @@ cat > /etc/cron.d/fiduxa-backup <<CRON
 CRON
 touch /var/log/fiduxa-backup.log && chown deploy:deploy /var/log/fiduxa-backup.log
 
+echo "==> Uptime check every 5 minutes (alerts via ALERT_EMAIL / ALERT_WEBHOOK_URL in deploy/hetzner/.env)"
+apt-get install -y mailutils >/dev/null 2>&1 || echo "   (mailutils not installed – use ALERT_WEBHOOK_URL or install a mail relay)"
+cat > /etc/cron.d/fiduxa-healthcheck <<CRON
+*/5 * * * * deploy $APP_DIR/deploy/hetzner/healthcheck.sh >> /var/log/fiduxa-healthcheck.log 2>&1
+CRON
+touch /var/log/fiduxa-healthcheck.log && chown deploy:deploy /var/log/fiduxa-healthcheck.log
+
 cat <<DONE
 
 Setup finished. Next steps (docs/TEST_LAUNCH_HETZNER.md, step 4):

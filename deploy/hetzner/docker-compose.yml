@@ -3,7 +3,19 @@
 #
 # Caddy (HTTPS, password gate) → web (Next.js) and api (Express); worker runs
 # the background jobs; MongoDB is only reachable inside the Docker network.
+#
+# Resilience: every service restarts automatically (unless-stopped) and has a
+# healthcheck; Caddy serves errors/503.html ("We'll be right back") whenever
+# web or api cannot answer. Memory limits are sized for a 4 GB server (CX22):
+# mongo 1.25 GB (WiredTiger cache 0.5 GB) + api 768 MB + web 512 MB +
+# worker 384 MB + caddy 128 MB = about 3 GB, leaving room for the OS.
 name: fiduxa
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 
 services:
   caddy:
@@ -20,11 +32,21 @@ services:
       GATE_PASSWORD_HASH: ${GATE_PASSWORD_HASH}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./errors:/srv/errors:ro
       - caddy-data:/data
       - caddy-config:/config
+    # Plain depends_on (not service_healthy): Caddy must run even when web/api
+    # are down, so it can serve the "We'll be right back" page
     depends_on:
       - web
       - api
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    logging: *logging
 
   web:
     build:
@@ -33,6 +55,14 @@ services:
     restart: unless-stopped
     environment:
       API_PROXY_TARGET: http://api:3100
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    mem_limit: 512m
+    logging: *logging
 
   api:
     build: ../../server
@@ -46,9 +76,28 @@ services:
       TRUST_PROXY: "1"
       PUBLIC_SITE_URL: https://${SITE_DOMAIN}
       CLIENT_URL: https://${SITE_DOMAIN}
+      # Maintenance page for customers (admins keep working): set to true in .env, then up -d
+      MAINTENANCE_MODE: ${MAINTENANCE_MODE:-false}
+      # Load protection: 503 SERVER_BUSY instead of an overloaded server
+      BUSY_MAX_INFLIGHT: ${BUSY_MAX_INFLIGHT:-300}
+      BUSY_MAX_LAG_MS: ${BUSY_MAX_LAG_MS:-200}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_MAX_TIME_MS: ${DB_MAX_TIME_MS:-15000}
+      NODE_OPTIONS: --max-old-space-size=512
     depends_on:
       mongo:
         condition: service_healthy
+    # Readiness: 200 only while MongoDB answers. The API never crashes when
+    # Mongo is down - it answers 503 and reconnects on its own.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ready >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 4
+    stop_grace_period: 20s
+    mem_limit: 768m
+    logging: *logging
 
   worker:
     build: ../../server
@@ -61,13 +110,26 @@ services:
       SERVICE_NAME: fiduxa-worker
       PUBLIC_SITE_URL: https://${SITE_DOMAIN}
       CLIENT_URL: https://${SITE_DOMAIN}
+      NODE_OPTIONS: --max-old-space-size=256
     depends_on:
       mongo:
         condition: service_healthy
+    # Liveness: the worker rewrites a heartbeat file every 30 s
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/fiduxa-worker.alive -mmin -2 | grep -q alive"]
+      interval: 60s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    stop_grace_period: 20s
+    mem_limit: 384m
+    logging: *logging
 
   mongo:
     image: mongo:7
     restart: unless-stopped
+    # Cap the WiredTiger cache (the default would take about half the host RAM)
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.5"]
     # No published port: the database is never reachable from the internet
     volumes:
       - mongo-data:/data/db
@@ -76,7 +138,11 @@ services:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
+      start_period: 20s
       retries: 10
+    stop_grace_period: 30s
+    mem_limit: 1280m
+    logging: *logging
 
 volumes:
   mongo-data:

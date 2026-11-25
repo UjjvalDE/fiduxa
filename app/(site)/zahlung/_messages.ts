@@ -76,6 +76,9 @@ const de = {
   paypal: {
     confirmingTitle: 'Zahlung wird bestätigt …',
     confirmingText: 'Wir schließen deine PayPal-Zahlung ab. Bitte schließe dieses Fenster nicht.',
+    checkingTitle: 'Wir prüfen deine Zahlung …',
+    checkingText: 'Die Verbindung wurde unterbrochen. Wir prüfen automatisch den Status deiner Zahlung – du wirst nicht doppelt belastet. Bitte schließe dieses Fenster nicht.',
+    checkNow: 'Status jetzt prüfen',
     failedTitle: 'PayPal-Zahlung nicht abgeschlossen',
     failedText: 'Es wurde nichts abgebucht. Solange dein Termin reserviert ist, kannst du es noch einmal versuchen – gern auch mit einer anderen Zahlungsart.',
     retry: 'Erneut versuchen',
@@ -177,6 +180,9 @@ const en: PaymentMessages = {
   paypal: {
     confirmingTitle: 'Confirming payment …',
     confirmingText: 'We are completing your PayPal payment. Please do not close this window.',
+    checkingTitle: "We're checking your payment …",
+    checkingText: 'The connection was interrupted. We are checking the status of your payment automatically – you will not be charged twice. Please do not close this window.',
+    checkNow: 'Check status now',
     failedTitle: 'PayPal payment not completed',
     failedText: 'Nothing has been charged. As long as your slot is reserved you can try again – with another payment method too, if you like.',
     retry: 'Try again',
@@ -279,6 +285,9 @@ const pl: PaymentMessages = {
   paypal: {
     confirmingTitle: 'Potwierdzamy płatność …',
     confirmingText: 'Finalizujemy Twoją płatność PayPal. Nie zamykaj tego okna.',
+    checkingTitle: 'Sprawdzamy Twoją płatność …',
+    checkingText: 'Połączenie zostało przerwane. Automatycznie sprawdzamy status Twojej płatności – nie zostaniesz obciążony dwukrotnie. Nie zamykaj tego okna.',
+    checkNow: 'Sprawdź status teraz',
     failedTitle: 'Płatność PayPal nie została zakończona',
     failedText: 'Nic nie zostało pobrane. Dopóki termin jest zarezerwowany, możesz spróbować ponownie – także inną metodą płatności.',
     retry: 'Spróbuj ponownie',

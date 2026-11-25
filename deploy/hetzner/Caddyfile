@@ -28,4 +28,26 @@
 			reverse_proxy web:3000
 		}
 	}
+
+	# web or api not answering (container restarting, crashed, deploy in
+	# progress): Caddy itself answers 503 – a branded "We'll be right back"
+	# page that refreshes itself, or JSON for API calls (the app then shows
+	# its "temporarily unavailable" state and polls /ready).
+	# Only 502/503/504 are handled here, so the password prompt (401) is untouched.
+	handle_errors 502 503 504 {
+		header Retry-After 30
+		header Cache-Control "no-store"
+		@apiDown path /api/* /ready /health
+		handle @apiDown {
+			header Content-Type "application/json; charset=utf-8"
+			respond `{"success":false,"code":"SERVICE_UNAVAILABLE","message":"The service is temporarily unavailable. Please try again in a moment."}` 503
+		}
+		handle {
+			root * /srv/errors
+			rewrite * /503.html
+			file_server {
+				status 503
+			}
+		}
+	}
 }

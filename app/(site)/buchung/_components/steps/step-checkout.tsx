@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Banknote, CalendarCheck, CalendarDays, Gift, Info, LoaderCircle, Lock, LogOut, ShieldCheck, Undo2, UserRound } from 'lucide-react';
 
+import { OfflineActionNote, useNetworkStatus } from '@/componets/resilience/network-status';
 import { Checkbox } from '@/componets/ui/checkbox';
 import { Input } from '@/componets/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/componets/ui/tabs';
@@ -110,6 +111,8 @@ export function StepCheckout({
   giftMax: number;
 }) {
   const t = useMessages(messages).checkout;
+  // Offline / service down: never start a booking + payment that cannot complete
+  const { blocked: offline } = useNetworkStatus();
   const tf = useMessages(flowMessages).checkout;
   const tp = useMessages(paymentMethodMessages);
   const tq = useMessages(pricingMessages);
@@ -387,11 +390,13 @@ export function StepCheckout({
       {submitError && <ErrorBox message={submitError} />}
 
       <div className="grid gap-4 rounded-2xl border border-border bg-white p-5 sm:p-6">
+        <OfflineActionNote id="checkout-offline-note" />
         <button
           type="button"
           onClick={onSubmit}
-          disabled={submitting}
-          aria-disabled={submitting}
+          disabled={submitting || offline}
+          aria-disabled={submitting || offline}
+          aria-describedby={offline ? 'checkout-offline-note' : undefined}
           className={cn(
             'button w-full justify-center !px-7 !py-4 !text-base disabled:cursor-wait disabled:opacity-70',
             !fullyCovered && payButtonClass(chosen)

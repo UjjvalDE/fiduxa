@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowRight, CheckCircle2, FileText, Info, Loader2, UploadCloud, X } from 'lucide-react';
 
 import { Checkbox } from '@/componets/ui/checkbox';
+import { useDraftState } from '@/hooks/use-draft-state';
 import { api, ApiError } from '@/lib/api';
 import { translateApiError } from '@/lib/i18n/api-errors';
 import { useLocale, useMessages } from '@/lib/i18n/client';
@@ -150,8 +151,8 @@ export function ApplicationForm() {
   const { locale } = useLocale();
   const { form: t, options: o } = useMessages(messages);
 
-  const [text, setText] = useState<Text>(EMPTY_TEXT);
-  const [choices, setChoices] = useState<Choices>(EMPTY_CHOICES);
+  const [text, setText, clearTextDraft] = useDraftState<Text>('application:text', EMPTY_TEXT);
+  const [choices, setChoices, clearChoicesDraft] = useDraftState<Choices>('application:choices', EMPTY_CHOICES);
   const [languages, setLanguages] = useState<string[]>([]);
   const [places, setPlaces] = useState<ExperiencePlace[]>([]);
   const [cv, setCv] = useState<Cv | null>(null);
@@ -257,8 +258,8 @@ export function ApplicationForm() {
     try {
       await api.post('/jobs/applications', body);
       setSent(true);
-      setText(EMPTY_TEXT);
-      setChoices(EMPTY_CHOICES);
+      clearTextDraft();
+      clearChoicesDraft();
       setLanguages([]);
       setPlaces([]);
       setCv(null);

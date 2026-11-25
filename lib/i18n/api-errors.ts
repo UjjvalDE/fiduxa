@@ -683,24 +683,42 @@ const PATTERNS: PatternRule[] = [
   ],
 ];
 
-const GENERIC: Record<Locale, { offline: string; rateLimit: string; server: string; fallback: string }> = {
+const GENERIC: Record<
+  Locale,
+  { offline: string; rateLimit: string; server: string; fallback: string; noInternet: string; timeout: string; maintenance: string; unavailable: string; busy: string }
+> = {
   de: {
     offline: 'Der Server ist gerade nicht erreichbar. Bitte versuche es gleich noch einmal.',
     rateLimit: 'Zu viele Anfragen. Bitte warte kurz und versuche es erneut.',
     server: 'Ein Serverfehler ist aufgetreten. Bitte versuche es später erneut.',
     fallback: 'Etwas ist schiefgelaufen. Bitte versuche es erneut.',
+    noInternet: 'Du bist offline. Bitte prüfe deine Internetverbindung – wir versuchen es automatisch erneut.',
+    timeout: 'Der Server antwortet gerade nicht. Bitte versuche es gleich noch einmal.',
+    maintenance: 'Fiduxa wird gerade gewartet. Bitte versuche es in ein paar Minuten erneut.',
+    unavailable: 'Der Dienst ist vorübergehend nicht verfügbar. Bitte versuche es gleich noch einmal.',
+    busy: 'Gerade ist sehr viel los. Bitte versuche es in ein paar Sekunden erneut.',
   },
   en: {
     offline: 'The server cannot be reached right now. Please try again in a moment.',
     rateLimit: 'Too many requests. Please wait a moment and try again.',
     server: 'A server error occurred. Please try again later.',
     fallback: 'Something went wrong. Please try again.',
+    noInternet: "You're offline. Please check your internet connection – we'll retry automatically.",
+    timeout: 'The server is not responding right now. Please try again in a moment.',
+    maintenance: 'Fiduxa is undergoing maintenance. Please try again in a few minutes.',
+    unavailable: 'The service is temporarily unavailable. Please try again in a moment.',
+    busy: 'We are very busy right now. Please try again in a few seconds.',
   },
   pl: {
     offline: 'Serwer jest chwilowo niedostępny. Spróbuj ponownie za chwilę.',
     rateLimit: 'Zbyt wiele żądań. Poczekaj chwilę i spróbuj ponownie.',
     server: 'Wystąpił błąd serwera. Spróbuj ponownie później.',
     fallback: 'Coś poszło nie tak. Spróbuj ponownie.',
+    noInternet: 'Jesteś offline. Sprawdź połączenie z internetem – spróbujemy ponownie automatycznie.',
+    timeout: 'Serwer w tej chwili nie odpowiada. Spróbuj ponownie za chwilę.',
+    maintenance: 'Fiduxa jest w trakcie prac serwisowych. Spróbuj ponownie za kilka minut.',
+    unavailable: 'Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+    busy: 'Mamy teraz bardzo duży ruch. Spróbuj ponownie za kilka sekund.',
   },
 };
 
@@ -719,9 +737,14 @@ export function translateApiMessage(message: string, locale: Locale): string {
 /** User-facing message for any thrown value, in the given language */
 export function translateApiError(error: unknown, locale: Locale): string {
   if (error instanceof ApiError) {
+    if (error.kind === 'offline') return GENERIC[locale].noInternet;
+    if (error.kind === 'timeout') return GENERIC[locale].timeout;
     if (error.status === 0) return GENERIC[locale].offline;
     if (error.status === 429) return GENERIC[locale].rateLimit;
-    if (error.status >= 500 && error.status !== 502 && error.status !== 503) return GENERIC[locale].server;
+    if (error.kind === 'maintenance') return GENERIC[locale].maintenance;
+    if (error.kind === 'busy') return GENERIC[locale].busy;
+    if (error.kind === 'unavailable') return GENERIC[locale].unavailable;
+    if (error.status >= 500) return GENERIC[locale].server;
     return translateApiMessage(error.message, locale);
   }
   return GENERIC[locale].fallback;

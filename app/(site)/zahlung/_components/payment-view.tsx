@@ -17,6 +17,7 @@ import {
   TimerOff,
 } from 'lucide-react';
 
+import { OfflineActionNote, useNetworkStatus } from '@/componets/resilience/network-status';
 import { ApiError, api } from '@/lib/api';
 import { useFormat, useLocale, useMessages } from '@/lib/i18n/client';
 import { translateApiError } from '@/lib/i18n/api-errors';
@@ -123,6 +124,8 @@ function PaymentContent({ booking, summary, onRefresh }: { booking: Booking; sum
   const f = useFormat();
   const { locale } = useLocale();
   const searchParams = useSearchParams();
+  // Offline / service down: the pay button waits until the connection is back
+  const { blocked: offline } = useNetworkStatus();
   const aborted = searchParams?.get('abgebrochen') === '1';
 
   const [submitting, setSubmitting] = useState(false);
@@ -159,7 +162,7 @@ function PaymentContent({ booking, summary, onRefresh }: { booking: Booking; sum
   const bookingHref = `/konto/buchungen/${booking._id}`;
 
   const startCheckout = async () => {
-    if (submittingRef.current) return;
+    if (submittingRef.current || offline) return;
     if (methods.length > 1 && !method) {
       setMethodError(true);
       return;
@@ -306,13 +309,15 @@ function PaymentContent({ booking, summary, onRefresh }: { booking: Booking; sum
           </Card>
 
           {submitError && <Notice tone="red">{submitError}</Notice>}
+          <OfflineActionNote id="pay-offline-note" />
           {payment.method === 'paypal' && <DevPayPalSimulator bookingId={booking._id} orderId={payment.checkoutSessionId} />}
 
           <button
             type="button"
             onClick={startCheckout}
-            disabled={submitting}
-            aria-disabled={submitting}
+            disabled={submitting || offline}
+            aria-disabled={submitting || offline}
+            aria-describedby={offline ? 'pay-offline-note' : undefined}
             className={cn(
               'button w-full justify-center !py-4 !text-base disabled:cursor-wait disabled:opacity-70 sm:w-auto',
               payButtonClass(method)

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
 
+import { useDraftState } from '@/hooks/use-draft-state';
 import { api, ApiError } from '@/lib/api';
 import { translateApiError } from '@/lib/i18n/api-errors';
 import { useLocale, useMessages } from '@/lib/i18n/client';
@@ -54,7 +55,7 @@ export function BusinessRequestForm() {
     const parent = Object.keys(MESSAGES).find((key) => field.startsWith(`${key}.`));
     return parent ? MESSAGES[parent] : t.errorFallback;
   };
-  const [values, setValues] = useState<Record<Field, string>>(INITIAL);
+  const [values, setValues, clearDraft] = useDraftState<Record<Field, string>>('business-request', INITIAL);
   const [types, setTypes] = useState<ServiceType[]>(['maintenance']);
   const [hasKitchenette, setHasKitchenette] = useState(false);
   const [privacy, setPrivacy] = useState(false);
@@ -146,6 +147,7 @@ export function BusinessRequestForm() {
     try {
       const res = await api.post<{ success: boolean; message: string; reference: string }>('/business-requests', body);
       setSuccess({ reference: res.reference });
+      clearDraft();
       window.scrollTo({ top: (document.getElementById('anfrage')?.offsetTop ?? 0) - 100, behavior: 'smooth' });
     } catch (error) {
       if (error instanceof ApiError && error.status === 422 && Object.keys(error.fieldErrors).length > 0) {

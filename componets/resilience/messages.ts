@@ -1,0 +1,66 @@
+// Texts for the offline banner, the "temporarily unavailable" state, the
+// maintenance page and the error boundaries. German "du", Polish informal.
+import { defineMessages } from '@/lib/i18n/config';
+
+const de = {
+  offline: 'Du bist offline – wir versuchen es automatisch erneut.',
+  offlineHint: 'Deine Eingaben bleiben erhalten.',
+  unreachable: 'Fiduxa ist gerade nicht erreichbar – wir versuchen es automatisch erneut.',
+  unavailable: 'Der Dienst ist vorübergehend nicht verfügbar. Wir versuchen es automatisch erneut.',
+  back: 'Wieder verbunden.',
+  retryNow: 'Jetzt erneut versuchen',
+  checking: 'Prüfe …',
+  maintenanceTitle: 'Wir sind gleich zurück',
+  maintenanceText: 'Fiduxa wird gerade gewartet. Das dauert meist nur wenige Minuten – diese Seite lädt automatisch neu, sobald wir wieder da sind.',
+  maintenanceNote: 'Bereits gebuchte Termine finden wie geplant statt.',
+  offlineAction: 'Du bist offline – Absenden ist möglich, sobald die Verbindung wieder da ist.',
+  errorEyebrow: 'Ups',
+  errorTitle: 'Da ist etwas schiefgelaufen',
+  errorText: 'Die Seite konnte nicht geladen werden. Das liegt nicht an dir – bitte versuche es noch einmal.',
+  errorOffline: 'Es sieht so aus, als wärst du offline. Prüfe deine Verbindung und versuche es dann erneut.',
+  tryAgain: 'Erneut versuchen',
+  home: 'Zur Startseite',
+  errorRef: 'Fehlercode',
+};
+const en: typeof de = {
+  offline: "You're offline – we'll retry automatically.",
+  offlineHint: 'Your entries are kept.',
+  unreachable: "Fiduxa can't be reached right now – we'll retry automatically.",
+  unavailable: "The service is temporarily unavailable. We'll retry automatically.",
+  back: 'Back online.',
+  retryNow: 'Try again now',
+  checking: 'Checking …',
+  maintenanceTitle: "We'll be right back",
+  maintenanceText: 'Fiduxa is undergoing maintenance. This usually takes only a few minutes – this page reloads automatically as soon as we are back.',
+  maintenanceNote: 'Appointments that are already booked take place as planned.',
+  offlineAction: "You're offline – you can submit as soon as the connection is back.",
+  errorEyebrow: 'Oops',
+  errorTitle: 'Something went wrong',
+  errorText: "This page could not be loaded. It's not your fault – please try again.",
+  errorOffline: 'It looks like you are offline. Check your connection, then try again.',
+  tryAgain: 'Try again',
+  home: 'Go to the home page',
+  errorRef: 'Error code',
+};
+const pl: typeof de = {
+  offline: 'Jesteś offline – spróbujemy ponownie automatycznie.',
+  offlineHint: 'Twoje dane zostaną zachowane.',
+  unreachable: 'Fiduxa jest chwilowo nieosiągalna – spróbujemy ponownie automatycznie.',
+  unavailable: 'Usługa jest chwilowo niedostępna. Spróbujemy ponownie automatycznie.',
+  back: 'Połączenie przywrócone.',
+  retryNow: 'Spróbuj teraz',
+  checking: 'Sprawdzam …',
+  maintenanceTitle: 'Zaraz wracamy',
+  maintenanceText: 'Fiduxa jest w trakcie prac serwisowych. Zwykle trwa to tylko kilka minut – ta strona odświeży się automatycznie, gdy wrócimy.',
+  maintenanceNote: 'Zarezerwowane już terminy odbędą się zgodnie z planem.',
+  offlineAction: 'Jesteś offline – wysłanie będzie możliwe po przywróceniu połączenia.',
+  errorEyebrow: 'Ups',
+  errorTitle: 'Coś poszło nie tak',
+  errorText: 'Nie udało się załadować strony. To nie Twoja wina – spróbuj ponownie.',
+  errorOffline: 'Wygląda na to, że jesteś offline. Sprawdź połączenie i spróbuj ponownie.',
+  tryAgain: 'Spróbuj ponownie',
+  home: 'Strona główna',
+  errorRef: 'Kod błędu',
+};
+
+export default defineMessages({ de, en, pl });

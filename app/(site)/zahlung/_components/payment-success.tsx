@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { CalendarPlus, CircleCheck, Clock, LoaderCircle, TimerOff } from 'lucide-react';
 
-import { api } from '@/lib/api';
+import { ApiError, api } from '@/lib/api';
 import { useFormat, useLocale, useMessages } from '@/lib/i18n/client';
 import { translateApiError } from '@/lib/i18n/api-errors';
 import type { PaymentSummary } from '@/lib/types';
@@ -58,6 +58,11 @@ export function PaymentSuccess() {
         timer = setTimeout(check, POLL_INTERVAL_MS);
       } catch (err) {
         if (stopped) return;
+        // Connection / server hiccup: the payment status is unknown, not failed – keep checking
+        if (err instanceof ApiError && err.transient) {
+          timer = setTimeout(check, POLL_INTERVAL_MS * 2);
+          return;
+        }
         setView('error');
         setError(err);
       }

@@ -1,12 +1,28 @@
 // Interval scheduler with a per-job MongoDB lock (utils/lock.js → tryWithLock).
 // Two processes (API + worker, or two API instances) never execute the same
 // job concurrently: whoever does not get the lock skips this tick.
+import mongoose from "mongoose";
 import { tryWithLock } from "../utils/lock.js";
 import { logger } from "../utils/logger.js";
 import { enableOutboxKick } from "../services/email.service.js";
 
 /** Run one job once, guarded by its lock. Returns { ran, result }. */
+// While MongoDB is down every tick is skipped (no lock possible, nothing to
+// do) – logged once per outage, jobs resume on the next tick after reconnect.
+let dbDownLogged = false;
+
 export const runJob = async (job) => {
+  if (mongoose.connection.readyState !== 1) {
+    if (!dbDownLogged) {
+      dbDownLogged = true;
+      logger.warn({ job: job.name }, "Jobs paused – MongoDB is not connected");
+    }
+    return { ran: false, skipped: "db_unavailable" };
+  }
+  if (dbDownLogged) {
+    dbDownLogged = false;
+    logger.info("MongoDB is back – jobs resume");
+  }
   const started = Date.now();
   try {
     const outcome = await tryWithLock(`job:${job.name}`, () => job.run(), { ttlMs: job.lockMs ?? 5 * 60_000 });

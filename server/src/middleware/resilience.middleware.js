@@ -3,7 +3,7 @@
 //   dbGuard        – MongoDB not connected → 503 DB_UNAVAILABLE (+ Retry-After)
 //   busyGuard      – event loop lagging or too many requests in flight →
 //                    503 SERVER_BUSY (+ Retry-After). Thresholds via env:
-//                    BUSY_MAX_LAG_MS (default 250, 0 = off),
+//                    BUSY_MAX_LAG_MS (smoothed mean lag, default 200, 0 = off),
 //                    BUSY_MAX_INFLIGHT (default 400, 0 = off).
 //   maintenanceGuard – MAINTENANCE_MODE=true → 503 MAINTENANCE for everything
 //                    except admin routes, auth (so admins can sign in), the
@@ -46,21 +46,27 @@ export const dbGuard = (req, res, next) => {
 };
 
 // ---------- Load / backpressure ----------
-const histogram = monitorEventLoopDelay({ resolution: 10 });
+// Event-loop lag: mean delay per 500 ms window, smoothed (EMA). A single
+// slow operation (e.g. one bcrypt hash) does not trip the guard; sustained
+// overload does.
+const RESOLUTION_MS = 10;
+const histogram = monitorEventLoopDelay({ resolution: RESOLUTION_MS });
 histogram.enable();
 let lagMs = 0;
 let inFlight = 0;
 const sampler = setInterval(() => {
-  // Worst delay of the last window (ns → ms); the histogram is reset each window
-  lagMs = histogram.max / 1e6;
+  // The histogram includes the sampling interval itself (idle ≈ resolution)
+  const windowMean = Number.isFinite(histogram.mean) ? Math.max(0, histogram.mean / 1e6 - RESOLUTION_MS) : 0;
+  lagMs = lagMs * 0.5 + windowMean * 0.5;
   histogram.reset();
-}, 1_000);
+}, 500);
 sampler.unref();
 
 export const loadStats = () => ({ eventLoopLagMs: Math.round(lagMs), inFlight });
 
 export const busyGuard = (req, res, next) => {
-  const maxLag = envNum("BUSY_MAX_LAG_MS", 250);
+  // Lag check is off in tests unless a suite sets BUSY_MAX_LAG_MS explicitly
+  const maxLag = envNum("BUSY_MAX_LAG_MS", process.env.NODE_ENV === "test" ? 0 : 200);
   const maxInFlight = envNum("BUSY_MAX_INFLIGHT", 400);
   const tooLaggy = maxLag > 0 && lagMs > maxLag;
   const tooMany = maxInFlight > 0 && inFlight >= maxInFlight;

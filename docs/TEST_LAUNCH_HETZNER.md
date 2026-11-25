@@ -139,6 +139,75 @@ From then on, every push to `main` runs CI (all tests). When CI is green, the co
 | Backup now | `bash backup.sh` (nightly at 03:15 automatically, kept 14 days in `backups/`) |
 | Restore | `docker compose --env-file .env exec -T mongo mongorestore --gzip --archive=/backups/FILE.gz --drop` |
 
+## 8. Monitoring and alerts
+
+There are two layers. Set up both.
+
+**Layer 1: the check on the server (already installed).** `server-setup.sh` adds a cron job that runs `deploy/hetzner/healthcheck.sh` every 5 minutes. It opens `https://SITE_DOMAIN/ready`. If that fails twice in a row, you get **one** message, and another one when the site is back. To turn the messages on, add to `deploy/hetzner/.env`:
+
+```
+ALERT_EMAIL=you@example.com           # needs the mail command (server-setup installs mailutils)
+ALERT_WEBHOOK_URL=https://...         # optional: Slack, Discord or ntfy.sh webhook
+GATE_PLAIN_PASSWORD=...               # the tester password, so the check gets past the gate
+```
+
+Test it once: `bash healthcheck.sh; echo $?` should print `0`. The log is in `/var/log/fiduxa-healthcheck.log`.
+
+Plain e-mail from a fresh server often lands in spam, or is not delivered at all. A webhook (for example a free [ntfy.sh](https://ntfy.sh) topic on your phone) is more reliable.
+
+**Layer 2: an external uptime monitor (recommended).** The server cannot report that it is down if the whole server is down. So also use a free outside service:
+
+1. Sign up at **UptimeRobot** (uptimerobot.com, free: 50 monitors, checked every 5 min) or **Better Stack** (betterstack.com/uptime, free tier).
+2. Add an **HTTP(s) monitor** for `https://SITE_DOMAIN/ready`.
+   - While the password gate is on, enter the tester user and password under *HTTP authentication* (Basic).
+   - Expected status: 200. Interval: 5 minutes.
+3. Add your e-mail address and, if you like, the phone app for push messages.
+
+## 9. Backups and restore
+
+- **Automatic:** every night at 03:15 `backup.sh` saves the database to `deploy/hetzner/backups/` and keeps 14 days. The log is in `/var/log/fiduxa-backup.log`.
+- **Backup now** (always do this before a risky change): `bash backup.sh`
+- **Copy off the server:** the backups live on the same disk as the database. Once a week, download the newest file to your computer, or turn on Hetzner *Backups* for the server (about 20 % extra, 7 daily images):
+  `scp deploy@SERVER_IP:/opt/fiduxa/deploy/hetzner/backups/fiduxa_test_DATE.gz .`
+- **Restore** (replaces the current data with the backup):
+  1. `ls backups/` and pick the file.
+  2. `docker compose --env-file .env stop api worker`
+  3. `docker compose --env-file .env exec -T mongo mongorestore --gzip --archive=/backups/FILE.gz --drop`
+  4. `docker compose --env-file .env start api worker`, then open the site and check a booking.
+
+## 10. What to do if the site is down
+
+Stay calm. Bookings that are already paid are safe in the database, and the app is built to recover on its own. Customers see a "We'll be right back" page instead of an error.
+
+**Step 1: wait 5 minutes.** The containers restart on their own after a crash. A database blip heals itself: the API answers "temporarily unavailable" and reconnects. Open the site again.
+
+**Step 2: look at what is running.** Log in to the server (`ssh deploy@SERVER_IP`), then:
+
+```
+cd /opt/fiduxa/deploy/hetzner
+docker compose --env-file .env ps
+```
+
+Every line should say `Up … (healthy)`. Note the one that does not.
+
+**Step 3: restart.**
+
+| What you see | Do this |
+|---|---|
+| `api` or `worker` unhealthy or restarting | `docker compose --env-file .env restart api worker` |
+| `mongo` unhealthy | `docker compose --env-file .env restart mongo`, wait 1 min, then `restart api worker` |
+| `web` unhealthy | `docker compose --env-file .env restart web` |
+| Everything looks "Up" but the site is still down | `docker compose --env-file .env up -d` (starts anything that is missing) |
+| The server itself does not answer (ssh fails) | Hetzner Cloud Console → server → **Power cycle** (reset). Everything starts again on its own. |
+
+**Step 4: check the logs.** If the problem stays, run `docker compose --env-file .env logs --tail=200 api` and send the output to your developer. Do the same for `mongo` if the database is the problem.
+
+**Full disk?** Run `df -h`. If `/` is above 90 % full: `docker system prune -f` (removes old images only, never your data) and delete old files from `backups/` after you have copied them off the server.
+
+**Planned work (maintenance page):** set `MAINTENANCE_MODE=true` in `deploy/hetzner/.env`, then `docker compose --env-file .env up -d api`. Customers see "We'll be right back", and admins can still work in /admin. Set it back to `false` and run the same command again when you are done.
+
+**After a bad deploy:** go back to the previous version with `git log --oneline -5`, then `git checkout PREVIOUS_COMMIT && bash deploy.sh`. Tell your developer.
+
 ## Before the real launch (not part of the test launch)
 
 - Company data on invoices: Steuernummer or USt-IdNr., HRB, managing director

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
 
+import { useDraftState } from '@/hooks/use-draft-state';
 import { api, ApiError } from '@/lib/api';
 import { translateApiError } from '@/lib/i18n/api-errors';
 import { useLocale, useMessages } from '@/lib/i18n/client';
@@ -30,7 +31,7 @@ const validate = (values: Values, privacy: boolean, messages: Record<string, str
 export function ContactForm({ showSubject = true }: { showSubject?: boolean }) {
   const { locale } = useLocale();
   const t = useMessages(messages).form;
-  const [values, setValues] = useState<Values>(EMPTY);
+  const [values, setValues, clearDraft] = useDraftState<Values>('contact', EMPTY);
   const [privacy, setPrivacy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -64,7 +65,7 @@ export function ContactForm({ showSubject = true }: { showSubject?: boolean }) {
         privacyAccepted: true,
       });
       setSent(true);
-      setValues(EMPTY);
+      clearDraft();
       setPrivacy(false);
     } catch (error) {
       if (error instanceof ApiError && error.status === 422) {

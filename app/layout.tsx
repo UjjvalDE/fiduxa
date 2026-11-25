@@ -6,6 +6,7 @@ import { AuthProvider } from '@/lib/auth';
 import { LocaleProvider } from '@/lib/i18n/client';
 import { getLocale } from '@/lib/i18n/server';
 import { Toaster } from '@/componets/ui/sonner';
+import { NetworkStatusProvider } from '@/componets/resilience/network-status';
 
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
 
@@ -57,7 +58,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className={inter.className}>
         <LocaleProvider initialLocale={locale}>
-          <AuthProvider>{children}</AuthProvider>
+          <NetworkStatusProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </NetworkStatusProvider>
         </LocaleProvider>
         <Toaster theme="light" richColors position="top-center" />
       </body>
