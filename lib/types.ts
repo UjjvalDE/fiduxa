@@ -23,6 +23,8 @@ export interface User {
   preferredLanguage?: Locale;
   workerStatus?: WorkerStatus;
   createdAt?: string;
+  /** Social sign-up without phone/address/AGB consent yet (→ /konto/profil-vervollstaendigen) */
+  profileIncomplete?: boolean;
 }
 
 export type ServiceId = 'home-cleaning' | 'deep-cleaning' | 'end-of-tenancy' | 'business-cleaning';
@@ -501,7 +503,8 @@ export interface EarningsSummary {
   paidCents: number;
   totalCents: number;
   nextDueAt: string | null;
-  payoutDelayDays: number;
+  /** earnings of a month are paid on this day of the next month */
+  payoutDayOfMonth: number;
   rateCents?: number;
   defaultRateCents?: number;
 }
@@ -714,7 +717,7 @@ export interface OpenPayoutGroup {
 }
 
 export interface OpenPayoutsResponse {
-  payoutDelayDays: number;
+  payoutDayOfMonth: number;
   defaultRateCents: number;
   totals: {
     dueCents: number;
@@ -1424,13 +1427,13 @@ export type SeriesAction = 'pause' | 'resume' | 'end';
 /* [slot-C-types] */
 /** Money policies (admin settings → policies): cancellation fees, cash rules, payouts */
 export interface PoliciesSettings {
-  cancellation: { freeHours: number; lateFeePct: number; veryLateHours: number; veryLateFeePct: number; cleanerSharePct: number };
+  cancellation: { freeHours: number; lateFeePct: number; cleanerSharePct: number; refundWorkingDays?: number };
   cash: { maxTotalCents: number; minTier: CommissionTierKey; suspendBelowCents: number };
-  payouts: { eligibilityDays: number; fastPayoutDays: number; fastPayoutPct: number; fastPayoutMinTier: CommissionTierKey };
+  payouts: { payoutDayOfMonth: number };
   /** Selectable customer payment methods (owner decision: PayPal only for now) */
   paymentMethods?: { enabled: PaymentMethodKey[] };
 }
-export type CancelFeeTier = 'free' | 'late' | 'very_late';
+export type CancelFeeTier = 'free' | 'late';
 /** GET /customer/bookings/:id/cancel-preview */
 export interface CancelPreview {
   cancellable?: boolean;
@@ -1443,7 +1446,7 @@ export interface CancelPreview {
   refundCents: number;
   outstandingCents: number;
   cleanerCents: number;
-  cutoffs: { start: string; freeUntil: string; veryLateFrom: string };
+  cutoffs: { start: string; freeUntil: string };
   policy: PoliciesSettings['cancellation'];
 }
 export type PriceAdjustmentStatus = 'proposed' | 'open' | 'paid' | 'refunded' | 'waived' | 'declined' | 'expired';
@@ -1556,4 +1559,85 @@ export interface PendingFeedback {
   preferredDate: string;
   completedAt: string | null;
   cleanerName?: string;
+}
+
+/* Complaints (customer → office; cleaner sees a neutral view) */
+export type ComplaintCategory = 'quality' | 'damage' | 'lateness' | 'no_show' | 'behaviour' | 'other';
+export type ComplaintStatus = 'open' | 'in_review' | 'resolved' | 'rejected';
+export type ComplaintActionType = 'refund' | 'voucher' | 'warning' | 'suspend' | 'block' | 'reclean' | 'other';
+export interface ComplaintCounts {
+  total: number;
+  open: number;
+  in_review: number;
+  resolved: number;
+  rejected: number;
+}
+/** GET /customer/bookings/:id/complaints */
+export interface CustomerComplaint {
+  _id: string;
+  bookingRef: string;
+  category: ComplaintCategory;
+  description: string;
+  photoCount: number;
+  status: ComplaintStatus;
+  createdAt: string;
+  remedies: { type: 'refund' | 'voucher' | 'reclean'; amountCents: number | null; giftCardCode?: string; at: string }[];
+  resolution: { message: string; at: string | null } | null;
+}
+/** GET /worker/jobs/complaints */
+export interface WorkerComplaint {
+  _id: string;
+  bookingRef: string;
+  category: ComplaintCategory;
+  status: ComplaintStatus;
+  createdAt: string;
+  restriction: { type: 'warning' | 'suspend' | 'block'; days: number | null; until: string | null; at: string } | null;
+}
+type NamedRef = { _id: string; name: string } | null;
+export interface AdminComplaintListItem {
+  _id: string;
+  bookingRef: string;
+  booking: string;
+  customer: { _id: string; name: string; email: string } | null;
+  worker: { _id: string; name: string; email: string } | null;
+  category: ComplaintCategory;
+  status: ComplaintStatus;
+  createdAt: string;
+  photoCount: number;
+  actionTypes: ComplaintActionType[];
+}
+export interface AdminComplaintsResponse {
+  complaints: AdminComplaintListItem[];
+  counts: ComplaintCounts;
+  workers: { _id: string; name: string; n: number }[];
+  pagination: Pagination;
+}
+export interface AdminComplaintDetail {
+  _id: string;
+  bookingRef: string;
+  category: ComplaintCategory;
+  description: string;
+  status: ComplaintStatus;
+  createdAt: string;
+  photos: { _id: string; name: string; type: string; size: number; uploadedAt: string }[];
+  customer: { _id: string; name: string; email: string; phone?: string; anonymisedAt?: string | null } | null;
+  worker: { _id: string; name: string; email: string; workerStatus: string; isActive: boolean; reliability?: { pausedAt?: string | null; pausedUntil?: string | null } } | null;
+  booking: {
+    _id: string;
+    reference: string;
+    serviceId: string;
+    preferredDate: string;
+    slot: string;
+    slotEnd?: string;
+    status: BookingStatus;
+    payment?: { method?: string; status?: string; amountCents?: number };
+    pricing?: { totalCents?: number };
+  } | null;
+  history: { status: ComplaintStatus; at: string; by: NamedRef; note?: string }[];
+  actions: { _id: string; type: ComplaintActionType; amountCents?: number; days?: number; until?: string; giftCardCode?: string; giftCard?: string; note?: string; at: string; by: NamedRef }[];
+  internalNotes: { _id: string; body: string; at: string; by: NamedRef }[];
+  resolution?: { message?: string; at?: string; by?: NamedRef };
+  customerNotifiedAt?: string | null;
+  refundableCents: number;
+  workerCounts: ComplaintCounts | null;
 }

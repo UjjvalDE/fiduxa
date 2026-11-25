@@ -108,9 +108,8 @@ const settingsSchema = new mongoose.Schema(
       cancellation: {
         freeHours: { type: Number, min: 0, max: 168 },
         lateFeePct: { type: Number, min: 0, max: 100 },
-        veryLateHours: { type: Number, min: 0, max: 168 },
-        veryLateFeePct: { type: Number, min: 0, max: 100 },
         cleanerSharePct: { type: Number, min: 0, max: 100 },
+        refundWorkingDays: { type: Number, min: 1, max: 30 },
       },
       cash: {
         maxTotalCents: { type: Number, min: 0, max: 1000000 },
@@ -118,10 +117,7 @@ const settingsSchema = new mongoose.Schema(
         suspendBelowCents: { type: Number, min: -1000000, max: 0 },
       },
       payouts: {
-        eligibilityDays: { type: Number, min: 0, max: 90 },
-        fastPayoutDays: { type: Number, min: 0, max: 90 },
-        fastPayoutPct: { type: Number, min: 0, max: 100 },
-        fastPayoutMinTier: { type: String, enum: ["new", "bronze", "silver", "gold", "platinum", "diamond"] },
+        payoutDayOfMonth: { type: Number, min: 1, max: 28 },
       },
       // Selectable customer payment methods (POLICIES.paymentMethods)
       paymentMethods: {

@@ -24,13 +24,13 @@ export function PayoutMethodForm({
   method,
   hasBank,
   editable,
-  payoutDelayDays,
+  payoutDayOfMonth,
   onSaved,
 }: {
   method: PayoutMethod;
   hasBank: boolean;
   editable: boolean;
-  payoutDelayDays: number;
+  payoutDayOfMonth: number;
   onSaved: (method: PayoutMethod) => void;
 }) {
   const t = useMessages(portalMessages).earnings.method;
@@ -136,7 +136,7 @@ export function PayoutMethodForm({
 
       <p className="flex items-start gap-2 text-xs text-muted-grey">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        {t.explainer(payoutDelayDays)}
+        {t.explainer(payoutDayOfMonth)}
       </p>
 
       {error && (

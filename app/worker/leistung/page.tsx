@@ -56,6 +56,7 @@ import {
 import { useWorkerOverview } from '../_components/worker-context';
 import messages from './_messages';
 import { TierBadge } from './_components/tier-badge';
+import { WorkerComplaintsCard } from './_components/complaints-card';
 
 /** Simple progress bar (0–100), green once full */
 function Bar({ pct, label }: { pct: number; label?: string }) {
@@ -462,7 +463,14 @@ function PerformancePage() {
   if (error && !data) return <ErrorState message={error} onRetry={reload} />;
   if (!data) return <PageSkeleton label={t.loading} />;
   if (!data.canAccessJobs) return <NotAvailable text={t.approvedOnly} />;
-  return <Performance />;
+  return (
+    <>
+      <Performance />
+      <div className="mt-5">
+        <WorkerComplaintsCard />
+      </div>
+    </>
+  );
 }
 
 export default function WorkerPerformancePage() {

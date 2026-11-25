@@ -315,7 +315,7 @@ const rule = (doc, y, color = "#D9E2DC") => {
 };
 
 const footer = (doc, t) => {
-  const lines = [issuerLines().join(" · "), [INVOICING.taxId && `${t.taxId}: ${INVOICING.taxId}`, INVOICING.email && `${t.email}: ${INVOICING.email}`].filter(Boolean).join(" · ")].filter(Boolean);
+  const lines = [issuerLines().join(" · "), [INVOICING.taxId && `${t.taxId}: ${INVOICING.taxId}`, INVOICING.phone && `Tel. ${INVOICING.phone}`, INVOICING.email && `${t.email}: ${INVOICING.email}`].filter(Boolean).join(" · "), INVOICING.managingDirector && `Geschäftsführer: ${INVOICING.managingDirector}`].filter(Boolean);
   // Footer sits inside the bottom margin – lift the margin so pdfkit does not
   // push it onto a second page.
   const bottom = doc.page.margins.bottom;

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { protect } from "../middleware/auth.middleware.js";
+import { protect, requireCompleteProfile } from "../middleware/auth.middleware.js";
 
 import {
   cancelMyBooking,
@@ -13,6 +13,7 @@ import { messageHandlers } from "../controllers/booking-message.controller.js";
 import { createReview } from "../controllers/review.controller.js";
 import { getMySeries, listMySeries, skipMyOccurrence, updateMySeries } from "../controllers/recurring-series.controller.js";
 import { dismissMyFeedback, getMyPendingFeedback } from "../controllers/job-feedback.controller.js";
+import { createMyComplaint, listMyBookingComplaints } from "../controllers/complaint.controller.js";
 
 const customerMessages = messageHandlers("customer");
 
@@ -28,11 +29,14 @@ customerBookingRouter.get("/:id/cancel-preview", getCancelPreview);
 customerBookingRouter.post("/:id/cancel", cancelMyBooking);
 // Price adjustments (duration review / edits of paid bookings): customer decides, pays
 customerBookingRouter.post("/:id/adjustments/:adjId", decideMyAdjustment);
-customerBookingRouter.post("/:id/adjustments/:adjId/pay", payMyAdjustment);
+customerBookingRouter.post("/:id/adjustments/:adjId/pay", requireCompleteProfile, payMyAdjustment);
 customerBookingRouter.patch("/:id", editOwnBooking);
 customerBookingRouter.get("/:id/messages", customerMessages.list);
 customerBookingRouter.post("/:id/messages", customerMessages.create);
 customerBookingRouter.post("/:id/review", createReview);
+// Complaints about the cleaning (own bookings only)
+customerBookingRouter.get("/:id/complaints", listMyBookingComplaints);
+customerBookingRouter.post("/:id/complaints", createMyComplaint);
 
 // Recurring cleaning plans ("Mein Putzplan") – mounted at /api/v1/customer/series
 export const customerSeriesRouter = Router();

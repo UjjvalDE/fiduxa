@@ -77,6 +77,8 @@ const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}/api/v1`;
 process.env.OAUTH_CALLBACK_BASE_URL = `${base}/auth/oauth`;
 const SITE = "http://localhost:3000";
+const COMPLETE = `${SITE}/konto/profil-vervollstaendigen`;
+const completeUrl = (next) => `${COMPLETE}?${new URLSearchParams({ next })}`;
 
 const { check, summary } = createChecker();
 const call = async (method, p, body, token) => {
@@ -156,7 +158,7 @@ check("flow cookie HttpOnly, scoped to the oauth path", Boolean(s.cookie) && /Ht
 
 // ---------- New customer via Google ----------
 let g = await googleLogin({ sub: "g-new-1", email: "Neu.Kunde@Example.com", email_verified: true, name: "Neu Kunde" }, { query: "?next=%2Fbuchung&from=checkout&lang=en" });
-check("new google user → redirect to return URL", g.status === 302 && g.location === `${SITE}/buchung`, g.location);
+check("new google user → profile completion page, original next kept", g.status === 302 && g.location === completeUrl("/buchung"), g.location);
 const tokenReq = tokenRequests.at(-1);
 check("token request carries the PKCE verifier matching the challenge", tokenReq?.form.code_verifier && createHash("sha256").update(tokenReq.form.code_verifier).digest("base64url") === g.start.params.get("code_challenge"));
 check("token request: client secret + redirect uri", tokenReq?.form.client_secret === "google-secret" && tokenReq?.form.redirect_uri === `${base}/auth/oauth/google/callback`);
@@ -180,6 +182,69 @@ const decoded = jose.decodeJwt(oauthToken);
 const decodedPw = jose.decodeJwt(cookieValue(pwCookie));
 check("social JWT has same claim shape + lifetime as password JWT", Object.keys(decoded).sort().join() === Object.keys(decodedPw).sort().join() && decoded.exp - decoded.iat === 604800, { decoded, decodedPw });
 check("flow cookie cleared after callback", /fiduxa_oauth=;/.test(g.headers.getSetCookie().join("\n")));
+const pwUser = await User.findOne({ email: "pass@t.local" });
+check("password registration stores AGB + Datenschutz consent (version + time)", pwUser.legalConsent?.termsVersion && pwUser.legalConsent.termsAcceptedAt && pwUser.legalConsent.privacyVersion && pwUser.legalConsent.privacyAcceptedAt && pwUser.legalConsent.source === "register" && !pwUser.profileCompletionRequired);
+
+// ---------- Profile completion (new social accounts) ----------
+check("new OAuth user flagged incomplete, no consents yet", created.profileCompletionRequired === true && !created.profileCompletedAt && !created.legalConsent?.termsAcceptedAt);
+r = await call("GET", "/auth/me", null, oauthToken);
+check("/auth/me reports profileIncomplete", r.body.user?.profileIncomplete === true, r.body.user);
+r = await call("GET", "/users/me", null, oauthToken);
+check("/users/me reports profileIncomplete", r.body.user?.profileIncomplete === true);
+r = await call("GET", "/users/me/complete-profile", null, oauthToken);
+check("completion prefill: name, read-only email, versions", r.status === 200 && r.body.required === true && r.body.profile?.name === "Neu Kunde" && r.body.profile.email === "neu.kunde@example.com" && r.body.versions?.terms, r.body);
+r = await call("POST", "/bookings", { serviceId: "home-cleaning" }, oauthToken);
+check("booking creation blocked → 409 PROFILE_INCOMPLETE", r.status === 409 && r.body.code === "PROFILE_INCOMPLETE", r);
+r = await call("POST", "/gift-cards", { amountCents: 5000 }, oauthToken);
+check("gift card purchase blocked → 409 PROFILE_INCOMPLETE", r.status === 409 && r.body.code === "PROFILE_INCOMPLETE", r);
+r = await call("POST", "/payments/checkout", { bookingId: "000000000000000000000000" }, oauthToken);
+check("payment checkout blocked → 409 PROFILE_INCOMPLETE", r.status === 409 && r.body.code === "PROFILE_INCOMPLETE", r);
+r = await call("POST", "/payments/paypal/capture", {}, oauthToken);
+check("paypal capture blocked → 409 PROFILE_INCOMPLETE", r.status === 409 && r.body.code === "PROFILE_INCOMPLETE");
+r = await call("GET", "/bookings/my-bookings", null, oauthToken);
+check("browsing own data still works while incomplete", r.status === 200, r.status);
+
+const okProfile = { name: "Neu Kunde", phone: "+49 30 1234567", address: "Musterstraße 1", postcode: "10115", city: "Berlin", floor: "3. OG", accessNotes: "Klingel Kunde", acceptTerms: true, acceptPrivacy: true };
+const bad = async (label, patch, field) => {
+  r = await call("POST", "/users/me/complete-profile", { ...okProfile, ...patch }, oauthToken);
+  check(`completion rejects ${label}`, r.status === 400 && (r.body.details ?? []).some((d) => d.field === field), r.body);
+};
+await bad("missing AGB consent", { acceptTerms: undefined }, "acceptTerms");
+await bad("AGB consent false", { acceptTerms: false }, "acceptTerms");
+await bad("missing Datenschutz consent", { acceptPrivacy: undefined }, "acceptPrivacy");
+await bad("missing phone", { phone: "" }, "phone");
+await bad("bad phone", { phone: "call me maybe" }, "phone");
+await bad("too short phone", { phone: "12-3" }, "phone");
+await bad("non-Berlin PLZ", { postcode: "80331" }, "postcode");
+await bad("missing street", { address: "" }, "address");
+await bad("missing name", { name: " " }, "name");
+check("rejected attempts leave the account incomplete", (await User.findById(created._id)).profileCompletionRequired === true);
+r = await call("POST", "/users/me/complete-profile", { ...okProfile, marketingOptIn: false }, oauthToken);
+check("completion succeeds", r.status === 200 && r.body.user?.phone === "+49 30 1234567" && r.body.address?.postcode === "10115", r.body);
+created = await User.findById(created._id);
+check("completion stores consents with version + timestamp", Boolean(created.legalConsent?.termsVersion && created.legalConsent.privacyVersion && created.legalConsent.termsAcceptedAt instanceof Date && created.legalConsent.source === "complete_profile"), created.legalConsent);
+check("marketing opt-in stays off unless chosen", created.legalConsent?.marketingOptIn === false && !created.legalConsent.marketingOptInAt);
+check("completion stores phone + address", created.phone === "+49 30 1234567" && created.household?.address === "Musterstraße 1" && created.household.postcode === "10115" && created.household.floor === "3. OG" && created.household.accessNotes === "Klingel Kunde");
+check("flag cleared, completedAt set", !created.profileCompletionRequired && created.profileCompletedAt instanceof Date);
+check("audit: user.profile_completed", Boolean(await AuditLog.exists({ action: "user.profile_completed", entityId: created._id })));
+r = await call("GET", "/users/me/address", null, oauthToken);
+check("saved address visible via /users/me/address", r.body.address?.address === "Musterstraße 1" && r.body.address.city === "Berlin");
+r = await call("POST", "/bookings", { serviceId: "home-cleaning" }, oauthToken);
+check("after completion booking is no longer blocked", r.status !== 409 || r.body.code !== "PROFILE_INCOMPLETE", r);
+r = await call("GET", "/auth/me", null, oauthToken);
+check("/auth/me no longer flags the profile", !r.body.user?.profileIncomplete);
+
+// Completion page next validation
+g = await googleLogin({ sub: "g-new-2", email: "neu2@example.com", email_verified: true, name: "Zwei Kunde" }, { query: `?next=${encodeURIComponent("//evil.example/x")}` });
+check("new user with bad next → completion page with next=/konto", g.location === completeUrl("/konto"), g.location);
+g = await googleLogin({ sub: "g-new-2", email: "neu2@example.com", email_verified: true }, { query: `?next=${encodeURIComponent("/gutscheine?x=1")}` });
+check("incomplete user signing in again → completion page again (relative next kept)", g.location === completeUrl("/gutscheine?x=1"), g.location);
+const t2 = cookieValue(g.session);
+r = await call("POST", "/users/me/complete-profile", { ...okProfile, marketingOptIn: true }, t2);
+const neu2 = await User.findOne({ email: "neu2@example.com" });
+check("marketing opt-in stored with timestamp when chosen", r.status === 200 && neu2.legalConsent?.marketingOptIn === true && neu2.legalConsent.marketingOptInAt instanceof Date);
+r = await call("POST", "/auth/logout", {}, t2);
+check("logout works", r.status === 200);
 
 // Second login with the same sub (email changed at Google) → same account
 g = await googleLogin({ sub: "g-new-1", email: "changed@example.com", email_verified: true });
@@ -199,6 +264,7 @@ g = await googleLogin({ sub: "g-klara", email: "KLARA@t.local", email_verified: 
 let k = await User.findById(klara._id);
 check("verified email links existing customer", g.location === `${SITE}/konto` && k.oauth?.googleSub === "g-klara" && jose.decodeJwt(cookieValue(g.session)).userId === String(klara._id), g.location);
 check("linking marks email verified", k.emailVerified === true);
+check("linked existing customer not flagged incomplete", !k.profileCompletionRequired);
 check("audit: oauth_link", Boolean(await AuditLog.exists({ action: "auth.oauth_link", entityId: klara._id })));
 r = await call("POST", "/auth/login", { email: "klara@t.local", password: "Password12345" });
 check("linked customer keeps password login", r.status === 200 && r.body.user?.id === String(klara._id));
@@ -275,7 +341,7 @@ const bounce = new URL(post.headers.get("location") ?? "", `${base}/auth/oauth/a
 check("apple form_post → 303 to the same-site GET callback", post.status === 303 && bounce.pathname === "/api/v1/auth/oauth/apple/callback" && bounce.searchParams.get("code") === "a-1", post.headers.get("location"));
 check("form_post does not log in by itself", !cookieOf(post.headers, "fiduxa_session"));
 c = await callback("apple", Object.fromEntries(bounce.searchParams), s.cookie);
-check("apple first login → redirect /konto with session", c.location === `${SITE}/konto` && /Max-Age=604800/.test(c.session ?? ""), c.location);
+check("apple first login → completion page with session", c.location === completeUrl("/konto") && /Max-Age=604800/.test(c.session ?? ""), c.location);
 let zofia = await User.findOne({ "oauth.appleSub": "apple-001" });
 check("apple first login stores the name sent once", zofia?.name === "Zofia Kowalska" && zofia.preferredLanguage === "pl", zofia);
 check("private relay email accepted and flagged", zofia?.email === "abc123@privaterelay.appleid.com" && zofia.oauth.applePrivateEmail === true);
@@ -292,12 +358,14 @@ s = await start("apple");
 codes.set("a-2", { claims: { nonce: s.params.get("nonce"), sub: "apple-001", email: "abc123@privaterelay.appleid.com", email_verified: true } });
 c = await callback("apple", { code: "a-2", state: s.params.get("state") }, s.cookie);
 zofia = await User.findById(zofia._id);
-check("apple repeat login (no name sent) keeps the stored name", c.location === `${SITE}/konto` && zofia.name === "Zofia Kowalska");
+check("apple repeat login (no name sent) keeps the stored name", c.location === completeUrl("/konto") && zofia.name === "Zofia Kowalska");
 s = await start("apple");
 codes.set("a-3", { claims: { nonce: s.params.get("nonce"), sub: "apple-002", email: "q9@privaterelay.appleid.com", email_verified: true, is_private_email: true } });
 c = await callback("apple", { code: "a-3", state: s.params.get("state") }, s.cookie);
 const noName = await User.findOne({ "oauth.appleSub": "apple-002" });
 check("apple without name + relay email → neutral default name", noName?.name === "Fiduxa Kunde", noName?.name);
+r = await call("GET", "/users/me/complete-profile", null, cookieValue(c.session));
+check("completion prefill: placeholder name left empty, relay email flagged", r.body.profile?.name === "" && r.body.profile.privateRelayEmail === true, r.body.profile);
 s = await start("apple");
 codes.set("a-4", { claims: { nonce: s.params.get("nonce"), sub: "apple-003", email: "x@t.local", email_verified: true, aud: "google-client.apps.test" } });
 c = await callback("apple", { code: "a-4", state: s.params.get("state") }, s.cookie);
@@ -341,7 +409,7 @@ s = await start("apple");
 codes.set("a-6", { claims: { nonce: s.params.get("nonce"), sub: "apple-001", email: "abc123@privaterelay.appleid.com", email_verified: true } });
 c = await callback("apple", { code: "a-6", state: s.params.get("state") }, s.cookie);
 const fresh = await User.findOne({ "oauth.appleSub": "apple-001" });
-check("signing in again after deletion starts a fresh account", c.location === `${SITE}/konto` && fresh && String(fresh._id) !== String(zofia._id));
+check("signing in again after deletion starts a fresh account (completion again)", c.location === completeUrl("/konto") && fresh?.profileCompletionRequired === true && fresh && String(fresh._id) !== String(zofia._id));
 r = await call("DELETE", "/users/me", { password: "Password12345" }, pwLogin.body.token);
 check("password accounts still delete with the password", r.status === 200, r.body);
 

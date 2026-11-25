@@ -8,11 +8,9 @@ import Payment from "../models/payment.model.js";
 import { recordAudit } from "../services/audit.service.js";
 import {
   adjustGiftCardBalance,
-  expiryFor,
-  generateGiftCardCode,
   normalizeGiftCardCode,
 } from "../services/gift-card.service.js";
-import { deliverGiftCard } from "../services/gift-card-purchase.service.js";
+import { deliverGiftCard, issueAdminGiftCard } from "../services/gift-card-purchase.service.js";
 import { escapeRegex, getPagination, paginationMeta } from "../utils/helpers.js";
 
 // GET /api/v1/admin/gift-cards?search=&status=&page=
@@ -171,34 +169,8 @@ export const issueGiftCard = async (req, res, next) => {
         sendEmail: z.boolean().optional().default(true),
       })
       .parse(req.body);
-    const now = new Date();
-    const card = await GiftCard.create({
-      code: await generateGiftCardCode(),
-      status: "active",
-      initialCents: data.amountCents,
-      balanceCents: data.amountCents,
-      senderName: "Fiduxa",
-      recipientName: data.recipientName,
-      recipientEmail: data.recipientEmail.toLowerCase(),
-      message: data.message,
-      locale: data.locale,
-      payment: { method: "admin", paidAt: now, payable: false },
-      expiresAt: expiryFor(now),
-      issuedBy: req.user._id,
-      deliveryStatus: data.sendEmail ? "pending" : "sent",
-    });
-    await GiftCardTransaction.create({
-      giftCard: card._id,
-      type: "issue",
-      amountCents: data.amountCents,
-      balanceAfterCents: data.amountCents,
-      actor: req.user._id,
-      note: data.reason,
-      idempotencyKey: `issue:${card._id}`,
-    });
-    if (data.sendEmail) await deliverGiftCard(card._id);
-    await recordAudit({ actor: req.user._id, action: "giftcard.issued", entityType: "GiftCard", entityId: card._id, after: { amountCents: data.amountCents, reason: data.reason } });
-    return res.status(201).json({ success: true, giftCard: await GiftCard.findById(card._id) });
+    const giftCard = await issueAdminGiftCard({ ...data, actorId: req.user._id });
+    return res.status(201).json({ success: true, giftCard });
   } catch (error) {
     next(error);
   }

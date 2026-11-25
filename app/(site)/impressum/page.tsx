@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 import type { Locale } from '@/lib/i18n/config';
 import { getLocale } from '@/lib/i18n/server';
-import { CONTACT } from '../_shared/catalogue';
+import { COMPANY, CONTACT } from '../_shared/catalogue';
 import { LegalPage, P, type LegalSection } from '../_shared/legal';
 
 type Content = { title: string; intro: React.ReactNode; sections: LegalSection[] };
@@ -16,11 +16,11 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Anbieter',
         body: (
           <p>
-            <P>Vollständiger Firmenname inkl. Rechtsform</P>
+            {COMPANY.name}
             <br />
-            <P>Straße und Hausnummer</P>
+            {COMPANY.street}
             <br />
-            <P>PLZ</P> Berlin
+            {COMPANY.postcode} {COMPANY.city}
             <br />
             Deutschland
           </p>
@@ -30,7 +30,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Vertreten durch',
         body: (
           <p>
-            <P>Name der vertretungsberechtigten Person(en), z. B. Geschäftsführung</P>
+            Geschäftsführer: {COMPANY.representative}
           </p>
         ),
       },
@@ -38,7 +38,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Kontakt',
         body: (
           <p>
-            Telefon: <P>Telefonnummer</P>
+            Telefon: <a href={CONTACT.phoneHref}>{CONTACT.phoneDisplay}</a>
             <br />
             E-Mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
           </p>
@@ -78,7 +78,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Verantwortlich für den Inhalt',
         body: (
           <p>
-            <P>Name und Anschrift der inhaltlich verantwortlichen Person, sofern erforderlich (z. B. nach § 18 Abs. 2 MStV)</P>
+            {COMPANY.representative}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}
           </p>
         ),
       },
@@ -111,11 +111,11 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Provider',
         body: (
           <p>
-            <P>Full company name incl. legal form</P>
+            {COMPANY.name}
             <br />
-            <P>Street and house number</P>
+            {COMPANY.street}
             <br />
-            <P>Postcode</P> Berlin
+            {COMPANY.postcode} {COMPANY.city}
             <br />
             Germany
           </p>
@@ -125,7 +125,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Represented by',
         body: (
           <p>
-            <P>Name of the authorised representative(s), e.g. managing director(s)</P>
+            Managing director: {COMPANY.representative}
           </p>
         ),
       },
@@ -133,7 +133,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Contact',
         body: (
           <p>
-            Phone: <P>phone number</P>
+            Phone: <a href={CONTACT.phoneHref}>{CONTACT.phoneDisplay}</a>
             <br />
             Email: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
           </p>
@@ -173,7 +173,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Responsible for the content',
         body: (
           <p>
-            <P>Name and address of the person responsible for the content, if required (e.g. under Section 18(2) MStV)</P>
+            {COMPANY.representative}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}
           </p>
         ),
       },
@@ -203,11 +203,11 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Usługodawca',
         body: (
           <p>
-            <P>Pełna nazwa firmy wraz z formą prawną</P>
+            {COMPANY.name}
             <br />
-            <P>Ulica i numer domu</P>
+            {COMPANY.street}
             <br />
-            <P>Kod pocztowy</P> Berlin
+            {COMPANY.postcode} {COMPANY.city}
             <br />
             Niemcy
           </p>
@@ -217,7 +217,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Reprezentowany przez',
         body: (
           <p>
-            <P>Imię i nazwisko osoby upoważnionej do reprezentacji, np. zarządu</P>
+            Dyrektor zarządzający: {COMPANY.representative}
           </p>
         ),
       },
@@ -225,7 +225,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Kontakt',
         body: (
           <p>
-            Telefon: <P>numer telefonu</P>
+            Telefon: <a href={CONTACT.phoneHref}>{CONTACT.phoneDisplay}</a>
             <br />
             E-mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
           </p>
@@ -265,7 +265,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Odpowiedzialny za treść',
         body: (
           <p>
-            <P>Imię, nazwisko i adres osoby odpowiedzialnej za treść, jeśli jest to wymagane (np. zgodnie z § 18 ust. 2 MStV)</P>
+            {COMPANY.representative}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}
           </p>
         ),
       },

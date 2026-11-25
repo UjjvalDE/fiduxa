@@ -15,6 +15,9 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // Docker/Hetzner image (deploy/hetzner) builds a self-contained server;
+  // Netlify builds without it.
+  ...(process.env.NEXT_OUTPUT_STANDALONE === '1' ? { output: 'standalone' } : {}),
   poweredByHeader: false,
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];

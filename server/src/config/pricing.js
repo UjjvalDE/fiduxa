@@ -130,7 +130,9 @@ Object.defineProperty(RECURRING, "defaults", { value: RECURRING_DEFAULTS, enumer
 // Placeholders until the owner fills them in; the VAT/legal model is settled
 // with the tax adviser, so VAT display and the note are configurable too.
 export const INVOICING = {
-  companyName: process.env.INVOICE_COMPANY_NAME || "Fiduxa GmbH",
+  companyName: process.env.INVOICE_COMPANY_NAME || "Fiduxa GmbH & Co. KG",
+  managingDirector: process.env.INVOICE_MANAGING_DIRECTOR || "Ujjval",
+  phone: process.env.INVOICE_PHONE || "+49 155 6607 4974",
   addressLines: (process.env.INVOICE_ADDRESS_LINES || "Putlitzstraße 4|10551 Berlin|Deutschland").split("|").map((l) => l.trim()).filter(Boolean),
   // USt-IdNr. or Steuernummer
   taxId: process.env.INVOICE_TAX_ID || "",
@@ -145,11 +147,12 @@ export const INVOICING = {
 // cancellation fees, cash limits and payout eligibility. All cents are integers.
 export const POLICIES = {
   cancellation: {
+    // Owner decision: one tier only – free until 24 h before, 20 % inside 24 h
+    // (also when the cleaner cannot get access). No separate "very late" tier.
     freeHours: 24, // free of charge until this many hours before the start
-    lateFeePct: 50, // fee (% of the price) inside freeHours
-    veryLateHours: 4, // inside this window (or no access) the full fee applies
-    veryLateFeePct: 100,
+    lateFeePct: 20, // fee (% of the price) inside freeHours
     cleanerSharePct: 80, // share of any fee the assigned cleaner receives
+    refundWorkingDays: 7, // promise: refunds reach the customer via PayPal within 7 working days
   },
   cash: {
     maxTotalCents: 15000, // cash only up to this booking total
@@ -157,10 +160,10 @@ export const POLICIES = {
     suspendBelowCents: -10000, // cleaner net balance (pay − cash held) below → no new cash jobs
   },
   payouts: {
-    eligibilityDays: 7, // weekly settlement: earnings become due after 7 days
-    fastPayoutDays: 3, // Silver+: partial payout possible after 3 days …
-    fastPayoutPct: 50, // … for this share of the pending amount
-    fastPayoutMinTier: "silver",
+    // Owner decision: monthly settlement. Earnings of a calendar month (Berlin)
+    // become due on this day of the following month. (The former Silver+ fast
+    // partial payout was dropped – it does not fit a monthly cycle.)
+    payoutDayOfMonth: 5,
   },
   // Owner decision (PayPal only for now): which customer payment methods can be
   // CHOSEN for new payments (bookings, edits, gift cards, pay links, manual

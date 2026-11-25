@@ -1,0 +1,31 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	# Test site: keep it out of search engines
+	header X-Robots-Tag "noindex, nofollow"
+
+	# Provider callbacks must reach the API without the password gate
+	# (PayPal/Stripe webhooks, Apple's form_post login callback).
+	@callbacks path /api/v1/payments/webhook /api/v1/payments/paypal/webhook /api/v1/auth/oauth/*
+	handle @callbacks {
+		reverse_proxy api:3100
+	}
+
+	# Everything else: password gate for testers
+	handle {
+		basic_auth {
+			{$GATE_USER} {$GATE_PASSWORD_HASH}
+		}
+		@api path /api/* /ready /health
+		handle @api {
+			reverse_proxy api:3100
+		}
+		handle {
+			reverse_proxy web:3000
+		}
+	}
+}

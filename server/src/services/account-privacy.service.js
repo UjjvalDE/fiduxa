@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 
 import Booking from "../models/booking.model.js";
 import BookingMessage from "../models/booking-message.model.js";
+import Complaint from "../models/complaint.model.js";
 import GiftCard from "../models/gift-card.model.js";
 import Payout from "../models/payout.model.js";
 import PersonalCode from "../models/personal-code.model.js";
@@ -66,7 +67,7 @@ const BOOKING_EXPORT_FIELDS =
 /** Everything we store about the user, as plain JSON */
 export const exportUserData = async (user) => {
   const id = user._id;
-  const [bookings, reviewsWritten, reviewsReceived, messages, giftCards, personalCodes, payouts, assignedJobs] = await Promise.all([
+  const [bookings, reviewsWritten, reviewsReceived, messages, giftCards, personalCodes, payouts, assignedJobs, complaints] = await Promise.all([
     Booking.find({ customer: id }).select(BOOKING_EXPORT_FIELDS).sort({ createdAt: -1 }).lean(),
     Review.find({ customer: id }).select("booking worker rating punctuality quality friendliness comment recommend createdAt").lean(),
     user.role === "worker" ? Review.find({ worker: id }).select("booking rating punctuality quality friendliness comment createdAt").lean() : [],
@@ -77,6 +78,8 @@ export const exportUserData = async (user) => {
     user.role === "worker"
       ? Booking.find({ assignedWorker: id }).select("reference serviceId preferredDate slot slotEnd status job workerPayout createdAt").sort({ preferredDate: -1 }).lean()
       : [],
+    // Complaints the customer filed (no internal office notes; photos as metadata only)
+    Complaint.find({ customer: id }).select("bookingRef category description status resolution.message resolution.at photos.name photos.size createdAt").sort({ createdAt: -1 }).lean(),
   ]);
 
   const profile = {
@@ -95,6 +98,7 @@ export const exportUserData = async (user) => {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     household: user.household ?? null,
+    legalConsent: user.legalConsent ?? null,
     recurringCleanerPreference: user.recurringCleanerPreference ?? null,
     ...(user.role === "worker" && {
       workerStatus: user.workerStatus,
@@ -122,6 +126,7 @@ export const exportUserData = async (user) => {
     messages,
     giftCards: giftCards.map((g) => ({ ...g, code: g.status === "pending_payment" ? undefined : g.code })),
     personalCodes,
+    complaints,
     ...(user.role === "worker" && { assignedJobs, payouts }),
   };
 };
@@ -209,6 +214,15 @@ export const anonymiseUser = async (user, { actorId, reason = "", self = false }
   // 5. Gift cards bought by the user: sender data removed (the card itself stays valid for the recipient)
   await GiftCard.updateMany({ purchaser: id }, { $set: { senderName: DELETED_CUSTOMER, senderEmail: "", message: "" } });
 
+  // 5b. Complaints filed by the customer: free text, photos and office notes
+  //     erased; category / status / remedies stay (cleaner's history, accounting)
+  const complaintsAnonymised = (
+    await Complaint.updateMany(
+      { customer: id, anonymisedAt: { $exists: false } },
+      { $set: { description: "[gelöscht]", photos: [], "resolution.message": "", "internalNotes.$[].body": "[gelöscht]", anonymisedAt: now } }
+    )
+  ).modifiedCount;
+
   // 6. Cleaner: unpaid earnings? Payout details stay until the last payout settles.
   const unpaid = isWorker ? await unpaidEarnings(id) : { count: 0, cents: 0 };
   const retainPayout = unpaid.count > 0;
@@ -266,10 +280,10 @@ export const anonymiseUser = async (user, { actorId, reason = "", self = false }
     entityType: "User",
     entityId: id,
     before,
-    after: { reason, unpaidEarningsCents: unpaid.cents, payoutDetailsRetained: retainPayout, documentsPurged, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messages, codesRevoked: codes, retentionYears: RETENTION_YEARS },
+    after: { reason, unpaidEarningsCents: unpaid.cents, payoutDetailsRetained: retainPayout, documentsPurged, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messages, codesRevoked: codes, complaintsAnonymised, retentionYears: RETENTION_YEARS },
   });
 
-  return { unpaidEarningsCents: unpaid.cents, payoutDetailsRetained: retainPayout, documentsPurged, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messagesAnonymised: messages, codesRevoked: codes, retentionYears: RETENTION_YEARS };
+  return { unpaidEarningsCents: unpaid.cents, payoutDetailsRetained: retainPayout, documentsPurged, bookingsAnonymised: bookingUpdate.modifiedCount, reviewsUnlinked: reviews, messagesAnonymised: messages, codesRevoked: codes, complaintsAnonymised, retentionYears: RETENTION_YEARS };
 };
 
 const clearPayoutDetails = (worker) => {

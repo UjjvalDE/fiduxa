@@ -90,6 +90,15 @@ export const getExtrasContent = (locale: Locale): ExtraContent[] =>
 /** Contact details as shown on the homepage and contact page. */
 export const CONTACT = {
   email: 'service.fiduxa@gmail.com',
-  phoneDisplay: '+49 30 123 45 678',
-  phoneHref: 'tel:+493012345678',
+  phoneDisplay: '+49 155 6607 4974',
+  phoneHref: 'tel:+4915566074974',
+};
+
+// Company data (Impressum, invoices). Keep in sync with INVOICING in server/src/config/pricing.js.
+export const COMPANY = {
+  name: 'Fiduxa GmbH & Co. KG',
+  street: 'Putlitzstraße 4',
+  postcode: '10551',
+  city: 'Berlin',
+  representative: 'Ujjval',
 };

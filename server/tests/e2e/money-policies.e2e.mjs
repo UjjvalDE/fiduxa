@@ -1,7 +1,7 @@
-// E2E: money policies – cancellation fees (free / 50 % / 100 %) with partial
+// E2E: money policies – cancellation fees (free / 20 %, single tier) with partial
 // refunds and cleaner compensation, admin partial refunds, cash limits and
 // cash-tier rules, cash mismatch flag, price-delta settlement after edits,
-// duration adjustments approved by the customer, weekly payout eligibility,
+// duration adjustments approved by the customer, monthly payout eligibility (5th),
 // permissions. Fake Stripe API + throwaway MongoDB (27999). NO real money.
 import http from "node:http";
 
@@ -126,12 +126,14 @@ let b;
 
 // ---------- 1. Settings: policies section with owner defaults ----------
 let s = await settings();
-check("1. settings expose policies defaults (free 24 h, 50/100 %, cash ≤ 150 €, weekly payouts)",
-  s.policies?.cancellation?.freeHours === 24 && s.policies.cancellation.lateFeePct === 50 && s.policies.cancellation.veryLateFeePct === 100 &&
-  s.policies.cash?.maxTotalCents === 15000 && s.policies.cash.minTier === "bronze" && s.policies.payouts?.eligibilityDays === 7 && s.policies.payouts.fastPayoutMinTier === "silver",
+check("1. settings expose policies defaults (free 24 h, 20 %, no very-late tier, cash ≤ 150 €, monthly payouts on the 5th)",
+  s.policies?.cancellation?.freeHours === 24 && s.policies.cancellation.lateFeePct === 20 && s.policies.cancellation.veryLateFeePct === undefined &&
+  s.policies.cash?.maxTotalCents === 15000 && s.policies.cash.minTier === "bronze" && s.policies.payouts?.payoutDayOfMonth === 5 && s.policies.payouts.fastPayoutMinTier === undefined,
   s.policies);
-r = await putPolicies({ cancellation: { veryLateHours: 48 } });
-check("1b. invalid policy (very-late window outside free window) → 422", r.status === 422, r.status);
+r = await putPolicies({ cancellation: { lateFeePct: 120 } });
+check("1b. invalid policy (fee above 100 %) → 422", r.status === 422, r.status);
+r = await putPolicies({ payouts: { payoutDayOfMonth: 31 } });
+check("1c. invalid payout day (31) → 422", r.status === 422, r.status);
 
 // ---------- 2. Cancel preview tiers ----------
 const bookingA = await bookPaidStripe(day(5), "09:00");
@@ -140,54 +142,54 @@ check("2. Stripe booking paid + confirmed (fixture)", b.status === "confirmed" &
 r = await call("GET", `/customer/bookings/${bookingA}/cancel-preview`, null, custT);
 check("2a. > 24 h before start → free (fee 0, full refund)", r.status === 200 && r.body.tier === "free" && r.body.feeCents === 0 && r.body.refundCents === 7500 && r.body.cutoffs?.freeUntil, r.body);
 // Policy fixture instead of waiting: widen the windows so "now" is inside them
-r = await putPolicies({ cancellation: { freeHours: 168, veryLateHours: 4 } });
+r = await putPolicies({ cancellation: { freeHours: 168 } });
 check("2b. admin widens the free-cancellation window (settings saved)", r.status === 200 && r.body.settings?.policies?.cancellation?.freeHours === 168, r.body);
 r = await call("GET", `/customer/bookings/${bookingA}/cancel-preview`, null, custT);
-check("2c. < 24 h (policy) → 50 % fee: 37,50 € fee, 37,50 € refund", r.body.tier === "late" && r.body.feeCents === 3750 && r.body.refundCents === 3750 && r.body.feePct === 50, r.body);
-await putPolicies({ cancellation: { veryLateHours: 168 } });
-r = await call("GET", `/customer/bookings/${bookingA}/cancel-preview`, null, custT);
-check("2d. < 4 h (policy) → 100 % fee, no refund", r.body.tier === "very_late" && r.body.feeCents === 7500 && r.body.refundCents === 0, r.body);
-await putPolicies({ cancellation: { veryLateHours: 4 } }); // back to the 50 % case
+check("2c. inside the free window → 20 % fee: 15,00 € fee, 60,00 € refund", r.body.tier === "late" && r.body.feeCents === 1500 && r.body.refundCents === 6000 && r.body.feePct === 20, r.body);
+check("2d. no separate very-late tier (no veryLateFrom cut-off, policy without veryLate*)", r.body.cutoffs?.veryLateFrom === undefined && r.body.policy?.veryLateFeePct === undefined && r.body.policy?.refundWorkingDays === 7, r.body);
 
 // ---------- 3. Late cancellation of a paid booking with an assigned cleaner ----------
 await call("PATCH", `/admin/bookings/${bookingA}/assign`, { workerId: String(anna._id) }, adminT);
 r = await call("POST", `/customer/bookings/${bookingA}/cancel`, { reason: "Termin passt nicht" }, custT);
-check("3. cancel without confirming the fee → 409 FEE_CHANGED with the fee", r.status === 409 && r.body.code === "FEE_CHANGED" && r.body.feeCents === 3750, r.body);
+check("3. cancel without confirming the fee → 409 FEE_CHANGED with the fee", r.status === 409 && r.body.code === "FEE_CHANGED" && r.body.feeCents === 1500, r.body);
 r = await call("POST", `/customer/bookings/${bookingA}/cancel`, { confirmFeeCents: 100 }, custT);
 check("3a. wrong confirmed fee → 409 FEE_CHANGED", r.status === 409 && r.body.code === "FEE_CHANGED", r.body);
 const refundsBefore = stripeCalls.filter((c) => c.url === "/v1/refunds").length;
-r = await call("POST", `/customer/bookings/${bookingA}/cancel`, { confirmFeeCents: 3750, reason: "Termin passt nicht" }, custT);
+r = await call("POST", `/customer/bookings/${bookingA}/cancel`, { confirmFeeCents: 1500, reason: "Termin passt nicht" }, custT);
 b = await Booking.findById(bookingA);
-check("3b. confirmed fee → cancelled, partial refund 37,50 €, payment partially_refunded",
-  r.status === 200 && r.body.refunded === true && r.body.fee?.refundCents === 3750 && b.status === "cancelled" && b.payment.status === "partially_refunded" &&
-  b.cancellation.feeCents === 3750 && b.cancellation.charged === true,
+check("3b. confirmed fee → cancelled, partial refund 60,00 €, payment partially_refunded",
+  r.status === 200 && r.body.refunded === true && r.body.fee?.refundCents === 6000 && b.status === "cancelled" && b.payment.status === "partially_refunded" &&
+  b.cancellation.feeCents === 1500 && b.cancellation.charged === true,
   { r: r.body, p: b.payment, c: b.cancellation });
 const refundCall = stripeCalls.filter((c) => c.url === "/v1/refunds").slice(refundsBefore)[0];
-check("3c. fake Stripe received a partial refund of exactly 3750", refundCall && /(^|&)amount=3750(&|$)/.test(refundCall.body), refundCall?.body);
+check("3c. fake Stripe received a partial refund of exactly 6000", refundCall && /(^|&)amount=6000(&|$)/.test(refundCall.body), refundCall?.body);
 const payA = await Payment.findOne({ booking: bookingA, purpose: "booking" });
-check("3d. payment record: refundedCents 3750, one refund entry, status partially_refunded", payA.refundedCents === 3750 && payA.refunds.length === 1 && payA.status === "partially_refunded", { rc: payA.refundedCents, st: payA.status, n: payA.refunds.length });
-check("3e. cleaner earning = 80 % of the fee (30,00 €), basis cancellation, pending",
-  b.workerPayout?.basis === "cancellation" && b.workerPayout.amountCents === 3000 && b.workerPayout.grossCents === 3750 && b.workerPayout.commissionCents === 750 && b.workerPayout.status === "pending",
+check("3d. payment record: refundedCents 6000, one refund entry, status partially_refunded", payA.refundedCents === 6000 && payA.refunds.length === 1 && payA.status === "partially_refunded", { rc: payA.refundedCents, st: payA.status, n: payA.refunds.length });
+check("3e. cleaner earning = 80 % of the fee (12,00 €), basis cancellation, pending",
+  b.workerPayout?.basis === "cancellation" && b.workerPayout.amountCents === 1200 && b.workerPayout.grossCents === 1500 && b.workerPayout.commissionCents === 300 && b.workerPayout.status === "pending",
   b.workerPayout);
-const dueIn = Math.round((new Date(b.workerPayout.dueAt) - new Date(b.workerPayout.earnedAt)) / DAY_MS);
-check("3f. weekly eligibility: dueAt = earnedAt + 7 days", dueIn === 7, dueIn);
+const berlinYMD = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).format(new Date(d));
+const earnedYM = berlinYMD(b.workerPayout.earnedAt).slice(0, 7);
+const [ey, em] = earnedYM.split("-").map(Number);
+const expectedDue = `${em === 12 ? ey + 1 : ey}-${String(em === 12 ? 1 : em + 1).padStart(2, "0")}-05, 00`;
+check("3f. monthly eligibility: dueAt = 5th of the following month, 00:00 Berlin", berlinYMD(b.workerPayout.dueAt) === expectedDue, { due: berlinYMD(b.workerPayout.dueAt), expectedDue });
 r = await call("GET", "/worker/earnings", null, annaT);
-check("3g. cleaner sees the cancellation earning (30,00 € pending)", r.body.summary?.pendingCents === 3000 && r.body.jobs?.some((j) => j._id === String(bookingA) && j.amountCents === 3000) && r.body.summary.payoutDelayDays === 7, r.body.summary);
+check("3g. cleaner sees the cancellation earning (12,00 € pending)", r.body.summary?.pendingCents === 1200 && r.body.jobs?.some((j) => j._id === String(bookingA) && j.amountCents === 1200) && r.body.summary.payoutDayOfMonth === 5, r.body.summary);
 await Booking.updateOne({ _id: bookingA }, { "workerPayout.dueAt": new Date(Date.now() - 1000) });
 r = await call("GET", "/admin/payouts/open", null, adminT);
 check("3h. admin open payouts include the cancelled booking", JSON.stringify(r.body).includes(String(bookingA)), r.status);
-r = await call("POST", "/admin/payouts", { workerId: String(anna._id), method: "bank", note: "Wochenlauf" }, adminT);
+r = await call("POST", "/admin/payouts", { workerId: String(anna._id), method: "bank", note: "Monatslauf" }, adminT);
 b = await Booking.findById(bookingA);
-check("3i. admin settles the cancellation earning (bank) → paid", r.status === 201 && r.body.payout?.status === "paid" && r.body.payout.amountCents === 3000 && b.workerPayout.status === "paid", r.body.payout);
+check("3i. admin settles the cancellation earning (bank) → paid", r.status === 201 && r.body.payout?.status === "paid" && r.body.payout.amountCents === 1200 && b.workerPayout.status === "paid", r.body.payout);
 
 // ---------- 4. Cancellation fee on an unpaid (cash) booking → outstanding on the customer ----------
 r = await book(day(6), "09:00", { paymentMethod: "cash" });
 const cashA = r.body.booking?.id;
 check("4. cash booking within the limit (75 €) → confirmed", r.status === 201 && r.body.booking.payment.method === "cash", r.body);
-r = await call("POST", `/customer/bookings/${cashA}/cancel`, { confirmFeeCents: 3750 }, custT);
+r = await call("POST", `/customer/bookings/${cashA}/cancel`, { confirmFeeCents: 1500 }, custT);
 const klara = await User.findById(customerId).lean();
 b = await Booking.findById(cashA);
-check("4a. unpaid fee recorded as outstanding (37,50 €) and on the booking (charged: false)", r.status === 200 && klara.outstandingCents === 3750 && b.cancellation.charged === false && b.cancellation.feeCents === 3750, { o: klara.outstandingCents, c: b.cancellation });
+check("4a. unpaid fee recorded as outstanding (15,00 €) and on the booking (charged: false)", r.status === 200 && klara.outstandingCents === 1500 && b.cancellation.charged === false && b.cancellation.feeCents === 1500, { o: klara.outstandingCents, c: b.cancellation });
 
 // ---------- 5. Cash policy ----------
 r = await book(day(7), "09:00", { paymentMethod: "cash", durationMinutes: 420 }); // 7 h × 25 € = 175 €

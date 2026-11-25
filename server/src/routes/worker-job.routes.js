@@ -21,6 +21,7 @@ import {
 } from "../controllers/worker-job.controller.js";
 import { dismissWorkerFeedback, getWorkerPendingFeedback, submitWorkerFeedback } from "../controllers/job-feedback.controller.js";
 import { messageHandlers } from "../controllers/booking-message.controller.js";
+import { listMyWorkerComplaints } from "../controllers/complaint.controller.js";
 
 const workerMessages = messageHandlers("worker");
 
@@ -33,6 +34,8 @@ workerJobRouter.get("/", listMyJobs);
 // Open jobs (must be registered before "/:id")
 workerJobRouter.get("/open", listOpenJobs);
 workerJobRouter.get("/feedback/pending", getWorkerPendingFeedback);
+// Complaints about my jobs (neutral view: category, status, my restriction)
+workerJobRouter.get("/complaints", listMyWorkerComplaints);
 workerJobRouter.get("/:id", getMyJob);
 workerJobRouter.post("/:id/accept", acceptJob);
 workerJobRouter.post("/:id/decline", declineJob);

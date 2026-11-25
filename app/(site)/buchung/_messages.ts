@@ -206,7 +206,7 @@ const de = {
     hold: (minutes: number) => `Dein Termin wird ${minutes} Minuten für dich reserviert.`,
     stripe: 'Sichere Online-Zahlung – deine Zahlungsdaten sehen wir nie.',
     paymentTitle: 'Zahlungsart',
-    freeCancel: (hours: number) => `Kostenlos stornierbar bis ${hours} h vorher.`,
+    freeCancel: (hours: number) => `Kostenlos stornierbar bis ${hours} h vorher, danach 20 % Gebühr.`,
   },
   summary: {
     title: 'Zusammenfassung',
@@ -466,7 +466,7 @@ const en: BookingMessages = {
     hold: (minutes) => `Your slot is reserved for you for ${minutes} minutes.`,
     stripe: 'Secure online payment – we never see your payment details.',
     paymentTitle: 'Payment method',
-    freeCancel: (hours) => `Free cancellation up to ${hours} h before.`,
+    freeCancel: (hours) => `Free cancellation up to ${hours} h before, 20 % fee after that.`,
   },
   summary: {
     title: 'Summary',
@@ -724,7 +724,7 @@ const pl: BookingMessages = {
     hold: (minutes) => `Twój termin jest zarezerwowany dla Ciebie przez ${minutes} minut.`,
     stripe: 'Bezpieczna płatność online – nigdy nie widzimy Twoich danych płatniczych.',
     paymentTitle: 'Metoda płatności',
-    freeCancel: (hours) => `Bezpłatna anulacja do ${hours} godz. przed terminem.`,
+    freeCancel: (hours) => `Bezpłatna anulacja do ${hours} godz. przed terminem, później opłata 20 %.`,
   },
   summary: {
     title: 'Podsumowanie',

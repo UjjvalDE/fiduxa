@@ -9,10 +9,19 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { usePathname, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 
-import { api, onUnauthorized, setStoredToken } from './api';
+import { api, onProfileIncomplete, onUnauthorized, setStoredToken } from './api';
 import { useMessages } from './i18n/client';
 import common from './i18n/messages/common';
 import type { Locale, Role, User } from './types';
+
+export const COMPLETE_PROFILE_PATH = '/konto/profil-vervollstaendigen';
+
+/** Completion page URL that returns to the current page afterwards */
+export const completeProfileHref = (pathname: string | null, search = '') => {
+  const here = `${pathname || '/konto'}${search}`;
+  const next = here.startsWith(COMPLETE_PROFILE_PATH) ? '/konto' : here;
+  return `${COMPLETE_PROFILE_PATH}?next=${encodeURIComponent(next)}`;
+};
 
 type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
@@ -37,6 +46,18 @@ interface AuthResponse {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<AuthStatus>('loading');
+  const router = useRouter();
+
+  // Booking/gift card/payment refused until the social sign-up is completed
+  useEffect(
+    () =>
+      onProfileIncomplete(() => {
+        if (window.location.pathname.startsWith(COMPLETE_PROFILE_PATH)) return;
+        setUser((u) => (u ? { ...u, profileIncomplete: true } : u));
+        router.push(completeProfileHref(window.location.pathname, window.location.search));
+      }),
+    [router]
+  );
 
   const refresh = useCallback(async () => {
     // Silent probe: the HttpOnly cookie restores the session after a reload;
@@ -128,7 +149,8 @@ export function RequireRole({ roles, children }: { roles: Role[]; children: Reac
   const pathname = usePathname();
   const t = useMessages(common);
 
-  const allowed = status === 'authenticated' && user && roles.includes(user.role);
+  const mustComplete = user?.role === 'consumer' && user.profileIncomplete && !pathname?.startsWith(COMPLETE_PROFILE_PATH);
+  const allowed = status === 'authenticated' && user && roles.includes(user.role) && !mustComplete;
 
   useEffect(() => {
     if (status === 'anonymous') {
@@ -137,6 +159,10 @@ export function RequireRole({ roles, children }: { roles: Role[]; children: Reac
       router.replace(`/login?next=${encodeURIComponent(`${pathname || '/'}${search}`)}`);
     } else if (status === 'authenticated' && user && !roles.includes(user.role)) {
       router.replace(homeForRole(user.role));
+    } else if (status === 'authenticated' && user?.role === 'consumer' && user.profileIncomplete && !pathname?.startsWith(COMPLETE_PROFILE_PATH)) {
+      // Social sign-up: phone, address and AGB/Datenschutz consent first
+      const search = typeof window !== 'undefined' ? window.location.search : '';
+      router.replace(completeProfileHref(pathname, search));
     }
   }, [status, user, roles, router, pathname]);
 

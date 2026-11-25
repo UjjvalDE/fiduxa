@@ -110,14 +110,14 @@ const de = {
       id: 'stornierung',
       category: 'Stornierung',
       question: 'Kann ich einen Termin stornieren?',
-      answer: `Ja. Bis ${v.cutoffHours} Stunden vor dem Termin kannst du deine Buchung online in deinem Konto stornieren. Danach kontaktiere uns bitte direkt.`,
+      answer: `Ja. Bis ${v.cutoffHours} Stunden vor dem Termin kannst du deine Buchung kostenlos online in deinem Konto stornieren. Bei einer späteren Stornierung (innerhalb von ${v.cutoffHours} Stunden vor Beginn) fällt eine Gebühr von 20 % des Preises an. Weitere Gebühren gibt es nicht.`,
     },
     {
       id: 'erstattung',
       category: 'Stornierung',
       question: 'Bekomme ich mein Geld zurück, wenn ich storniere?',
       answer:
-        'Ja. Stornierst du rechtzeitig online, wird ein bereits bezahlter Betrag automatisch erstattet – auf das Zahlungsmittel, mit dem du bezahlt hast. Wann die Gutschrift sichtbar ist, hängt von deiner Bank bzw. deinem Zahlungsanbieter ab.',
+        'Ja. Stornierst du rechtzeitig, erstatten wir den bereits bezahlten Betrag vollständig; bei einer kurzfristigen Stornierung den Betrag abzüglich der Gebühr von 20 %. Die Erstattung erhältst du innerhalb von 7 Werktagen über PayPal zurück. Das gilt auch für Erstattungen nach einem Widerruf oder einer Beschwerde.',
     },
     {
       id: 'nicht-enthalten',
@@ -273,14 +273,14 @@ const en: Messages = {
       id: 'stornierung',
       category: 'Cancellation',
       question: 'Can I cancel an appointment?',
-      answer: `Yes. You can cancel your booking online in your account up to ${v.cutoffHours} hours before the appointment. After that, please contact us directly.`,
+      answer: `Yes. You can cancel your booking free of charge online in your account up to ${v.cutoffHours} hours before the appointment. If you cancel later (within ${v.cutoffHours} hours of the start), a fee of 20 % of the price applies. There are no other fees.`,
     },
     {
       id: 'erstattung',
       category: 'Cancellation',
       question: 'Do I get my money back if I cancel?',
       answer:
-        'Yes. If you cancel online in time, any amount already paid is refunded automatically – to the payment method you used. When the refund shows up depends on your bank or payment provider.',
+        'Yes. If you cancel in time, we refund the amount already paid in full; for a short-notice cancellation, the amount minus the 20 % fee. You receive the refund via PayPal within 7 working days. The same applies to refunds after a withdrawal or a complaint.',
     },
     {
       id: 'nicht-enthalten',
@@ -441,14 +441,14 @@ const pl: Messages = {
       id: 'stornierung',
       category: 'Anulowanie',
       question: 'Czy mogę anulować termin?',
-      answer: `Tak. Do ${v.cutoffHours} godzin przed terminem możesz anulować rezerwację online na swoim koncie. Później skontaktuj się z nami bezpośrednio.`,
+      answer: `Tak. Do ${v.cutoffHours} godzin przed terminem możesz bezpłatnie anulować rezerwację online na swoim koncie. Przy późniejszym anulowaniu (w ciągu ${v.cutoffHours} godzin przed rozpoczęciem) obowiązuje opłata w wysokości 20 % ceny. Innych opłat nie ma.`,
     },
     {
       id: 'erstattung',
       category: 'Anulowanie',
       question: 'Czy otrzymam zwrot pieniędzy po anulowaniu?',
       answer:
-        'Tak. Jeśli anulujesz online w terminie, już zapłacona kwota zostanie automatycznie zwrócona – na środek płatności, którego użyłeś/-aś. Kiedy zwrot będzie widoczny, zależy od Twojego banku lub operatora płatności.',
+        'Tak. Jeśli anulujesz w terminie, zwrócimy całą zapłaconą kwotę; przy anulowaniu w krótkim terminie – kwotę pomniejszoną o opłatę 20 %. Zwrot otrzymasz przez PayPal w ciągu 7 dni roboczych. Dotyczy to także zwrotów po odstąpieniu od umowy lub reklamacji.',
     },
     {
       id: 'nicht-enthalten',

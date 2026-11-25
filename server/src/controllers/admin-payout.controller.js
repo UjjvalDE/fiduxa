@@ -4,7 +4,7 @@ import { z } from "zod";
 import Booking from "../models/booking.model.js";
 import Payout from "../models/payout.model.js";
 import User from "../models/user.model.js";
-import { displayPayoutStatus, payoutTarget, refreshPayout, settleWorker } from "../services/payout.service.js";
+import { displayPayoutStatus, payoutDayOfMonth, payoutTarget, refreshPayout, settleWorker } from "../services/payout.service.js";
 import { recordAudit } from "../services/audit.service.js";
 import { WORKER_PAY } from "../config/pricing.js";
 
@@ -72,7 +72,7 @@ export const listOpenPayouts = async (req, res, next) => {
     const groups = [...byWorker.values()].sort((a, b) => b.dueCents - a.dueCents);
     return res.json({
       success: true,
-      payoutDelayDays: WORKER_PAY.payoutDelayDays,
+      payoutDayOfMonth: payoutDayOfMonth(),
       defaultRateCents: WORKER_PAY.hourlyRateCents,
       totals: {
         dueCents: groups.reduce((s, g) => s + g.dueCents, 0),

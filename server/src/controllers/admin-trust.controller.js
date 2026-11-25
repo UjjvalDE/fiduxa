@@ -7,7 +7,7 @@ import Booking from "../models/booking.model.js";
 import User from "../models/user.model.js";
 import { recordAudit } from "../services/audit.service.js";
 import { offerJob } from "../services/job-dispatch.service.js";
-import { addStrike, reliabilityView, unpauseWorker } from "../services/reliability.service.js";
+import { addStrike, isPaused, reliabilityView, unpauseWorker } from "../services/reliability.service.js";
 
 const loadWorker = async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) {
@@ -88,7 +88,7 @@ export const unpauseWorkerAction = async (req, res, next) => {
     const { note } = z.object({ note: z.string().trim().max(500).optional().default("") }).parse(req.body ?? {});
     const worker = await loadWorker(req, res);
     if (!worker) return;
-    if (!worker.reliability?.pausedAt) return res.status(409).json({ success: false, message: "This cleaner is not paused." });
+    if (!isPaused(worker)) return res.status(409).json({ success: false, message: "This cleaner is not paused." });
     const reliability = await unpauseWorker(worker, { actor: req.user._id, note });
     return res.json({ success: true, message: "Pause lifted. The cleaner can take jobs again.", reliability });
   } catch (error) {

@@ -5,7 +5,9 @@ import User from "../models/user.model.js";
 import { GIFT_CARDS } from "../config/pricing.js";
 import { getSiteUrl } from "../utils/site-url.js";
 import { httpError } from "../utils/helpers.js";
-import { activateGiftCard, generateGiftCardCode } from "./gift-card.service.js";
+import GiftCardTransaction from "../models/gift-card-transaction.model.js";
+import { activateGiftCard, expiryFor, generateGiftCardCode } from "./gift-card.service.js";
+import { recordAudit } from "./audit.service.js";
 import { assertMethodEnabled, availableMethods, createStripeSession } from "./payment.service.js";
 import { createPayPalOrder, ORDER_LIFETIME_MINUTES } from "./paypal.service.js";
 import {
@@ -155,4 +157,39 @@ export const deliverDueGiftCards = async () => {
   let sent = 0;
   for (const { _id } of due) if (await deliverGiftCard(_id)) sent += 1;
   return sent;
+};
+
+/**
+ * Gift card issued by the office free of charge (goodwill, complaint remedy).
+ * Creates the card + "issue" transaction, emails it (optional) and audits it.
+ */
+export const issueAdminGiftCard = async ({ amountCents, recipientName, recipientEmail, message = "", reason, locale = "de", sendEmail = true, actorId, audit = {} }) => {
+  const now = new Date();
+  const card = await GiftCard.create({
+    code: await generateGiftCardCode(),
+    status: "active",
+    initialCents: amountCents,
+    balanceCents: amountCents,
+    senderName: "Fiduxa",
+    recipientName,
+    recipientEmail: recipientEmail.toLowerCase(),
+    message,
+    locale,
+    payment: { method: "admin", paidAt: now, payable: false },
+    expiresAt: expiryFor(now),
+    issuedBy: actorId,
+    deliveryStatus: sendEmail ? "pending" : "sent",
+  });
+  await GiftCardTransaction.create({
+    giftCard: card._id,
+    type: "issue",
+    amountCents,
+    balanceAfterCents: amountCents,
+    actor: actorId,
+    note: reason,
+    idempotencyKey: `issue:${card._id}`,
+  });
+  if (sendEmail) await deliverGiftCard(card._id);
+  await recordAudit({ actor: actorId, action: "giftcard.issued", entityType: "GiftCard", entityId: card._id, after: { amountCents, reason, ...audit } });
+  return GiftCard.findById(card._id);
 };

@@ -6,7 +6,7 @@ import type { PriceAdjustmentStatus } from '@/lib/types';
 const de = {
   refund: {
     title: (amount: string) => `Bis zu ${amount} erstatten`,
-    text: (provider: string) => `Die Erstattung läuft über ${provider} auf das ursprüngliche Zahlungsmittel und kann nicht rückgängig gemacht werden.`,
+    text: (provider: string) => `Die Erstattung läuft über ${provider} auf das ursprüngliche Zahlungsmittel und kann nicht rückgängig gemacht werden. Wir haben der Kundschaft zugesagt: Erstattungen innerhalb von 7 Werktagen.`,
     amount: 'Betrag (€)',
     amountHint: (max: string) => `Voller Betrag oder ein Teil – höchstens ${max}.`,
     amountError: (max: string) => `Bitte einen Betrag zwischen 0,01 € und ${max} eingeben.`,
@@ -77,7 +77,7 @@ export type MoneyMessages = typeof de;
 const en: MoneyMessages = {
   refund: {
     title: (amount) => `Refund up to ${amount}`,
-    text: (provider) => `The refund goes through ${provider} to the original payment method and cannot be undone.`,
+    text: (provider) => `The refund goes through ${provider} to the original payment method and cannot be undone. Customers are promised refunds within 7 working days.`,
     amount: 'Amount (€)',
     amountHint: (max) => `Full amount or a part – at most ${max}.`,
     amountError: (max) => `Please enter an amount between €0.01 and ${max}.`,
@@ -146,7 +146,7 @@ const en: MoneyMessages = {
 const pl: MoneyMessages = {
   refund: {
     title: (amount) => `Zwrot do ${amount}`,
-    text: (provider) => `Zwrot przechodzi przez ${provider} na pierwotną metodę płatności i nie można go cofnąć.`,
+    text: (provider) => `Zwrot przechodzi przez ${provider} na pierwotną metodę płatności i nie można go cofnąć. Klientom obiecujemy zwrot w ciągu 7 dni roboczych.`,
     amount: 'Kwota (€)',
     amountHint: (max) => `Pełna kwota lub część – maksymalnie ${max}.`,
     amountError: (max) => `Wpisz kwotę od 0,01 € do ${max}.`,

@@ -37,6 +37,7 @@ import {
   WorkerSchedule,
   WorkerStatsTiles,
 } from '../../_components/worker-sections';
+import { WorkerComplaintsCard } from '../../beschwerden/_components';
 import messages from '../_messages';
 import detailMessages from '../_detail-messages';
 
@@ -324,6 +325,8 @@ export default function AdminWorkerDetailPage({ params }: { params: { id: string
               )}
             </div>
           </SectionCard>
+
+          <WorkerComplaintsCard workerId={w.id} />
 
           <SectionCard id="bank" title={t.bank} description={t.bankHint}>
             <InfoList

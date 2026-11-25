@@ -1,4 +1,4 @@
-// E2E: cleaner earnings → 30-day eligibility → admin settlement via the
+// E2E: cleaner earnings → monthly eligibility (5th of the next month) → admin settlement via the
 // PayPal Payouts MOCK (success, denied, pending+refresh, retry, duplicates),
 // refund → hold, payout-method onboarding, permissions. NO real money.
 import { ROOT, prepareEnv, createChecker, apiClient, startPayPalMock } from "../helpers/harness.mjs";
@@ -81,8 +81,10 @@ check("TEST 8a: booking paid (mock) and confirmed", b.status === "confirmed" && 
 r = await completeJob(job1, anna._id, annaT);
 b = await Booking.findById(job1);
 check("TEST 8b: earnings record: gross €75, pay €56.25 (75 %), commission €18.75, pending", r.status === 200 && b.workerPayout.amountCents === 5625 && b.workerPayout.grossCents === 7500 && b.workerPayout.commissionCents === 1875 && b.workerPayout.status === "pending", b.workerPayout);
-const dueIn = Math.round((b.workerPayout.dueAt - b.workerPayout.earnedAt) / DAY_MS);
-check("TEST 8c: eligibility date = completion + 7 days (weekly payouts, configurable)", dueIn === 7, dueIn);
+const berlin = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).format(new Date(d));
+const [ey, em] = berlin(b.workerPayout.earnedAt).slice(0, 7).split("-").map(Number);
+const expectedDue = `${em === 12 ? ey + 1 : ey}-${String(em === 12 ? 1 : em + 1).padStart(2, "0")}-05, 00`;
+check("TEST 8c: eligibility date = 5th of the following month (monthly payouts, configurable)", berlin(b.workerPayout.dueAt) === expectedDue, { due: berlin(b.workerPayout.dueAt), expectedDue });
 r = await call("GET", "/worker/earnings", null, annaT);
 check("TEST 9a: cleaner sees pending earnings, nothing withdrawable", r.body.summary.pendingCents === 5625 && r.body.summary.dueCents === 0 && r.body.jobs[0].status === "pending", r.body.summary);
 r = await call("POST", "/admin/payouts", { workerId: String(anna._id) }, adminT);

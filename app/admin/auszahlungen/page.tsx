@@ -435,7 +435,7 @@ function OpenPayouts() {
         <TotalTile
           label={t.totalPending}
           value={f.euro(data.totals.pendingCents)}
-          hint={t.totalPendingHint(data.payoutDelayDays)}
+          hint={t.totalPendingHint(data.payoutDayOfMonth)}
           icon={Clock}
           tone="pending"
         />

@@ -106,25 +106,18 @@ const settingsSchema = z
           .object({
             freeHours: z.number().int().min(0).max(168),
             lateFeePct: z.number().int().min(0).max(100),
-            veryLateHours: z.number().int().min(0).max(168),
-            veryLateFeePct: z.number().int().min(0).max(100),
             cleanerSharePct: z.number().int().min(0).max(100),
-          })
-          .refine((c) => c.veryLateHours <= c.freeHours, "The very-late window must lie inside the free-cancellation window.")
-          .refine((c) => c.lateFeePct <= c.veryLateFeePct, "The late fee must not exceed the very-late fee."),
+            refundWorkingDays: z.number().int().min(1).max(30).optional(),
+          }),
         cash: z.object({
           maxTotalCents: z.number().int().min(0).max(1_000_000),
           minTier: z.enum(["new", "bronze", "silver", "gold", "platinum", "diamond"]),
           suspendBelowCents: z.number().int().min(-1_000_000).max(0),
         }),
-        payouts: z
-          .object({
-            eligibilityDays: z.number().int().min(0).max(90),
-            fastPayoutDays: z.number().int().min(0).max(90),
-            fastPayoutPct: z.number().int().min(0).max(100),
-            fastPayoutMinTier: z.enum(["new", "bronze", "silver", "gold", "platinum", "diamond"]),
-          })
-          .refine((p) => p.fastPayoutDays <= p.eligibilityDays, "The fast payout must come before the regular eligibility."),
+        // Monthly settlement: previous month's earnings are paid on this day
+        payouts: z.object({
+          payoutDayOfMonth: z.number().int().min(1).max(28),
+        }),
         // Selectable customer payment methods (owner decision: PayPal only for now)
         paymentMethods: z
           .object({

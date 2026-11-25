@@ -8,6 +8,8 @@ import {
   getMyAddress,
   updateMyAddress,
   updateMyProfile,
+  completeMyProfile,
+  getCompleteProfile,
 } from "../controllers/user.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 import { deleteMyAccount, exportMyData, getMyDeletionCheck } from "../controllers/account-privacy.controller.js";
@@ -29,6 +31,9 @@ userRouter.get("/me/household", protect, getMyHousehold);
 userRouter.put("/me/household", protect, updateMyHousehold);
 userRouter.get("/me/address", protect, getMyAddress);
 userRouter.put("/me/address", protect, updateMyAddress);
+// Profile completion after a Google/Apple sign-up (phone, address, consents)
+userRouter.get("/me/complete-profile", protect, getCompleteProfile);
+userRouter.post("/me/complete-profile", protect, completeMyProfile);
 
 // GDPR self-service (customers and cleaners): data export + account deletion
 userRouter.get("/me/export", protect, exportMyData);

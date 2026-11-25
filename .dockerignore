@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.github
+server/node_modules
+server/.env
+**/.env
+**/.env.*
+!**/.env.example
+docs
+tests
+test-results
+playwright-report
+deploy
+*.log

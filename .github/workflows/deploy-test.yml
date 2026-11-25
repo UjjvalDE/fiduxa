@@ -1,0 +1,37 @@
+name: Deploy test server
+
+# Runs after CI succeeds on main and deploys to the Hetzner test server.
+# Needs repository secrets: TEST_SERVER_HOST, TEST_SERVER_SSH_KEY
+# (see docs/TEST_LAUNCH_HETZNER.md). Until they exist the job is skipped.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-test
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check secrets
+        id: check
+        env:
+          HOST: ${{ secrets.TEST_SERVER_HOST }}
+        run: |
+          if [ -z "$HOST" ]; then echo "TEST_SERVER_HOST not set – skipping deploy"; echo "skip=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Deploy via SSH
+        if: steps.check.outputs.skip != 'true'
+        env:
+          HOST: ${{ secrets.TEST_SERVER_HOST }}
+          SSH_KEY: ${{ secrets.TEST_SERVER_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -o BatchMode=yes deploy@"$HOST" 'bash /opt/fiduxa/deploy/hetzner/deploy.sh'

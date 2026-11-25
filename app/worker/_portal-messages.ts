@@ -194,27 +194,27 @@ const de = {
     subtitle: 'Dein Lohn, Auszahlungen und Bankverbindung.',
     loading: 'Verdienst wird geladen',
     thisMonth: 'Diesen Monat verdient',
-    pending: 'In der Wartezeit',
+    pending: 'Bis zur nächsten Monatsauszahlung',
     due: 'Bereit zur Auszahlung',
     processing: 'In Auszahlung',
     onHold: 'Angehalten',
     paid: 'Bereits ausgezahlt',
-    nextPayout: 'Nächste Auszahlung fällig',
+    nextPayout: 'Nächste Auszahlung am',
     rate: 'Dein Stundenlohn',
     perHour: (amount: string) => `${amount} / Std.`,
     howTitle: 'So läuft die Auszahlung',
-    how: (days: number) =>
-      `Wir überweisen deinen Lohn ${days} Tage nach dem Einsatz auf dein Konto. So bleibt Zeit für eventuelle Rückfragen der Kundschaft.`,
+    how: (day: number) =>
+      `Wir zahlen einmal im Monat aus: Am ${day}. eines Monats überweisen wir deinen gesamten Verdienst aus dem Vormonat. So bleibt Zeit für eventuelle Rückfragen der Kundschaft.`,
     timeline: {
       done: 'Einsatz erledigt',
-      waiting: (days: number) => `Wartezeit (${days} Tage)`,
+      waiting: (day: number) => `Monatsabrechnung (am ${day}.)`,
       due: 'Auszahlung fällig',
       paid: 'Ausgezahlt',
     },
     jobsTitle: 'Verdienst pro Einsatz',
     noJobs: 'Noch keine abgeschlossenen Einsätze. Nach deinem ersten Einsatz siehst du hier deinen Verdienst.',
     status: {
-      pending: (date: string) => `Ausstehend bis ${date}`,
+      pending: (date: string) => `Auszahlung am ${date}`,
       due: 'Fällig – wird überwiesen',
       processing: 'In Auszahlung',
       on_hold: 'Angehalten – bitte Büro kontaktieren',
@@ -239,8 +239,8 @@ const de = {
     method: {
       title: 'Auszahlungsart',
       hint: 'So schicken wir dir dein Geld.',
-      explainer: (days: number) =>
-        `Ausgezahlt wird nach der Wartezeit von ${days} Tagen. Mit PayPal ist das Geld meist sofort verfügbar, sobald das Büro die Auszahlung abschickt.`,
+      explainer: (day: number) =>
+        `Ausgezahlt wird monatlich am ${day}. für den Vormonat. Mit PayPal ist das Geld meist sofort verfügbar, sobald das Büro die Auszahlung abschickt.`,
       bank: 'Banküberweisung',
       bankHint: 'Auf deine gespeicherte IBAN.',
       bankDisabled: 'Hinterlege zuerst deine Bankverbindung – dann kannst du Banküberweisung wählen.',
@@ -441,27 +441,27 @@ const en: PortalMessages = {
     subtitle: 'Your pay, payouts and bank details.',
     loading: 'Loading earnings',
     thisMonth: 'Earned this month',
-    pending: 'In waiting period',
+    pending: 'Until the next monthly payout',
     due: 'Ready for payout',
     processing: 'Being paid out',
     onHold: 'On hold',
     paid: 'Paid out so far',
-    nextPayout: 'Next payout due',
+    nextPayout: 'Next payout on',
     rate: 'Your hourly rate',
     perHour: (amount) => `${amount} / h`,
     howTitle: 'How payouts work',
-    how: (days) =>
-      `We transfer your pay to your bank account ${days} days after the job. This leaves time for any customer queries.`,
+    how: (day) =>
+      `We pay out once a month: on the ${day}th of each month we transfer all your earnings from the previous month. This leaves time for any customer questions.`,
     timeline: {
       done: 'Job done',
-      waiting: (days) => `Waiting period (${days} days)`,
+      waiting: (day) => `Monthly settlement (on the ${day}th)`,
       due: 'Payout due',
       paid: 'Paid out',
     },
     jobsTitle: 'Earnings per job',
     noJobs: 'No completed jobs yet. After your first job you will see your earnings here.',
     status: {
-      pending: (date) => `Pending until ${date}`,
+      pending: (date) => `Paid out on ${date}`,
       due: 'Due – being transferred',
       processing: 'Being paid out',
       on_hold: 'On hold – please contact the office',
@@ -486,8 +486,8 @@ const en: PortalMessages = {
     method: {
       title: 'Payout method',
       hint: 'How we send you your money.',
-      explainer: (days) =>
-        `Payouts are made after the waiting period of ${days} days. With PayPal the money is usually available right after the office sends it.`,
+      explainer: (day) =>
+        `Payouts are made monthly on the ${day}th for the previous month. With PayPal the money is usually available right away once the office sends the payout.`,
       bank: 'Bank transfer',
       bankHint: 'To your saved IBAN.',
       bankDisabled: 'Save your bank details first – then you can choose bank transfer.',
@@ -686,7 +686,7 @@ const pl: PortalMessages = {
     subtitle: 'Twoje wynagrodzenie, wypłaty i dane bankowe.',
     loading: 'Ładowanie zarobków',
     thisMonth: 'Zarobione w tym miesiącu',
-    pending: 'W okresie oczekiwania',
+    pending: 'Do najbliższej wypłaty miesięcznej',
     due: 'Gotowe do wypłaty',
     processing: 'W trakcie wypłaty',
     onHold: 'Wstrzymane',
@@ -695,18 +695,18 @@ const pl: PortalMessages = {
     rate: 'Twoja stawka godzinowa',
     perHour: (amount) => `${amount} / godz.`,
     howTitle: 'Jak działają wypłaty',
-    how: (days) =>
-      `Przelewamy wynagrodzenie na Twoje konto ${days} dni po zleceniu. Dzięki temu jest czas na ewentualne pytania klientów.`,
+    how: (day) =>
+      `Wypłacamy raz w miesiącu: ${day}. dnia każdego miesiąca przelewamy cały Twój zarobek z poprzedniego miesiąca. Dzięki temu jest czas na ewentualne pytania klientów.`,
     timeline: {
       done: 'Zlecenie wykonane',
-      waiting: (days) => `Okres oczekiwania (${days} dni)`,
+      waiting: (day) => `Rozliczenie miesięczne (${day}. dnia)`,
       due: 'Wypłata należna',
       paid: 'Wypłacone',
     },
     jobsTitle: 'Zarobki za zlecenia',
     noJobs: 'Brak zakończonych zleceń. Po pierwszym zleceniu zobaczysz tu swoje zarobki.',
     status: {
-      pending: (date) => `Oczekuje do ${date}`,
+      pending: (date) => `Wypłata ${date}`,
       due: 'Należne – w trakcie przelewu',
       processing: 'W trakcie wypłaty',
       on_hold: 'Wstrzymane – skontaktuj się z biurem',
@@ -731,8 +731,8 @@ const pl: PortalMessages = {
     method: {
       title: 'Sposób wypłaty',
       hint: 'Tak wysyłamy Ci pieniądze.',
-      explainer: (days) =>
-        `Wypłata następuje po okresie oczekiwania (${days} dni). Z PayPal pieniądze są zwykle dostępne od razu po wysłaniu wypłaty przez biuro.`,
+      explainer: (day) =>
+        `Wypłata następuje co miesiąc, ${day}. dnia, za poprzedni miesiąc. Przez PayPal pieniądze są zwykle dostępne od razu, gdy biuro wyśle wypłatę.`,
       bank: 'Przelew bankowy',
       bankHint: 'Na Twój zapisany IBAN.',
       bankDisabled: 'Najpierw zapisz dane bankowe – wtedy możesz wybrać przelew bankowy.',

@@ -77,3 +77,19 @@ export const optionalAuth = async (req, res, next) => {
   }
   return next();
 };
+
+/**
+ * Customers created via Google/Apple must complete their profile (phone,
+ * address, AGB + Datenschutz) before booking, buying gift cards or paying.
+ * Use after `protect`.
+ */
+export const requireCompleteProfile = (req, res, next) => {
+  if (req.user?.profileCompletionRequired) {
+    return res.status(409).json({
+      success: false,
+      code: "PROFILE_INCOMPLETE",
+      message: "Please complete your profile first (phone, address and consent to the terms).",
+    });
+  }
+  return next();
+};

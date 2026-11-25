@@ -6,6 +6,8 @@ import { OPERATIONS } from "../config/pricing.js";
 import generateToken from "../utils/generate-token.js";
 import { setSessionCookie } from "../utils/session-cookie.js";
 import { welcomeCodeFor } from "../services/personal-code.service.js";
+import { LEGAL_VERSIONS, isValidPhone } from "../config/legal.js";
+import { recordAudit } from "../services/audit.service.js";
 
 const updateProfileSchema = z.object({
   name: z.string().trim().min(2).max(100).optional(),
@@ -30,6 +32,7 @@ export const getMyProfile = async (req, res) => {
       emailVerified: Boolean(req.user.emailVerified),
       preferredLanguage: req.user.preferredLanguage ?? "de",
       createdAt: req.user.createdAt,
+      ...(req.user.profileCompletionRequired && { profileIncomplete: true }),
     },
   });
 };
@@ -224,6 +227,98 @@ export const updateMyHousehold = async (req, res, next) => {
     user.household = { city: prev.city, floor: prev.floor, billing: prev.billing, address: prev.address, postcode: prev.postcode, ...data };
     await user.save();
     res.json({ success: true, household: householdView(user) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Profile completion after a Google/Apple sign-up: phone, Berlin service
+// address and AGB + Datenschutz consent (same versions as the registration).
+const literalTrue = (message) => z.literal(true, { message });
+const completeProfileSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  phone: z.string().trim().refine(isValidPhone, "Please enter a valid phone number."),
+  address: addressSchema.shape.address,
+  postcode: addressSchema.shape.postcode,
+  city: z.string().trim().min(2).max(80).optional().default("Berlin"),
+  floor: z.string().trim().max(80).optional().default(""),
+  accessNotes: z.string().trim().max(1000).optional().default(""),
+  acceptTerms: literalTrue("Please accept the terms and conditions."),
+  acceptPrivacy: literalTrue("Please accept the privacy policy."),
+  marketingOptIn: z.boolean().optional().default(false),
+});
+
+// GET /api/v1/users/me/complete-profile – prefill + legal versions
+export const getCompleteProfile = async (req, res, next) => {
+  try {
+    const u = req.user;
+    res.json({
+      success: true,
+      required: Boolean(u.profileCompletionRequired),
+      profile: {
+        name: u.name === "Fiduxa Kunde" ? "" : u.name,
+        email: u.email,
+        privateRelayEmail: Boolean(u.oauth?.applePrivateEmail),
+        phone: u.phone ?? "",
+        ...addressView(u),
+      },
+      versions: LEGAL_VERSIONS,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// POST /api/v1/users/me/complete-profile
+export const completeMyProfile = async (req, res, next) => {
+  try {
+    const parsed = completeProfileSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        code: "VALIDATION_ERROR",
+        message: parsed.error.issues[0]?.message ?? "Invalid details",
+        details: parsed.error.issues.map((i) => ({ field: i.path.join("."), message: i.message })),
+      });
+    }
+    if (req.user.role !== "consumer") return res.status(403).json({ success: false, message: "Customers only" });
+    const data = parsed.data;
+    const user = await User.findById(req.user._id);
+    const now = new Date();
+    user.name = data.name;
+    user.phone = data.phone;
+    for (const k of ["address", "postcode", "city", "floor", "accessNotes"]) user.set(`household.${k}`, data[k]);
+    user.legalConsent = {
+      termsVersion: LEGAL_VERSIONS.terms,
+      termsAcceptedAt: now,
+      privacyVersion: LEGAL_VERSIONS.privacy,
+      privacyAcceptedAt: now,
+      source: "complete_profile",
+      marketingOptIn: data.marketingOptIn,
+      marketingOptInAt: data.marketingOptIn ? now : undefined,
+    };
+    const wasRequired = Boolean(user.profileCompletionRequired);
+    user.profileCompletionRequired = undefined;
+    user.profileCompletedAt = now;
+    await user.save();
+    await recordAudit({
+      actor: user._id,
+      action: "user.profile_completed",
+      entityType: "User",
+      entityId: user._id,
+      after: {
+        termsVersion: LEGAL_VERSIONS.terms,
+        privacyVersion: LEGAL_VERSIONS.privacy,
+        marketingOptIn: data.marketingOptIn,
+        postcode: data.postcode,
+        wasRequired,
+      },
+    });
+    res.json({
+      success: true,
+      user: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role, emailVerified: Boolean(user.emailVerified), preferredLanguage: user.preferredLanguage ?? "de" },
+      address: addressView(user),
+    });
   } catch (error) {
     next(error);
   }

@@ -110,6 +110,15 @@ import { getWorkerReliability, markNoShow, unpauseWorkerAction } from "../contro
 const adminMessages = messageHandlers("admin");
 
 import { adminFeedbackCsv, adminFeedbackSummary } from "../controllers/job-feedback.controller.js";
+import {
+  adminAddNote,
+  adminCloseComplaint,
+  adminComplaintAction,
+  adminComplaintPhoto,
+  adminGetComplaint,
+  adminListComplaints,
+  adminStartReview,
+} from "../controllers/complaint.controller.js";
 export const adminRouter = Router();
 
 // All routes below require admin authentication
@@ -173,7 +182,7 @@ adminRouter.post("/admins/:id/resend-invite", resendAdminInvite);
 adminRouter.get("/bookings/:id/messages", adminMessages.list);
 adminRouter.post("/bookings/:id/messages", adminMessages.create);
 
-// Cleaner payouts (after WORKER_PAY.payoutDelayDays)
+// Cleaner payouts (monthly: previous month's earnings on POLICIES.payouts.payoutDayOfMonth)
 adminRouter.get("/payouts/open", listOpenPayouts);
 adminRouter.get("/payouts", listPayouts);
 adminRouter.post("/payouts", createWorkerPayout);
@@ -184,6 +193,15 @@ adminRouter.get("/reviews", listReviews);
 // Structured post-service feedback (internal): averages + CSV
 adminRouter.get("/feedback", adminFeedbackSummary);
 adminRouter.get("/feedback/export.csv", adminFeedbackCsv);
+// Customer complaints (review, remedies, cleaner restrictions)
+adminRouter.get("/complaints", adminListComplaints);
+adminRouter.get("/complaints/:id", adminGetComplaint);
+adminRouter.get("/complaints/:id/photos/:photoId", adminComplaintPhoto);
+adminRouter.post("/complaints/:id/review", adminStartReview);
+adminRouter.post("/complaints/:id/notes", adminAddNote);
+adminRouter.post("/complaints/:id/actions", adminComplaintAction);
+adminRouter.post("/complaints/:id/resolve", adminCloseComplaint("resolved"));
+adminRouter.post("/complaints/:id/reject", adminCloseComplaint("rejected"));
 adminRouter.patch("/reviews/:id", setReviewHidden);
 adminRouter.patch("/reviews/:id/dispute", resolveReviewDispute);
 

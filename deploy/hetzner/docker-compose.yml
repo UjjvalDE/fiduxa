@@ -1,0 +1,84 @@
+# Fiduxa TEST launch on one Hetzner server (see docs/TEST_LAUNCH_HETZNER.md).
+#   cd /opt/fiduxa && docker compose -f deploy/hetzner/docker-compose.yml --env-file deploy/hetzner/.env up -d --build
+#
+# Caddy (HTTPS, password gate) → web (Next.js) and api (Express); worker runs
+# the background jobs; MongoDB is only reachable inside the Docker network.
+name: fiduxa
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+      GATE_USER: ${GATE_USER}
+      GATE_PASSWORD_HASH: ${GATE_PASSWORD_HASH}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+      - api
+
+  web:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      API_PROXY_TARGET: http://api:3100
+
+  api:
+    build: ../../server
+    restart: unless-stopped
+    env_file: ../../server/.env
+    environment:
+      NODE_ENV: production
+      PORT: "3100"
+      MONGODB_URI: mongodb://mongo:27017/fiduxa_test
+      RUN_JOBS_IN_API: "false"
+      TRUST_PROXY: "1"
+      PUBLIC_SITE_URL: https://${SITE_DOMAIN}
+      CLIENT_URL: https://${SITE_DOMAIN}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  worker:
+    build: ../../server
+    restart: unless-stopped
+    command: ["node", "worker.js"]
+    env_file: ../../server/.env
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/fiduxa_test
+      SERVICE_NAME: fiduxa-worker
+      PUBLIC_SITE_URL: https://${SITE_DOMAIN}
+      CLIENT_URL: https://${SITE_DOMAIN}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    # No published port: the database is never reachable from the internet
+    volumes:
+      - mongo-data:/data/db
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mongo-data:
+  caddy-data:
+  caddy-config:

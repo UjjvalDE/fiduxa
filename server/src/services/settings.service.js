@@ -61,7 +61,11 @@ export const applySettings = (doc) => {
   {
     const policies = OPERATIONS.policies;
     for (const section of Object.keys(policies.defaults)) {
-      Object.assign(policies[section], clone(policies.defaults[section]), defined(s.policies?.[section]));
+      // Only keys that still exist in the defaults (legacy keys such as the
+      // removed very-late tier or weekly payout settings are ignored)
+      const known = Object.keys(policies.defaults[section]);
+      const stored = Object.fromEntries(Object.entries(defined(s.policies?.[section])).filter(([k]) => known.includes(k)));
+      Object.assign(policies[section], clone(policies.defaults[section]), stored);
     }
   }
   // [slot-D-settings-apply]

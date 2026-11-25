@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-import { protect } from "../middleware/auth.middleware.js";
+import { protect, requireCompleteProfile } from "../middleware/auth.middleware.js";
 import { authorize } from "../middleware/role.middleware.js";
 import {
   captureGiftCardPayPal,
@@ -20,7 +20,7 @@ giftCardRouter.post("/check", checkGiftCard); // rate limited in app.js
 
 const customer = [protect, authorize("consumer")];
 giftCardRouter.get("/mine", customer, listMyGiftCards);
-giftCardRouter.post("/", customer, purchaseGiftCard);
+giftCardRouter.post("/", customer, requireCompleteProfile, purchaseGiftCard);
 giftCardRouter.get("/:id", customer, getMyGiftCard);
-giftCardRouter.post("/:id/pay", customer, retryGiftCardPayment);
-giftCardRouter.post("/:id/paypal/capture", customer, captureGiftCardPayPal);
+giftCardRouter.post("/:id/pay", customer, requireCompleteProfile, retryGiftCardPayment);
+giftCardRouter.post("/:id/paypal/capture", customer, requireCompleteProfile, captureGiftCardPayPal);

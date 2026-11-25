@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import type { Locale } from '@/lib/i18n/config';
 import { getLocale } from '@/lib/i18n/server';
+import { COMPANY, CONTACT } from '../_shared/catalogue';
 import { LegalPage, P, type LegalSection } from '../_shared/legal';
 
 type Content = { metaTitle: string; title: string; intro: React.ReactNode; sections: LegalSection[] };
@@ -24,7 +25,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: '§ 1 Geltungsbereich',
         body: (
           <p>
-            Diese AGB gelten für alle Verträge über Reinigungsleistungen zwischen <P>Firmenname inkl. Rechtsform und Anschrift</P> und ihren
+            Diese AGB gelten für alle Verträge über Reinigungsleistungen zwischen {COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city} und ihren
             Kundinnen und Kunden. <P>Abgrenzung Verbraucher/Unternehmer, Vorrang individueller Vereinbarungen</P>
           </p>
         ),
@@ -71,8 +72,8 @@ const CONTENT: Record<Locale, () => Content> = {
           <p>
             Es gilt der bei der Buchung angezeigte Festpreis (gebuchte Stunden × Stundensatz einschließlich gewählter Extras, abzüglich etwaiger
             Rabatte), bei Gewerbekunden der im angenommenen Angebot genannte Preis. Die Zahlung erfolgt bei der Buchung online über den
-            Zahlungsdienstleister Stripe; ist die Online-Zahlung nicht verfügbar, per Rechnung.{' '}
-            <P>Angaben zur Umsatzsteuer, Fälligkeit bei Rechnungszahlung und Abrechnung bei abweichendem Zeitaufwand</P>
+            Zahlungsdienstleister PayPal; ist die Online-Zahlung nicht verfügbar, per Rechnung.{' '}
+            Alle angegebenen Preise sind Endpreise und enthalten die gesetzliche Umsatzsteuer von 19 %. Der Preis ist bei der Buchung fällig und wird online über PayPal bezahlt.
           </p>
         ),
       },
@@ -91,7 +92,7 @@ const CONTENT: Record<Locale, () => Content> = {
           <p>
             Buchungen, deren Zahlung noch aussteht, können jederzeit im Kundenkonto storniert werden. Bestätigte Buchungen können bis 24 Stunden vor
             dem Termin online storniert werden; bereits geleistete Zahlungen werden in diesem Fall automatisch erstattet.{' '}
-            <P>Regelungen für spätere Absagen</P>
+            Bei einer späteren Stornierung, also innerhalb von 24 Stunden vor dem vereinbarten Beginn, fällt eine Stornogebühr von 20 % des Preises an; der übrige bereits gezahlte Betrag wird erstattet. Dasselbe gilt, wenn die Reinigungskraft zum Termin keinen Zugang zu den Räumen erhält. Weitere Gebühren fallen nicht an. Erstattungen – nach einer Stornierung ebenso wie nach einem Widerruf – erhält die Kundin bzw. der Kunde innerhalb von 7 Werktagen über PayPal zurück.
           </p>
         ),
       },
@@ -99,7 +100,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: '§ 7 Mängel und Reklamationen',
         body: (
           <p>
-            <P>Frist und Form für Reklamationen, Nachbesserung</P>
+            Ist die Kundin bzw. der Kunde mit einer Reinigung nicht zufrieden, kann sie bzw. er über das Kundenkonto bei der betreffenden Buchung eine Beschwerde einreichen (zum Beispiel zu Qualität, Schäden, Verspätung oder Verhalten), bitte möglichst zeitnah nach dem Termin. Fiduxa prüft jede Beschwerde und informiert über das Ergebnis per E-Mail und im Kundenkonto. Je nach Fall bietet Fiduxa eine kostenlose Nachreinigung, eine teilweise oder vollständige Erstattung oder einen Gutschein an. Gesetzliche Rechte bleiben unberührt.
           </p>
         ),
       },
@@ -147,7 +148,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: '§ 1 Scope',
         body: (
           <p>
-            These terms apply to all contracts for cleaning services between <P>company name incl. legal form and address</P> and its customers.{' '}
+            These terms apply to all contracts for cleaning services between {COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city} and its customers.{' '}
             <P>distinction between consumers and businesses, precedence of individual agreements</P>
           </p>
         ),
@@ -193,8 +194,8 @@ const CONTENT: Record<Locale, () => Content> = {
         body: (
           <p>
             The fixed price shown when booking applies (hours booked × hourly rate including selected extras, less any discounts); for business
-            customers, the price stated in the accepted quotation. Payment is made online when booking via the payment service provider Stripe; if
-            online payment is unavailable, by invoice. <P>details on VAT, due date for invoice payments and billing if the time required differs</P>
+            customers, the price stated in the accepted quotation. Payment is made online when booking via the payment service provider PayPal; if
+            online payment is unavailable, by invoice. All prices shown are final prices and include the statutory VAT of 19 %. The price is due when booking and is paid online via PayPal.
           </p>
         ),
       },
@@ -213,7 +214,7 @@ const CONTENT: Record<Locale, () => Content> = {
           <p>
             Bookings whose payment is still pending can be cancelled in the customer account at any time. Confirmed bookings can be cancelled online
             up to 24 hours before the appointment; in this case, any payments already made are refunded automatically.{' '}
-            <P>rules for later cancellations</P>
+            For a later cancellation, i.e. within 24 hours before the agreed start, a cancellation fee of 20 % of the price applies; the rest of any amount already paid is refunded. The same applies if the cleaner cannot access the premises at the appointment. No other fees apply. Refunds – after a cancellation as well as after a withdrawal – are paid back to the customer via PayPal within 7 working days.
           </p>
         ),
       },
@@ -221,7 +222,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: '§ 7 Defects and complaints',
         body: (
           <p>
-            <P>deadline and form for complaints, remedial work</P>
+            If the customer is not satisfied with a cleaning, they can submit a complaint for the booking concerned in their customer account (for example about quality, damage, lateness or behaviour), ideally soon after the appointment. Fiduxa reviews every complaint and informs the customer of the outcome by e-mail and in the customer account. Depending on the case, Fiduxa offers a free re-clean, a partial or full refund or a voucher. Statutory rights remain unaffected.
           </p>
         ),
       },
@@ -270,7 +271,7 @@ const CONTENT: Record<Locale, () => Content> = {
         body: (
           <p>
             Niniejsze warunki obowiązują w odniesieniu do wszystkich umów o usługi sprzątania zawieranych między{' '}
-            <P>nazwa firmy wraz z formą prawną i adresem</P> a jej klientami. <P>rozróżnienie konsument/przedsiębiorca, pierwszeństwo
+            {COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city} a jej klientami. <P>rozróżnienie konsument/przedsiębiorca, pierwszeństwo
             indywidualnych ustaleń</P>
           </p>
         ),
@@ -317,8 +318,8 @@ const CONTENT: Record<Locale, () => Content> = {
           <p>
             Obowiązuje stała cena wyświetlona przy rezerwacji (zarezerwowane godziny × stawka godzinowa wraz z wybranymi dodatkami, pomniejszona o
             ewentualne rabaty), a w przypadku klientów biznesowych – cena podana w przyjętej ofercie. Płatność następuje przy rezerwacji online za
-            pośrednictwem operatora płatności Stripe; jeśli płatność online jest niedostępna – na podstawie faktury.{' '}
-            <P>informacje o VAT, terminie płatności faktury i rozliczeniu przy odmiennym nakładzie czasu</P>
+            pośrednictwem operatora płatności PayPal; jeśli płatność online jest niedostępna – na podstawie faktury.{' '}
+            Wszystkie podane ceny są cenami końcowymi i zawierają ustawowy podatek VAT w wysokości 19 %. Cena jest płatna przy rezerwacji online przez PayPal.
           </p>
         ),
       },
@@ -337,7 +338,7 @@ const CONTENT: Record<Locale, () => Content> = {
           <p>
             Rezerwacje, których płatność jest jeszcze w toku, można w każdej chwili anulować na koncie klienta. Potwierdzone rezerwacje można
             anulować online do 24 godzin przed terminem; w takim przypadku już dokonane płatności są zwracane automatycznie.{' '}
-            <P>zasady dotyczące późniejszych odwołań</P>
+            W przypadku późniejszego anulowania, tj. w ciągu 24 godzin przed uzgodnionym rozpoczęciem, pobierana jest opłata za anulowanie w wysokości 20 % ceny; pozostała część zapłaconej kwoty zostaje zwrócona. To samo dotyczy sytuacji, gdy osoba sprzątająca nie uzyska dostępu do pomieszczeń w terminie. Innych opłat nie ma. Zwroty – zarówno po anulowaniu, jak i po odstąpieniu od umowy – klient otrzymuje przez PayPal w ciągu 7 dni roboczych.
           </p>
         ),
       },
@@ -345,7 +346,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: '§ 7 Wady i reklamacje',
         body: (
           <p>
-            <P>termin i forma reklamacji, poprawki</P>
+            Jeśli klient nie jest zadowolony ze sprzątania, może złożyć reklamację na swoim koncie klienta przy danej rezerwacji (np. dotyczącą jakości, szkód, spóźnienia lub zachowania), najlepiej niezwłocznie po terminie. Fiduxa rozpatruje każdą reklamację i informuje o wyniku e-mailem oraz na koncie klienta. W zależności od przypadku Fiduxa oferuje bezpłatne ponowne sprzątanie, częściowy lub pełny zwrot albo bon. Ustawowe prawa pozostają nienaruszone.
           </p>
         ),
       },

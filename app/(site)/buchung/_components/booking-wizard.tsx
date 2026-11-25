@@ -326,6 +326,21 @@ export function BookingWizard() {
     }));
   }, [status, user]);
 
+  /* ---------- Saved address prefill (e.g. right after the profile completion) ---------- */
+  const addressPrefilled = useRef(false);
+  useEffect(() => {
+    if (addressPrefilled.current || status !== 'authenticated' || !user || user.role !== 'consumer' || user.profileIncomplete) return;
+    addressPrefilled.current = true;
+    api
+      .get<{ address: { address?: string; postcode?: string; accessNotes?: string } | null }>('/users/me/address')
+      .then(({ address: a }) => {
+        if (!a?.address) return;
+        setContact((c) => ({ ...c, address: c.address || a.address || '', accessNotes: c.accessNotes || a.accessNotes || '' }));
+        setDraft((d) => ({ ...d, postcode: d.postcode || a.postcode || '' }));
+      })
+      .catch(() => undefined);
+  }, [status, user]);
+
   /* ---------- Household profile / rebook prefill (logged-in customers) ---------- */
   const rebookId = params.get('rebook');
   useEffect(() => {

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import type { Locale } from '@/lib/i18n/config';
 import { getLocale } from '@/lib/i18n/server';
+import { COMPANY, CONTACT } from '../_shared/catalogue';
 import { LegalPage, P, type LegalSection } from '../_shared/legal';
 
 type Content = { title: string; intro: React.ReactNode; sections: LegalSection[] };
@@ -25,8 +26,8 @@ const CONTENT: Record<Locale, () => Content> = {
               Tage ab dem Tag des Vertragsabschlusses.
             </p>
             <p>
-              Um Ihr Widerrufsrecht auszuüben, müssen Sie uns (<P>Firmenname inkl. Rechtsform</P>, <P>Anschrift</P>, E-Mail: <P>E-Mail-Adresse</P>,
-              Telefon: <P>Telefonnummer</P>) mittels einer eindeutigen Erklärung (z. B. ein mit der Post versandter Brief oder eine E-Mail) über
+              Um Ihr Widerrufsrecht auszuüben, müssen Sie uns ({COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}, E-Mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>,
+              Telefon: <a href={CONTACT.phoneHref}>{CONTACT.phoneDisplay}</a>) mittels einer eindeutigen Erklärung (z. B. ein mit der Post versandter Brief oder eine E-Mail) über
               Ihren Entschluss, diesen Vertrag zu widerrufen, informieren. Sie können dafür das unten stehende Muster-Widerrufsformular verwenden,
               das jedoch nicht vorgeschrieben ist.
             </p>
@@ -44,7 +45,7 @@ const CONTENT: Record<Locale, () => Content> = {
             <p>
               Wenn Sie diesen Vertrag widerrufen, haben wir Ihnen alle Zahlungen, die wir von Ihnen erhalten haben, unverzüglich und spätestens
               binnen vierzehn Tagen ab dem Tag zurückzuzahlen, an dem die Mitteilung über Ihren Widerruf dieses Vertrags bei uns eingegangen ist.{' '}
-              <P>Angaben zum Zahlungsmittel der Rückzahlung</P>
+              Für diese Rückzahlung verwenden wir dasselbe Zahlungsmittel, das Sie bei der ursprünglichen Transaktion eingesetzt haben (PayPal), es sei denn, mit Ihnen wurde ausdrücklich etwas anderes vereinbart; in keinem Fall werden Ihnen wegen dieser Rückzahlung Entgelte berechnet.
             </p>
             <p>
               Haben Sie verlangt, dass die Dienstleistung während der Widerrufsfrist beginnen soll, so haben Sie uns einen angemessenen Betrag zu
@@ -71,7 +72,7 @@ const CONTENT: Record<Locale, () => Content> = {
             <p>(Wenn Sie den Vertrag widerrufen wollen, dann füllen Sie bitte dieses Formular aus und senden Sie es zurück.)</p>
             <ul className="!mt-3">
               <li>
-                An <P>Firmenname, Anschrift, E-Mail-Adresse</P>
+                An {COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}, {CONTACT.email}
               </li>
               <li>
                 Hiermit widerrufe(n) ich/wir (*) den von mir/uns (*) abgeschlossenen Vertrag über die Erbringung der folgenden Dienstleistung (*)
@@ -106,8 +107,7 @@ const CONTENT: Record<Locale, () => Content> = {
               days from the day the contract is concluded.
             </p>
             <p>
-              To exercise your right of withdrawal, you must inform us (<P>company name incl. legal form</P>, <P>address</P>, email:{' '}
-              <P>email address</P>, phone: <P>phone number</P>) of your decision to withdraw from this contract by means of a clear statement
+              To exercise your right of withdrawal, you must inform us ({COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}, email: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, phone: <a href={CONTACT.phoneHref}>{CONTACT.phoneDisplay}</a>) of your decision to withdraw from this contract by means of a clear statement
               (e.g. a letter sent by post or an email). You may use the model withdrawal form below, but this is not mandatory.
             </p>
             <p>
@@ -123,8 +123,7 @@ const CONTENT: Record<Locale, () => Content> = {
           <>
             <p>
               If you withdraw from this contract, we shall reimburse all payments received from you without undue delay and at the latest within
-              fourteen days from the day on which we receive notice of your withdrawal from this contract. <P>details of the means of
-              reimbursement</P>
+              fourteen days from the day on which we receive notice of your withdrawal from this contract. We will use the same means of payment that you used for the original transaction (PayPal), unless expressly agreed otherwise with you; in no event will you be charged any fees for this reimbursement.
             </p>
             <p>
               If you requested that the service begin during the withdrawal period, you shall pay us a reasonable amount corresponding to the
@@ -150,7 +149,7 @@ const CONTENT: Record<Locale, () => Content> = {
             <p>(If you wish to withdraw from the contract, please complete and return this form.)</p>
             <ul className="!mt-3">
               <li>
-                To <P>company name, address, email address</P>
+                To {COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}, {CONTACT.email}
               </li>
               <li>I/We (*) hereby give notice that I/we (*) withdraw from my/our (*) contract for the provision of the following service (*)</li>
               <li>Ordered on (*) / received on (*)</li>
@@ -183,8 +182,7 @@ const CONTENT: Record<Locale, () => Content> = {
               czternaście dni od dnia zawarcia umowy.
             </p>
             <p>
-              Aby skorzystać z prawa odstąpienia, muszą Państwo poinformować nas (<P>nazwa firmy wraz z formą prawną</P>, <P>adres</P>, e-mail:{' '}
-              <P>adres e-mail</P>, telefon: <P>numer telefonu</P>) o swojej decyzji w drodze jednoznacznego oświadczenia (np. listem wysłanym
+              Aby skorzystać z prawa odstąpienia, muszą Państwo poinformować nas ({COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}, e-mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, telefon: <a href={CONTACT.phoneHref}>{CONTACT.phoneDisplay}</a>) o swojej decyzji w drodze jednoznacznego oświadczenia (np. listem wysłanym
               pocztą lub e-mailem). Mogą Państwo skorzystać z poniższego wzoru formularza odstąpienia, nie jest to jednak obowiązkowe.
             </p>
             <p>Aby zachować termin, wystarczy wysłać informację o skorzystaniu z prawa odstąpienia przed jego upływem.</p>
@@ -197,7 +195,7 @@ const CONTENT: Record<Locale, () => Content> = {
           <>
             <p>
               W przypadku odstąpienia od umowy zwrócimy Państwu wszystkie otrzymane płatności niezwłocznie, nie później niż w ciągu czternastu dni od
-              dnia, w którym otrzymaliśmy informację o odstąpieniu od umowy. <P>informacja o sposobie zwrotu płatności</P>
+              dnia, w którym otrzymaliśmy informację o odstąpieniu od umowy. Zwrotu dokonamy przy użyciu takiego samego sposobu płatności, jakiego użyli Państwo w pierwotnej transakcji (PayPal), chyba że wyraźnie uzgodniono inaczej; w żadnym przypadku nie poniosą Państwo opłat w związku z tym zwrotem.
             </p>
             <p>
               Jeżeli zażądali Państwo rozpoczęcia świadczenia usługi przed upływem terminu na odstąpienie, zapłacą nam Państwo kwotę proporcjonalną
@@ -223,7 +221,7 @@ const CONTENT: Record<Locale, () => Content> = {
             <p>(Formularz ten należy wypełnić i odesłać tylko w przypadku chęci odstąpienia od umowy.)</p>
             <ul className="!mt-3">
               <li>
-                Adresat: <P>nazwa firmy, adres, adres e-mail</P>
+                Adresat: {COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}, {CONTACT.email}
               </li>
               <li>Ja/My (*) niniejszym informuję/informujemy (*) o moim/naszym (*) odstąpieniu od umowy o świadczenie następującej usługi (*)</li>
               <li>Data zawarcia umowy (*) / odbioru (*)</li>

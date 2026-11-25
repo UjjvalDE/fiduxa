@@ -80,6 +80,16 @@ export const onUnauthorized = (listener: UnauthorizedListener) => {
   };
 };
 
+// Listeners notified when the API answers 409 PROFILE_INCOMPLETE (social
+// sign-up without phone/address/consents → completion page)
+const profileIncompleteListeners = new Set<() => void>();
+export const onProfileIncomplete = (listener: () => void) => {
+  profileIncompleteListeners.add(listener);
+  return () => {
+    profileIncompleteListeners.delete(listener);
+  };
+};
+
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 async function request<T>(method: Method, path: string, body?: unknown, init?: RequestInit): Promise<T> {
@@ -108,6 +118,9 @@ async function request<T>(method: Method, path: string, body?: unknown, init?: R
   if (!response.ok) {
     if (response.status === 401 && token) {
       unauthorizedListeners.forEach((listener) => listener());
+    }
+    if (response.status === 409 && payload?.code === 'PROFILE_INCOMPLETE') {
+      profileIncompleteListeners.forEach((listener) => listener());
     }
     const message =
       (payload && typeof payload.message === 'string' && payload.message) ||

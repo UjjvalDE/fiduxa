@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-import { protect } from "../middleware/auth.middleware.js";
+import { protect, requireCompleteProfile } from "../middleware/auth.middleware.js";
 import {
   capturePayPalPayment,
   createCheckoutSession,
@@ -14,5 +14,5 @@ export const paymentRouter = Router();
 
 paymentRouter.get("/config", getPaymentConfig);
 paymentRouter.get("/booking/:bookingId", protect, getBookingPayment);
-paymentRouter.post("/checkout", protect, createCheckoutSession);
-paymentRouter.post("/paypal/capture", protect, capturePayPalPayment);
+paymentRouter.post("/checkout", protect, requireCompleteProfile, createCheckoutSession);
+paymentRouter.post("/paypal/capture", protect, requireCompleteProfile, capturePayPalPayment);

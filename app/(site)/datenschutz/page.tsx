@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 import type { Locale } from '@/lib/i18n/config';
 import { getLocale } from '@/lib/i18n/server';
-import { CONTACT } from '../_shared/catalogue';
+import { COMPANY, CONTACT } from '../_shared/catalogue';
 import { LegalPage, P, type LegalSection } from '../_shared/legal';
 
 type Content = { title: string; intro: React.ReactNode; sections: LegalSection[] };
@@ -21,7 +21,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Verantwortliche Stelle',
         body: (
           <p>
-            <P>Firmenname inkl. Rechtsform</P>, <P>Anschrift</P>, E-Mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, Telefon: <P>Telefonnummer</P>
+            {COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}, E-Mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, Telefon: <a href={CONTACT.phoneHref}>{CONTACT.phoneDisplay}</a>
           </p>
         ),
       },
@@ -68,8 +68,8 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Online-Zahlung',
         body: (
           <p>
-            Online-Zahlungen werden über den Zahlungsdienstleister Stripe abgewickelt. Die Eingabe der Zahlungsdaten erfolgt auf der Bezahlseite von
-            Stripe. Wir erhalten von Stripe Informationen zum Zahlungsstatus (z. B. bezahlt, erstattet). <P>Anbieterangaben, Rechtsgrundlage und
+            Online-Zahlungen werden über den Zahlungsdienstleister PayPal (Europe) S.à r.l. et Cie, S.C.A. abgewickelt. Die Eingabe der Zahlungsdaten erfolgt auf der Bezahlseite von
+            PayPal. Wir erhalten von PayPal Informationen zum Zahlungsstatus (z. B. bezahlt, erstattet). <P>Anbieterangaben, Rechtsgrundlage und
             ggf. Drittlandübermittlung ergänzen</P>
           </p>
         ),
@@ -155,7 +155,7 @@ const CONTENT: Record<Locale, () => Content> = {
               <li>Beschwerde bei einer Datenschutz-Aufsichtsbehörde (Art. 77 DSGVO)</li>
             </ul>
             <p>
-              Zuständige Aufsichtsbehörde: <P>Name und Anschrift der zuständigen Aufsichtsbehörde</P>
+              Zuständige Aufsichtsbehörde: Berliner Beauftragte für Datenschutz und Informationsfreiheit, Alt-Moabit 59–61, 10555 Berlin
             </p>
           </>
         ),
@@ -183,7 +183,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Controller',
         body: (
           <p>
-            <P>Company name incl. legal form</P>, <P>address</P>, email: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, phone: <P>phone number</P>
+            {COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}, email: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, phone: <a href={CONTACT.phoneHref}>{CONTACT.phoneDisplay}</a>
           </p>
         ),
       },
@@ -231,8 +231,8 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Online payment',
         body: (
           <p>
-            Online payments are processed by the payment service provider Stripe. Payment details are entered on Stripe&apos;s payment page. We
-            receive information on the payment status from Stripe (e.g. paid, refunded). <P>add provider details, legal basis and any transfer to
+            Online payments are processed by the payment service provider PayPal (Europe) S.à r.l. et Cie, S.C.A.. Payment details are entered on PayPal&apos;s payment page. We
+            receive information on the payment status from PayPal (e.g. paid, refunded). <P>add provider details, legal basis and any transfer to
             third countries</P>
           </p>
         ),
@@ -317,7 +317,7 @@ const CONTENT: Record<Locale, () => Content> = {
               <li>lodge a complaint with a data protection supervisory authority (Art. 77 GDPR)</li>
             </ul>
             <p>
-              Competent supervisory authority: <P>name and address of the competent supervisory authority</P>
+              Competent supervisory authority: Berliner Beauftragte für Datenschutz und Informationsfreiheit, Alt-Moabit 59–61, 10555 Berlin
             </p>
           </>
         ),
@@ -345,7 +345,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Administrator danych',
         body: (
           <p>
-            <P>nazwa firmy wraz z formą prawną</P>, <P>adres</P>, e-mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, telefon: <P>numer telefonu</P>
+            {COMPANY.name}, {COMPANY.street}, {COMPANY.postcode} {COMPANY.city}, e-mail: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>, telefon: <a href={CONTACT.phoneHref}>{CONTACT.phoneDisplay}</a>
           </p>
         ),
       },
@@ -392,7 +392,7 @@ const CONTENT: Record<Locale, () => Content> = {
         title: 'Płatność online',
         body: (
           <p>
-            Płatności online obsługuje operator płatności Stripe. Dane płatnicze wprowadza się na stronie płatności Stripe. Od Stripe otrzymujemy
+            Płatności online obsługuje operator płatności PayPal (Europe) S.à r.l. et Cie, S.C.A.. Dane płatnicze wprowadza się na stronie płatności PayPal. Od PayPal otrzymujemy
             informacje o statusie płatności (np. zapłacono, zwrócono). <P>uzupełnić dane operatora, podstawę prawną i ewentualne przekazywanie do
             państw trzecich</P>
           </p>
@@ -478,7 +478,7 @@ const CONTENT: Record<Locale, () => Content> = {
               <li>wniesienia skargi do organu nadzorczego ds. ochrony danych (art. 77 RODO)</li>
             </ul>
             <p>
-              Właściwy organ nadzorczy: <P>nazwa i adres właściwego organu nadzorczego</P>
+              Właściwy organ nadzorczy: Berliner Beauftragte für Datenschutz und Informationsfreiheit, Alt-Moabit 59–61, 10555 Berlin
             </p>
           </>
         ),

@@ -12,7 +12,7 @@ import { commissionCounters, tierForCounters } from "./commission.service.js";
 import { netPayout } from "./cash.service.js";
 import { createAdjustmentCheckout, refundBookingPayment } from "./payment.service.js";
 import { capturePayPalOrder } from "./paypal.service.js";
-import { payoutEligibilityDays } from "./payout.service.js";
+import { payoutDueAt } from "./payout.service.js";
 import { sendAdminNotificationEmail, trySend } from "./email.service.js";
 import { sendCancellationFeeEmail, sendPriceAdjustmentEmail } from "./money-policies-email.service.js";
 
@@ -33,27 +33,23 @@ export const paidOnlineCents = (booking) =>
 const FEE_STATUSES = ["confirmed", "in_progress"];
 
 /**
- * What a cancellation costs right now: fee tier (free / late / very_late),
+ * What a cancellation costs right now: fee tier (free / late),
  * fee, refund of the online payment, outstanding part, cleaner share and the
- * cut-off instants for the UI. `noAccess` = cleaner could not get in (full fee).
+ * cut-off instants for the UI. `noAccess` = cleaner could not get in (late fee).
  */
 export const cancellationPreview = (booking, { now = new Date(), noAccess = false } = {}) => {
   const c = POLICIES.cancellation;
   const priceCents = booking.pricing?.totalCents ?? booking.estimate?.totalCents ?? 0;
   const start = slotStartInstant(booking.preferredDate, booking.slot);
   const freeUntil = new Date(start.getTime() - c.freeHours * HOUR_MS);
-  const veryLateFrom = new Date(start.getTime() - c.veryLateHours * HOUR_MS);
 
+  // One fee tier (owner decision): inside freeHours – or when the cleaner
+  // could not get access – the late fee applies.
   let tier = "free";
   let feePct = 0;
-  if (FEE_STATUSES.includes(booking.status)) {
-    if (noAccess || now.getTime() >= veryLateFrom.getTime()) {
-      tier = "very_late";
-      feePct = c.veryLateFeePct;
-    } else if (now.getTime() > freeUntil.getTime()) {
-      tier = "late";
-      feePct = c.lateFeePct;
-    }
+  if (FEE_STATUSES.includes(booking.status) && (noAccess || now.getTime() > freeUntil.getTime())) {
+    tier = "late";
+    feePct = c.lateFeePct;
   }
   const feeCents = Math.round((priceCents * feePct) / 100);
   const paidCents = paidOnlineCents(booking);
@@ -72,8 +68,8 @@ export const cancellationPreview = (booking, { now = new Date(), noAccess = fals
     refundCents,
     outstandingCents,
     cleanerCents,
-    cutoffs: { start: start.toISOString(), freeUntil: freeUntil.toISOString(), veryLateFrom: veryLateFrom.toISOString() },
-    policy: { freeHours: c.freeHours, lateFeePct: c.lateFeePct, veryLateHours: c.veryLateHours, veryLateFeePct: c.veryLateFeePct, cleanerSharePct: c.cleanerSharePct },
+    cutoffs: { start: start.toISOString(), freeUntil: freeUntil.toISOString() },
+    policy: { freeHours: c.freeHours, lateFeePct: c.lateFeePct, cleanerSharePct: c.cleanerSharePct, refundWorkingDays: c.refundWorkingDays ?? 7 },
   };
 };
 
@@ -121,7 +117,7 @@ export const applyCancellationFee = async (booking, fee, { actorId, reason = "" 
       tierKey: worker?.workerCommission?.tierKey ?? "new",
       cashHeldCents: 0,
       earnedAt: now,
-      dueAt: new Date(now.getTime() + payoutEligibilityDays() * DAY_MS),
+      dueAt: payoutDueAt(now),
       status: "pending",
     };
   }

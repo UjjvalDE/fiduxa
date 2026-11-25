@@ -29,6 +29,7 @@ const de = {
     // [slot-D-nav-msg]
     // [slot-E-nav-msg]
     // [slot-F-nav-msg]
+    complaints: 'Beschwerden',
     promotions: 'Aktionen',
     giftCards: 'Gutscheine',
     analytics: 'Auswertungen',
@@ -93,6 +94,7 @@ const en: AdminMessages = {
     // [slot-D-nav-msg]
     // [slot-E-nav-msg]
     // [slot-F-nav-msg]
+    complaints: 'Complaints',
     promotions: 'Promotions',
     giftCards: 'Gift cards',
     analytics: 'Analytics',
@@ -164,6 +166,7 @@ const pl: AdminMessages = {
     // [slot-D-nav-msg]
     // [slot-E-nav-msg]
     // [slot-F-nav-msg]
+    complaints: 'Reklamacje',
     promotions: 'Promocje',
     giftCards: 'Karty podarunkowe',
     analytics: 'Analizy',

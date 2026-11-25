@@ -67,11 +67,11 @@ function TierLink() {
   );
 }
 
-function Timeline({ days }: { days: number }) {
+function Timeline({ day }: { day: number }) {
   const t = useMessages(portalMessages).earnings.timeline;
   const steps = [
     { icon: Sparkles, label: t.done },
-    { icon: Hourglass, label: t.waiting(days) },
+    { icon: Hourglass, label: t.waiting(day) },
     { icon: Send, label: t.due },
     { icon: CheckCircle2, label: t.paid },
   ];
@@ -174,8 +174,8 @@ function Earnings() {
       )}
 
       <PortalCard title={t.howTitle}>
-        <p className="text-sm text-charcoal">{t.how(summary.payoutDelayDays)}</p>
-        <Timeline days={summary.payoutDelayDays} />
+        <p className="text-sm text-charcoal">{t.how(summary.payoutDayOfMonth)}</p>
+        <Timeline day={summary.payoutDayOfMonth} />
       </PortalCard>
 
       <PortalCard title={t.jobsTitle}>
@@ -300,7 +300,7 @@ function Earnings() {
             method={payoutMethod}
             hasBank={Boolean(bank.iban)}
             editable={editable}
-            payoutDelayDays={summary.payoutDelayDays}
+            payoutDayOfMonth={summary.payoutDayOfMonth}
             onSaved={(saved) => {
               update.payoutMethodSaved(saved);
               setData((prev) => (prev ? { ...prev, payoutMethod: saved } : prev));

@@ -18,7 +18,8 @@ export const activeStrikes = (user, now = Date.now()) => {
   return (user?.reliability?.strikes ?? []).filter((s) => new Date(s.at).getTime() >= since);
 };
 
-export const isPaused = (user) => Boolean(user?.reliability?.pausedAt);
+export const isPaused = (user, now = Date.now()) =>
+  Boolean(user?.reliability?.pausedAt) && (!user.reliability.pausedUntil || new Date(user.reliability.pausedUntil).getTime() > now);
 
 /** Published rules (shown to cleaners and admins) */
 export const reliabilityRules = () => ({
@@ -37,7 +38,8 @@ export const reliabilityView = (user) => {
       .map((s) => ({ id: s._id, at: s.at, kind: s.kind, bookingRef: s.bookingRef ?? "", note: s.note ?? "", active: active.includes(s) }))
       .sort((a, b) => new Date(b.at) - new Date(a.at)),
     activeCount: active.reduce((n) => n + 1, 0),
-    pausedAt: user?.reliability?.pausedAt ?? null,
+    pausedAt: isPaused(user) ? user.reliability.pausedAt : null,
+    pausedUntil: isPaused(user) ? user.reliability.pausedUntil ?? null : null,
     pausedReason: user?.reliability?.pausedReason ?? "",
     rules: reliabilityRules(),
   };
@@ -126,8 +128,9 @@ export const addStrike = async (userOrId, { kind, bookingRef = "", note = "", co
   for (let i = 0; i < n; i++) user.reliability.strikes.push({ at: now, kind, bookingRef, note });
   const active = activeStrikes(user, now.getTime()).length;
   let justPaused = false;
-  if (active >= RELIABILITY.strikeLimit && !user.reliability.pausedAt) {
+  if (active >= RELIABILITY.strikeLimit && !isPaused(user)) {
     user.reliability.pausedAt = now;
+    user.reliability.pausedUntil = null;
     user.reliability.pausedReason = `${active} strikes in ${RELIABILITY.strikeWindowDays} days`;
     justPaused = true;
   }
@@ -137,16 +140,17 @@ export const addStrike = async (userOrId, { kind, bookingRef = "", note = "", co
     action: justPaused ? "worker.paused" : "worker.strike",
     entityType: "User",
     entityId: user._id,
-    after: { kind, count: n, bookingRef, note, activeStrikes: active, paused: Boolean(user.reliability.pausedAt) },
+    after: { kind, count: n, bookingRef, note, activeStrikes: active, paused: isPaused(user) },
   });
-  await trySend("Reliability strike", () => sendStrikeEmail({ worker: user, kind, count: n, active, paused: Boolean(user.reliability.pausedAt) }));
-  return { strikes: n, activeCount: active, paused: Boolean(user.reliability.pausedAt), justPaused };
+  await trySend("Reliability strike", () => sendStrikeEmail({ worker: user, kind, count: n, active, paused: isPaused(user) }));
+  return { strikes: n, activeCount: active, paused: isPaused(user), justPaused };
 };
 
 /** Admin lifts the pause (strikes stay in the history) */
 export const unpauseWorker = async (user, { actor, note = "" } = {}) => {
   const before = { pausedAt: user.reliability?.pausedAt ?? null };
   user.set("reliability.pausedAt", null);
+  user.set("reliability.pausedUntil", null);
   user.set("reliability.pausedReason", "");
   await user.save();
   await recordAudit({ actor, action: "worker.unpaused", entityType: "User", entityId: user._id, before, after: { note } });

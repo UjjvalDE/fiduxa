@@ -34,3 +34,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Hetzner test server (secrets + local backups)
+deploy/hetzner/.env
+deploy/hetzner/backups/

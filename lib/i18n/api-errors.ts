@@ -11,6 +11,11 @@ import type { Locale } from './config';
 type Dict = Record<string, string>;
 
 const DE: Dict = {
+  // profile completion (social sign-up)
+  'Please complete your profile first (phone, address and consent to the terms).': 'Bitte vervollständige zuerst dein Profil (Telefon, Adresse und Zustimmung zu den AGB).',
+  'Please enter a valid phone number.': 'Bitte gib eine gültige Telefonnummer ein.',
+  'Please accept the terms and conditions.': 'Bitte akzeptiere die AGB.',
+  'Please accept the privacy policy.': 'Bitte bestätige die Datenschutzerklärung.',
   // job confirmation (cleaner / admin correction)
   'Please enter times as HH:MM.': 'Bitte Zeiten als HH:MM eingeben.',
   'The end time must be after the start time (same day).': 'Das Ende muss nach dem Beginn liegen (gleicher Tag).',
@@ -269,10 +274,30 @@ const DE: Dict = {
   'Partial refund issued.': 'Teilerstattung ausgelöst.',
   // [slot-D-de]
   // [slot-E-de]
+  // complaints
+  'A complaint can only be filed for a completed or past booking.': 'Eine Beschwerde ist nur für abgeschlossene oder vergangene Buchungen möglich.',
+  'There is already an open complaint for this booking.': 'Zu dieser Buchung gibt es bereits eine offene Beschwerde.',
+  'Please upload photos as JPG or PNG.': 'Bitte lade Fotos als JPG oder PNG hoch.',
+  'A photo may be at most 3 MB.': 'Ein Foto darf höchstens 3 MB groß sein.',
+  'Complaint received.': 'Beschwerde eingegangen.',
+  'Complaint not found.': 'Beschwerde nicht gefunden.',
+  'This complaint is already closed.': 'Diese Beschwerde ist bereits abgeschlossen.',
+  'This booking has no online payment that can be refunded.': 'Für diese Buchung gibt es keine Online-Zahlung, die erstattet werden kann.',
+  'The voucher must be between 5 € and 2,000 €.': 'Der Gutschein muss zwischen 5 € und 2.000 € liegen.',
+  'The customer account no longer exists.': 'Das Kundenkonto existiert nicht mehr.',
+  'No cleaner is assigned to this booking.': 'Dieser Buchung ist keine Reinigungskraft zugeordnet.',
+  'Please give the number of days (1–365).': 'Bitte die Anzahl der Tage angeben (1–365).',
+  'Please add a note.': 'Bitte eine Notiz angeben.',
+  'Please give a reason for the rejection.': 'Bitte einen Grund für die Ablehnung angeben.',
   // [slot-F-de]
 };
 
 const PL: Dict = {
+  // profile completion (social sign-up)
+  'Please complete your profile first (phone, address and consent to the terms).': 'Najpierw uzupełnij profil (telefon, adres i akceptacja regulaminu).',
+  'Please enter a valid phone number.': 'Podaj prawidłowy numer telefonu.',
+  'Please accept the terms and conditions.': 'Zaakceptuj regulamin.',
+  'Please accept the privacy policy.': 'Potwierdź politykę prywatności.',
   // job confirmation (cleaner / admin correction)
   'Please enter times as HH:MM.': 'Wpisz godziny w formacie GG:MM.',
   'The end time must be after the start time (same day).': 'Koniec musi być po początku (ten sam dzień).',
@@ -523,6 +548,21 @@ const PL: Dict = {
   'Partial refund issued.': 'Częściowy zwrot zlecony.',
   // [slot-D-pl]
   // [slot-E-pl]
+  // complaints
+  'A complaint can only be filed for a completed or past booking.': 'Reklamację można złożyć tylko dla zakończonej lub minionej rezerwacji.',
+  'There is already an open complaint for this booking.': 'Dla tej rezerwacji istnieje już otwarta reklamacja.',
+  'Please upload photos as JPG or PNG.': 'Prześlij zdjęcia w formacie JPG lub PNG.',
+  'A photo may be at most 3 MB.': 'Zdjęcie może mieć maksymalnie 3 MB.',
+  'Complaint received.': 'Reklamacja przyjęta.',
+  'Complaint not found.': 'Nie znaleziono reklamacji.',
+  'This complaint is already closed.': 'Ta reklamacja jest już zamknięta.',
+  'This booking has no online payment that can be refunded.': 'Ta rezerwacja nie ma płatności online, którą można zwrócić.',
+  'The voucher must be between 5 € and 2,000 €.': 'Bon musi wynosić od 5 € do 2000 €.',
+  'The customer account no longer exists.': 'Konto klienta już nie istnieje.',
+  'No cleaner is assigned to this booking.': 'Do tej rezerwacji nie przypisano osoby sprzątającej.',
+  'Please give the number of days (1–365).': 'Podaj liczbę dni (1–365).',
+  'Please add a note.': 'Dodaj notatkę.',
+  'Please give a reason for the rejection.': 'Podaj powód odrzucenia.',
   // [slot-F-pl]
 };
 

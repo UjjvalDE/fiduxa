@@ -9,7 +9,7 @@ import {
   getMyBookings,
 } from "../controllers/booking-flow.controller.js";
 
-import { optionalAuth, protect } from "../middleware/auth.middleware.js";
+import { optionalAuth, protect, requireCompleteProfile } from "../middleware/auth.middleware.js";
 
 export const bookingFlowRouter = Router();
 
@@ -23,5 +23,5 @@ bookingFlowRouter.get("/availability", getAvailableSlots);
 bookingFlowRouter.get("/availability/days", getAvailableDaysHandler);
 
 // Customer-only booking endpoints
-bookingFlowRouter.post("/", protect, createBookingRequest);
+bookingFlowRouter.post("/", protect, requireCompleteProfile, createBookingRequest);
 bookingFlowRouter.get("/my-bookings", protect, getMyBookings);

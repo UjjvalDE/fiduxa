@@ -11,6 +11,7 @@ import { DAY_MS, parseCalendarDate, todayInBerlin } from "../utils/helpers.js";
 import { avatarUrl, getWorkerStats } from "../services/worker-profile.service.js";
 import { displayPayoutStatus, earningsSummary, workerRateCents } from "../services/payout.service.js";
 import { requiredDocumentsVerified } from "./worker-document.controller.js"; // [E]
+import { isPaused } from "../services/reliability.service.js";
 
 const LOCKED_STATUSES = ["invited", "rejected", "suspended"];
 
@@ -88,7 +89,7 @@ export const getWorkerOverview = async (req, res, next) => {
       },
       checklist,
       canAccessJobs: approved,
-      paused: Boolean(worker.reliability?.pausedAt), // reliability pause (package E)
+      paused: isPaused(worker), // reliability pause (package E)
       stats,
       earnings,
       upcomingCount,

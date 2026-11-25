@@ -47,6 +47,24 @@ const userSchema = new mongoose.Schema(
       appleLinkedAt: { type: Date, default: undefined },
     },
 
+    // Customers created via Google/Apple have not given phone/address or
+    // accepted AGB + Datenschutz yet. While true, booking, gift card purchase
+    // and payments answer 409 PROFILE_INCOMPLETE (/konto/profil-vervollstaendigen).
+    profileCompletionRequired: { type: Boolean, default: undefined },
+    profileCompletedAt: { type: Date, default: undefined },
+
+    // Accepted legal texts (version + timestamp) and marketing opt-in
+    legalConsent: {
+      termsVersion: { type: String, default: undefined },
+      termsAcceptedAt: { type: Date, default: undefined },
+      privacyVersion: { type: String, default: undefined },
+      privacyAcceptedAt: { type: Date, default: undefined },
+      // "register" (password form) | "complete_profile" (after social sign-up)
+      source: { type: String, default: undefined },
+      marketingOptIn: { type: Boolean, default: undefined },
+      marketingOptInAt: { type: Date, default: undefined },
+    },
+
     role: {
       type: String,
       enum: ["consumer", "worker", "admin"],
@@ -322,6 +340,8 @@ const userSchema = new mongoose.Schema(
         default: [],
       },
       pausedAt: { type: Date, default: null },
+      // Time-limited pause (e.g. suspension after a complaint); null = until an admin lifts it
+      pausedUntil: { type: Date, default: null },
       pausedReason: { type: String, trim: true, maxlength: 300, default: "" },
     },
 

@@ -30,6 +30,7 @@ const FLOW_PATH = "/api/v1/auth/oauth";
 const FLOW_SECONDS = 10 * 60;
 const DEFAULT_NEXT = "/konto";
 const ORIGINS = { login: "/login", register: "/registrieren" };
+export const COMPLETE_PROFILE_PATH = "/konto/profil-vervollstaendigen";
 
 /** Same-origin relative paths only ("/konto?x=1"); everything else → null */
 export const safeReturnTo = (value) => {
@@ -178,6 +179,8 @@ const resolveCustomer = async (provider, identity, { appleUser, lang }) => {
       preferredLanguage: lang,
       emailVerified: true,
       emailVerifiedAt: new Date(),
+      // Phone, address and AGB/Datenschutz consent still missing
+      profileCompletionRequired: true,
       oauth: {
         [field]: identity.sub,
         [linkedAtField]: new Date(),
@@ -228,7 +231,9 @@ export const oauthCallback = async (req, res) => {
       entityId: user._id,
       after: { provider, ...(identity.privateEmail && { privateRelayEmail: true }) },
     });
-    return res.redirect(302, `${site()}${flow.next}`);
+    // New social accounts first complete phone/address/consents, then continue
+    const target = user.profileCompletionRequired ? `${COMPLETE_PROFILE_PATH}?${new URLSearchParams({ next: flow.next })}` : flow.next;
+    return res.redirect(302, `${site()}${target}`);
   } catch (error) {
     if (error instanceof OAuthError) {
       if (error.code === "role_not_allowed" && error.userId) {

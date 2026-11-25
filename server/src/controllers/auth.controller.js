@@ -18,6 +18,7 @@ import Promotion from "../models/promotion.model.js";
 import { isLive } from "../services/promotion.service.js";
 import PersonalCode from "../models/personal-code.model.js";
 import { issuePersonalCode, liveWelcomePromotion } from "../services/personal-code.service.js";
+import { LEGAL_VERSIONS } from "../config/legal.js";
 
 const VERIFY_HOURS = 24;
 
@@ -72,6 +73,7 @@ export const toPublicUser = (user) => ({
   emailVerified: Boolean(user.emailVerified),
   preferredLanguage: user.preferredLanguage ?? "de",
   ...(user.role === "worker" && { workerStatus: user.workerStatus }),
+  ...(user.profileCompletionRequired && { profileIncomplete: true }),
 });
 
 // REGISTER CUSTOMER
@@ -111,6 +113,14 @@ export const register = async (req, res) => {
       password: hashedPassword,
       role: "consumer",
       preferredLanguage: locale,
+      // The form states that registering accepts the AGB + Datenschutz
+      legalConsent: {
+        termsVersion: LEGAL_VERSIONS.terms,
+        termsAcceptedAt: new Date(),
+        privacyVersion: LEGAL_VERSIONS.privacy,
+        privacyAcceptedAt: new Date(),
+        source: "register",
+      },
     });
 
     const token = issueSession(res, user);

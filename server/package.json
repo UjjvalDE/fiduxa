@@ -15,6 +15,7 @@
     "seed:dummy": "node src/scripts/seed-dummy.js generate",
     "seed:dummy:verify": "node src/scripts/seed-dummy.js verify",
     "seed:dummy:clean": "node src/scripts/seed-dummy.js clean",
+    "seed:dummy:documents": "node src/scripts/seed-dummy-documents.js",
     "seed:cleaners": "node src/scripts/seed-dummy.js generate",
     "seed:cleaners:verify": "node src/scripts/seed-dummy.js verify --cleaners"
   },

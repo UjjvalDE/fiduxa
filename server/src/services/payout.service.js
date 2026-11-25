@@ -1,11 +1,12 @@
 // Cleaner earnings: one workerPayout entry per completed job (or per late
-// cancellation with a fee), settled weekly by the office once the earning is
-// older than POLICIES.payouts.eligibilityDays.
+// cancellation with a fee), settled monthly: everything earned in a calendar
+// month (Berlin time) becomes due on POLICIES.payouts.payoutDayOfMonth (5th)
+// of the following month.
 import Booking from "../models/booking.model.js";
 import Payout from "../models/payout.model.js";
 import User from "../models/user.model.js";
-import { DAY_MS, httpError } from "../utils/helpers.js";
-import { POLICIES, WORKER_PAY } from "../config/pricing.js";
+import { httpError, slotStartInstant } from "../utils/helpers.js";
+import { OPERATIONS, POLICIES, WORKER_PAY } from "../config/pricing.js";
 import { netPayout } from "./cash.service.js";
 import { withLock } from "../utils/lock.js";
 import { createPayPalPayout, getPayPalPayoutStatus, isPayPalConfigured } from "./paypal.service.js";
@@ -14,8 +15,28 @@ import { commissionCounters, effectiveCommissionPct, tierForCounters } from "./c
 
 export const workerRateCents = (worker) => worker?.workerPayRateCents ?? WORKER_PAY.hourlyRateCents;
 
-/** Days until an earning becomes payable (weekly settlement; legacy key as fallback) */
-export const payoutEligibilityDays = () => POLICIES.payouts?.eligibilityDays ?? WORKER_PAY.payoutDelayDays;
+/** Day of the month on which the previous month's earnings are paid out */
+export const payoutDayOfMonth = () => {
+  const d = Number(POLICIES.payouts?.payoutDayOfMonth);
+  return Number.isInteger(d) && d >= 1 && d <= 28 ? d : 5;
+};
+
+const berlinYearMonth = (date) => {
+  const [y, m] = new Intl.DateTimeFormat("en-CA", { timeZone: OPERATIONS.timezone || "Europe/Berlin", year: "numeric", month: "2-digit" })
+    .format(date)
+    .split("-")
+    .map(Number);
+  return { y, m }; // m = 1..12
+};
+
+/** Payout date (00:00 Berlin on the payout day of the month after `earnedAt`) */
+export const payoutDueAt = (earnedAt = new Date()) => {
+  const { y, m } = berlinYearMonth(new Date(earnedAt));
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  const iso = `${ny}-${String(nm).padStart(2, "0")}-${String(payoutDayOfMonth()).padStart(2, "0")}`;
+  return slotStartInstant(iso, "00:00");
+};
 
 /** Record the cleaner's pay when a job is completed. Does NOT save. */
 /**
@@ -70,7 +91,7 @@ export const recordWorkerEarning = async (booking) => {
     commissionCents: grossCents - amountCents,
     ...commissionFields,
     earnedAt,
-    dueAt: new Date(earnedAt.getTime() + payoutEligibilityDays() * DAY_MS),
+    dueAt: payoutDueAt(earnedAt),
     status: "pending",
   };
 };
@@ -283,12 +304,6 @@ export const earningsSummary = async (workerId) => {
     paidCents: sum((p) => p.status === "paid"),
     totalCents: sum(() => true),
     nextDueAt: waiting.length ? new Date(Math.min(...waiting.map((d) => d.getTime()))) : null,
-    payoutDelayDays: payoutEligibilityDays(),
-    // Fast partial payout (settings + eligibility only, no automatic transfer)
-    fastPayout: {
-      days: POLICIES.payouts?.fastPayoutDays ?? 3,
-      pct: POLICIES.payouts?.fastPayoutPct ?? 50,
-      minTier: POLICIES.payouts?.fastPayoutMinTier ?? "silver",
-    },
+    payoutDayOfMonth: payoutDayOfMonth(),
   };
 };

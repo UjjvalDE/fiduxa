@@ -54,6 +54,7 @@ import putzplanMessages from '../_putzplan-messages';
 import feedbackMessages from './feedback-messages';
 import { slotRange } from '../../_shared/slot-range';
 import { ReviewSection } from './review-section';
+import { ComplaintSection } from './complaint-section';
 import { CustomerAdjustments } from './price-adjustments';
 import { EditBooking } from './booking-edit';
 import {
@@ -280,6 +281,7 @@ export function BookingDetail({ id }: { id: string }) {
             cash={booking.payment?.method === 'cash' ? { reportedCents: booking.payment.cashCollectedCents ?? null } : null}
             onSaved={(review) => setDetail((d) => ({ ...d, review, canReview: false }))}
           />
+          {booking.status !== 'cancelled' && booking.status !== 'expired' && booking.status !== 'payment_pending' && <ComplaintSection bookingId={booking._id} />}
           <CustomerAdjustments booking={booking} onChanged={load} />
           <Card title={t.detail.appointmentTitle}>
             <dl className="m-0 grid gap-4 sm:grid-cols-2">
